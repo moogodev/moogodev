@@ -1,0 +1,217 @@
+@import "tailwindcss";
+
+/* Design tokens exposed as Tailwind utilities (bg-background, text-muted, …).
+   Defined once here so every route shares the same palette. */
+@theme {
+  /* Light is the default palette, so these are the values a page gets before any
+     JavaScript runs. A visitor who has never chosen a theme sees a light page on
+     the very first paint rather than a dark one that flips a moment later. */
+  --color-background: #ffffff;
+  --color-background-alt: #f8f9fa;
+  --color-panel: #ffffff;
+  --color-panel-raised: #f1f3f5;
+  --color-edge: #e5e7eb;
+  --color-edge-strong: #d2d6dc;
+  /* Hover pair: a step past edge-strong, used by every button on hover so the
+     reaction is a visible lift rather than a barely-there tone shift. */
+  --color-hover-edge: #9aa1ad;
+  --color-hover-bg: #eef0f3;
+
+  --color-foreground: #111827;
+  --color-muted: #6b7280;
+  /* One step darker than the dark theme's faint. On a white background the
+     labels that use it are the smallest text on the page, so they need more
+     contrast than the same grey gets against near-black. */
+  --color-faint: #8b929e;
+
+  --color-accent: #16a34a;
+  --color-accent-strong: #15803d;
+  --color-accent-ink: #ffffff;
+  --color-violet: #7c3aed;
+  --color-blue: #0369a1;
+  --color-amber: #b45309;
+  /* Paused reads as a stop, not a warning, so it gets its own red rather than
+     borrowing the amber that marks a failed project. */
+  --color-red: #dc2626;
+
+  /* Decorations only. A grid line or a glow drawn in a fixed rgba looks correct
+     in exactly one theme and invisible in the other, so both live here. */
+  --grid-line: rgba(15, 23, 42, 0.055);
+  /* The dot pattern behind landing sections needs a touch more presence than the
+     hero's line grid, or it disappears entirely on a white background. */
+  --grid-dot: rgba(15, 23, 42, 0.09);
+  /* Section washes. Kept separate from --grid-line because these are coloured,
+     not neutral, and they need to read as light rather than as texture. */
+  --wash-accent: rgba(21, 128, 61, 0.07);
+  --wash-violet: rgba(124, 58, 237, 0.05);
+  --closing-glow: rgba(21, 128, 61, 0.13);
+
+  /* No shadow tokens exist. The UI is flat: depth comes from borders and
+     background tints, and the --shadow-* pair that used to live here was
+     fighting the borders rather than supporting them. */
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* One content width for every signed-in page. It lives here rather than as a
+     max-w-[…] utility on each route because the dashboard, the project list,
+     the project page and settings had each grown their own value, and a page
+     that quietly runs wider than its neighbours is what makes a console feel
+     assembled rather than designed. */
+  --page-width: 1180px;
+}
+
+/* Dark is the opt-in palette. It lives on <html class="theme-dark"> rather than
+   on a wrapper inside the app, because the theme is a property of the whole
+   document: the marketing pages, the auth pages and the console are all reached
+   by full page loads, and a wrapper would have to be re-applied on every one.
+
+   This block is unlayered, and Tailwind emits its theme variables inside
+   @layer theme. Unlayered declarations win over layered ones at equal
+   specificity, which is what lets these override the :root defaults above. */
+.theme-dark {
+  color-scheme: dark;
+
+  --color-background: #0b0d10;
+  --color-background-alt: #101318;
+  --color-panel: #151920;
+  --color-panel-raised: #1b2029;
+  --color-edge: #262c37;
+  --color-edge-strong: #333b49;
+  --color-hover-edge: #4b5567;
+  --color-hover-bg: #1e2531;
+
+  --color-foreground: #e8ebf0;
+  --color-muted: #9aa4b2;
+  --color-faint: #6b7684;
+
+  --color-accent: #2dd4bf;
+  --color-accent-strong: #14b8a6;
+  --color-accent-ink: #042f2e;
+  --color-violet: #a78bfa;
+  --color-blue: #7dd3fc;
+  --color-amber: #fbbf24;
+  --color-red: #f87171;
+
+  --grid-line: rgba(255, 255, 255, 0.028);
+  --grid-dot: rgba(255, 255, 255, 0.075);
+  --wash-accent: rgba(20, 184, 166, 0.1);
+  --wash-violet: rgba(167, 139, 250, 0.08);
+  --closing-glow: rgba(20, 184, 166, 0.1);
+}
+
+@layer components {
+  /* page-shell is the standard frame for a routed page inside the console. */
+  .page-shell {
+    margin-inline: auto;
+    width: 100%;
+    max-width: var(--page-width);
+    padding-inline: 2rem;
+    padding-block: 2rem;
+  }
+
+  /* surface is a card sitting on the page background.
+
+     Flat by design: no fill and no shadow, so a card is defined entirely by its
+     border. The border is a tint of the theme accent rather than the neutral
+     edge colour, which is what makes the cards on the landing page, the auth
+     pages and the dashboard read as one system instead of as separate products
+     that happen to share a border radius.
+
+     The fill was the other half of the old treatment and it was fighting the
+     border: a grey panel inside a grey section made a card nearly invisible, so
+     the shadow had been doing most of the work of showing where the card
+     ended. Removing both and leaning on the border leaves one thing doing that
+     job instead of three. */
+  .surface {
+    border: 1px solid color-mix(in srgb, var(--color-accent) 38%, transparent);
+    border-radius: 0.75rem;
+    background-color: transparent;
+  }
+
+  /* Modals and menus float above a backdrop, where a border alone is easy to
+     lose against whatever is behind it. They get the neutral edge colour at
+     full strength instead of the accent tint, which separates them from the
+     page without reintroducing a shadow. */
+  .surface-raised {
+    border: 1px solid var(--color-edge-strong);
+    border-radius: 0.75rem;
+    background-color: var(--color-background);
+  }
+}
+
+@layer base {
+  /* Every /app page renders inside .console, so setting the weight once here
+     gives the whole console a single text weight instead of relying on each page
+     to remember it. The marketing pages sit outside it and keep the browser
+     default, because body copy set at 500 reads heavier than it is written.
+
+     Inheritance is the weakest declaration, so any element that sets its own
+     font-* utility still wins over this. */
+  .console {
+    font-weight: 500;
+  }
+
+  /* Form controls ship a UA font-weight, which would ignore the value they
+     inherit. :where() contributes no specificity, so this rule stays in the
+     base layer where Tailwind's own font-* utilities override it normally. */
+  .console :where(button, input, select, textarea) {
+    font-weight: inherit;
+  }
+
+  html {
+    color-scheme: light;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Brand logo light/dark switching with .theme-dark class */
+  .brand-logo-light {
+    display: block;
+  }
+  .brand-logo-dark {
+    display: none;
+  }
+  .theme-dark .brand-logo-light {
+    display: none;
+  }
+  .theme-dark .brand-logo-dark {
+    display: block;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+
+  /* A visible focus ring is a keyboard requirement, not a decoration. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent-strong);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+
+/* Landing-specific styles (hero backdrop, section dividers, card accents) live
+   in landing.css rather than here, for the same reason the docs have their own
+   file: both pages carry patterns that Tailwind utilities in JSX cannot reach. */
+
+/* Respect the system preference instead of assuming motion is welcome. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

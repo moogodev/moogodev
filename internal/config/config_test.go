@@ -1,0 +1,132 @@
+package config
+
+import (
+	"strings"
+	"testing"
+)
+
+// loadWith builds a configuration from environment overrides, on top of the
+// values every deployment needs to get past validation.
+func loadWith(t *testing.T, overrides map[string]string) (Config, error) {
+	t.Helper()
+
+	base := map[string]string{
+		"MOOGO_DATABASE_URL":   "postgres://localhost/moogo",
+		"MOOGO_SESSION_SECRET": strings.Repeat("k", 40),
+	}
+	for key, value := range overrides {
+		base[key] = value
+	}
+	for key, value := range base {
+		t.Setenv(key, value)
+	}
+
+	return Load()
+}
+
+func TestDefaultsPutAProjectAt256MB(t *testing.T) {
+	cfg, err := loadWith(t, nil)
+	if err != nil {
+		t.Fatalf("defaults should be valid: %v", err)
+	}
+
+	if cfg.MaxStorageBytes != 256*1024*1024 {
+		t.Errorf("MaxStorageBytes = %d, want 256 MiB", cfg.MaxStorageBytes)
+	}
+	if cfg.MaxObjectBytes != 256*1024*1024 {
+		t.Errorf("MaxObjectBytes = %d, want 256 MiB", cfg.MaxObjectBytes)
+	}
+}
+
+func TestObjectCapIsSeparateFromTheJSONBodyCap(t *testing.T) {
+	cfg, err := loadWith(t, nil)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	// The JSON cap stays small: a statement or a settings body past a megabyte
+	// is a mistake. The object cap has to be the whole quota, or the largest
+	// file a project can hold is a fraction of what it is promised.
+	if cfg.MaxBodyBytes >= cfg.MaxObjectBytes {
+		t.Errorf("MaxBodyBytes = %d and MaxObjectBytes = %d; a JSON cap at or above "+
+			"the object cap means the object cap is never the binding one",
+			cfg.MaxBodyBytes, cfg.MaxObjectBytes)
+	}
+}
+
+func TestAQuotaAboveTheCeilingIsRejected(t *testing.T) {
+	// Silently clamping would leave an operator believing they provisioned 1 GB
+	// per project while uploads fail at 256 MB for reasons the config does not
+	// mention. Failing to start says what is wrong.
+	_, err := loadWith(t, map[string]string{
+		"MOOGO_MAX_STORAGE_BYTES":         "1073741824",
+		"MOOGO_DEFAULT_MAX_STORAGE_BYTES": "1073741824",
+		"MOOGO_MAX_OBJECT_BYTES":          "1073741824",
+	})
+	if err == nil {
+		t.Fatal("a 1 GB quota should be rejected, the ceiling is 256 MB")
+	}
+	for _, want := range []string{
+		"MOOGO_MAX_STORAGE_BYTES",
+		"MOOGO_DEFAULT_MAX_STORAGE_BYTES",
+		"MOOGO_MAX_OBJECT_BYTES",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should name %s, got %v", want, err)
+		}
+	}
+}
+
+func TestAQuotaBelowTheCeilingIsAccepted(t *testing.T) {
+	if _, err := loadWith(t, map[string]string{
+		"MOOGO_MAX_STORAGE_BYTES":         "52428800",
+		"MOOGO_DEFAULT_MAX_STORAGE_BYTES": "52428800",
+		"MOOGO_MAX_OBJECT_BYTES":          "52428800",
+	}); err != nil {
+		t.Fatalf("a smaller quota is a supported setting: %v", err)
+	}
+}
+
+func TestAQuotaBelowOneMegabyteIsRejected(t *testing.T) {
+	// The floor exists because the accounting is per byte; a quota of 512 would
+	// mean no file can ever be stored, which is a misconfiguration rather than a
+	// working zero.
+	_, err := loadWith(t, map[string]string{"MOOGO_MAX_STORAGE_BYTES": "512"})
+	if err == nil {
+		t.Fatal("a sub-megabyte quota should be rejected")
+	}
+}
+
+func TestDefaultProjectLimitIsTwo(t *testing.T) {
+	// The number appears on the landing page and inside the dashboard, both read
+	// from here or from the user row seeded by it. A default that drifts from
+	// those is a create button that stops working with no explanation.
+	cfg, err := loadWith(t, nil)
+	if err != nil {
+		t.Fatalf("defaults should be valid: %v", err)
+	}
+
+	if cfg.DefaultMaxProjects != 2 {
+		t.Errorf("DefaultMaxProjects = %d, want 2", cfg.DefaultMaxProjects)
+	}
+}
+
+func TestProjectLimitStaysOverridable(t *testing.T) {
+	// Lowering the free tier is a product decision made in config, not a constant
+	// baked into the binary, so a deployment can move it without a rebuild.
+	cfg, err := loadWith(t, map[string]string{"MOOGO_DEFAULT_MAX_PROJECTS": "1"})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if cfg.DefaultMaxProjects != 1 {
+		t.Errorf("DefaultMaxProjects = %d, want 1", cfg.DefaultMaxProjects)
+	}
+}
+
+func TestAProjectLimitBelowOneIsRejected(t *testing.T) {
+	_, err := loadWith(t, map[string]string{"MOOGO_DEFAULT_MAX_PROJECTS": "0"})
+	if err == nil {
+		t.Fatal("a zero project limit should be rejected: signup would create an account that cannot use the product")
+	}
+}

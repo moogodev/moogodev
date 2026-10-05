@@ -1,0 +1,25 @@
+# Secrets and local configuration — never commit these.
+.env
+.env.*
+!.env.example
+
+# Frontend dependencies. Installed by `npm install` in web/ui, and far too
+# large to keep in history.
+node_modules/
+
+# web/dist/ is deliberately NOT ignored. web/web.go embeds it with
+# `//go:embed all:dist`, and an embed directive with no matching files is a
+# compile error, so a clone without it cannot build the binary at all. Rebuild
+# it with `npm run build` in web/ui and commit the result alongside the source.
+
+# Go build artifacts.
+/bin/
+*.exe
+
+# Local development services and data (Postgres cluster, SQLite files).
+.local/
+
+# Editor and OS noise.
+.DS_Store
+.idea/
+.vscode/

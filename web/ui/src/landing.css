@@ -1,0 +1,401 @@
+/* Landing page chrome.
+ *
+ * The docs body has its own stylesheet for the same reason this exists: both
+ * pages inject content that Tailwind utilities in JSX cannot reach, and neither
+ * should be reaching into the other's selectors.
+ *
+ * Everything here is driven by the theme tokens in index.css, so light and dark
+ * come free with no dark-mode overrides and no duplicated palette.
+ *
+ * None of it uses inline styles: the server sends a strict CSP without
+ * 'unsafe-inline', so a style prop would be blocked in the browser. */
+
+/* --- Hero backdrop ---------------------------------------------------- */
+
+/* A faint grid behind the hero. It lives in the stylesheet rather than a React
+   style prop because of the CSP. */
+.hero-grid {
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
+  pointer-events: none;
+}
+
+/* --- Section separators ---------------------------------------------- */
+
+/*
+ * A hairline that fades out at both ends.
+ *
+ * A plain border-t spans the full viewport width and reads as a hard edge; the
+ * gradient gives the same separation while letting the page feel continuous.
+ * Sections that alternate backgrounds already have a border, so this is for the
+ * ones that do not.
+ */
+.divider {
+  height: 1px;
+  border: 0;
+  margin: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-edge) 18%,
+    var(--color-edge) 82%,
+    transparent
+  );
+}
+
+/*
+ * A dotted grid, used behind a few sections instead of the hero's line grid.
+ *
+ * A dot pattern reads as texture rather than structure, so it works as a
+ * background for content-heavy sections where the hero's lines would compete
+ * with the cards. The mask keeps it from reaching the section edges, so the
+ * pattern fades out rather than stopping at a visible line.
+ */
+.dot-grid {
+  position: relative;
+  isolation: isolate;
+}
+
+.dot-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(
+    circle,
+    var(--grid-dot) 1px,
+    transparent 1px
+  );
+  background-size: 26px 26px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, #000 30%, transparent 100%);
+  pointer-events: none;
+}
+
+/*
+ * A soft accent wash behind a section.
+ *
+ * Two offset radial gradients rather than one centred one: a single symmetric
+ * glow reads as a spotlight on the copy, while asymmetric ones read as ambient
+ * background lighting.
+ */
+.section-glow {
+  position: relative;
+  isolation: isolate;
+}
+
+.section-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(
+      ellipse 55% 45% at 18% 12%,
+      var(--wash-accent),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 45% 40% at 82% 88%,
+      var(--wash-violet),
+      transparent 70%
+    );
+  pointer-events: none;
+}
+
+/* --- Cards ------------------------------------------------------------ */
+
+/*
+ * Card hover.
+ *
+ * One affordance for every card on the page: the border takes the theme green.
+ *
+ * There is no fill tint, no translate, and no accent rule down the leading
+ * edge. Those earlier treatments each applied to some cards and not others,
+ * which made the same card behave differently depending on which section it sat
+ * in, and a card that thickens on one side reads as a different object rather
+ * than as a highlighted one. A uniform border is enough to say "this responds
+ * to the pointer", and it keeps the page flat.
+ *
+ * The strength difference from the resting border is small on purpose: 38% to
+ * 70% is legible without the border becoming a coloured block.
+ */
+.card-hover {
+  transition: border-color 160ms ease;
+}
+
+.card-hover:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
+}
+
+/* Cards that contain a focusable child need the same highlight when focus is
+   inside them, otherwise keyboard users get no indication of where they are. */
+.card-hover:focus-within {
+  border-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
+}
+
+/* --- Small parts ------------------------------------------------------ */
+
+/*
+ * The rounded square an icon or number sits in.
+ *
+ * The accent tint is applied with color-mix rather than a flat background so it
+ * follows the accent token in both themes instead of needing an override.
+ */
+.icon-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  border: 1px solid var(--color-edge);
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--color-accent-strong) 10%, transparent);
+  color: var(--color-accent-strong);
+}
+
+.icon-tile svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+/* A numbered step marker, ringed rather than filled so it stays quiet. */
+.step-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--color-edge-strong);
+  border-radius: 9999px;
+  background: var(--color-background);
+  color: var(--color-accent-strong);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+/*
+ * The dotted connector drawn between the numbered steps.
+ *
+ * It is a background on the ol rather than a separate element between cards, so
+ * it cannot break the grid at a narrow width -- the steps simply stack and the
+ * line is hidden with it.
+ */
+.steps-rail {
+  position: relative;
+}
+
+.steps-rail::before {
+  content: "";
+  position: absolute;
+  top: 1rem;
+  left: 12.5%;
+  right: 12.5%;
+  height: 1px;
+  background-image: linear-gradient(
+    90deg,
+    var(--color-edge-strong) 50%,
+    transparent 50%
+  );
+  background-size: 7px 1px;
+  pointer-events: none;
+}
+
+@media (max-width: 767px) {
+  .steps-rail::before {
+    display: none;
+  }
+}
+
+/* --- Tables ----------------------------------------------------------- */
+
+/*
+ * Row striping.
+ *
+ * The stripe is a barely-there tint rather than an alternating background
+ * colour, so a table with eight rows reads as one object instead of a zebra.
+ * The first column is tinted a step further because it is the label, and the
+ * Moogo column gets the accent so the comparison has a visible "us" column.
+ */
+.data-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--color-panel-raised) 55%, transparent);
+}
+
+.data-table tbody tr:hover {
+  background: color-mix(in srgb, var(--color-accent-strong) 6%, transparent);
+}
+
+/* --- FAQ accordion ---------------------------------------------------- */
+
+/*
+ * Built on <details>/<summary> rather than a React state pair.
+ *
+ * The native element already brings keyboard operation, focus handling, and the
+ * aria-expanded wiring, all of which would otherwise be hand-written here. The
+ * only thing it does not give is the disclosure triangle, which is suppressed
+ * and replaced with the chevron below.
+ */
+.faq-item > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.faq-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq-item > summary:focus-visible {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: 3px;
+  border-radius: 0.4rem;
+}
+
+/*
+ * The chevron rotates on open.
+ *
+ * It is a rotated square rather than a drawn arrow so it inherits the current
+ * colour and needs no extra markup beyond an empty span.
+ */
+.faq-chevron {
+  display: inline-block;
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.6rem;
+  margin-top: 0.42rem;
+  border-right: 1.5px solid var(--color-accent-strong);
+  border-bottom: 1.5px solid var(--color-accent-strong);
+  transform: rotate(45deg);
+  transform-origin: center;
+  transition: transform 180ms ease;
+}
+
+.faq-item[open] .faq-chevron {
+  transform: rotate(-135deg);
+  margin-top: 0.62rem;
+}
+
+/* The answer sits flush under the question rather than in its own bordered box:
+   a second border around the answer would make one item read as two. */
+.faq-answer {
+  padding: 0.1rem 0 0.35rem 1.15rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .faq-chevron {
+    transition: none;
+  }
+}
+
+/* --- Closing ---------------------------------------------------------- */
+
+.closing-glow {
+  background: radial-gradient(
+    ellipse 60% 100% at 50% 100%,
+    var(--closing-glow),
+    transparent 70%
+  );
+}
+
+/* --- Motion ----------------------------------------------------------- */
+
+/* Nothing on this page animates a transform any more, but the global rule in
+   index.css already neutralises transitions under prefers-reduced-motion, so
+   there is nothing to override here. The block is kept as the place to put it
+   if a transform comes back. */
+
+/* --- Stack marquee ---------------------------------------------------- */
+
+/* Two logo rows scrolling in opposite directions continuously.
+   Each track renders its list 3x to guarantee a seamless wrap point.
+   No pause on hover — motion is the feature. Mask fade at edges only.
+   Plain CSS keyframes, no inline styles: the CSP blocks style props. */
+.stack-marquee {
+  overflow: hidden;
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 6%,
+    #000 94%,
+    transparent
+  );
+}
+
+.stack-track {
+  display: flex;
+  align-items: center;
+  gap: 2.5rem;
+  width: max-content;
+}
+
+.stack-track-left {
+  animation: stack-scroll-left 50s linear infinite;
+}
+
+.stack-track-right {
+  animation: stack-scroll-right 50s linear infinite;
+}
+
+/* Bare logo link: no card, no border. The white chip is only there so the
+   black Simple Icons glyph stays legible on dark backgrounds. */
+.stack-logo {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 0.9rem;
+  background: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
+  transition: transform 180ms ease;
+}
+
+.stack-logo:hover {
+  transform: translateY(-3px);
+}
+
+.stack-logo img {
+  display: block;
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+/* 3x list → -33.33% translation = exactly one full set width.
+   This lands on an identical frame so the loop is invisible. */
+@keyframes stack-scroll-left {
+  to {
+    transform: translateX(-33.3333%);
+  }
+}
+
+@keyframes stack-scroll-right {
+  from {
+    transform: translateX(-33.3333%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stack-track-left,
+  .stack-track-right {
+    animation: none;
+  }
+  .stack-logo {
+    transition: none;
+  }
+}
