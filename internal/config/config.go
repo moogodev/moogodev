@@ -313,6 +313,22 @@ func (cfg Config) validate() error {
 			"generate a real one with `openssl rand -base64 32`")
 	}
 
+	// Registration is always mounted, so a deployment with no way to deliver a
+	// confirmation email creates accounts that can never be opened: the account
+	// is written with email_verified_at NULL, and Login refuses NULL with
+	// email_not_verified. Nothing arrives to unblock it, and the retry answers
+	// "check your email" for an address that was never written to.
+	//
+	// Google sign-in is an accepted substitute: UpsertUserByEmail sets
+	// email_verified_at and keeps it on conflict, so somebody who registered by
+	// password can still open the account through Google. Either path is
+	// enough; neither is a deploy that cannot sign a single user in.
+	if cfg.IsProduction() && cfg.ResendAPIKey == "" && cfg.GoogleClientID == "" {
+		problems = append(problems, "no sign-in path: set RESEND_API_KEY for email confirmation, "+
+			"or MOOGO_GOOGLE_CLIENT_ID for Google sign-in, otherwise registration creates "+
+			"accounts that can never be verified")
+	}
+
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(problems, "\n  - "))
 	}

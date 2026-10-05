@@ -43,12 +43,17 @@ type credentialStore interface {
 	CreateVerificationToken(ctx context.Context, userID uuid.UUID, tokenHash string, ttl time.Duration) error
 	VerifyEmail(ctx context.Context, tokenHash string) error
 	EmailVerified(ctx context.Context, userID uuid.UUID) (bool, error)
+	MarkEmailVerified(ctx context.Context, userID uuid.UUID) error
 }
 
 // mailSender delivers the transactional links.
 type mailSender interface {
 	SendPasswordReset(ctx context.Context, to, token string) error
 	SendEmailVerification(ctx context.Context, to, token string) error
+	// Enabled reports whether a provider is configured at all. Without it the
+	// sender is not a slow or failing provider, it is one that cannot send, and
+	// registration has to be handled differently from a temporary outage.
+	Enabled() bool
 }
 
 // Credentials serves the email/password sign-in endpoints.
@@ -170,8 +175,8 @@ func (handler *Credentials) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, err := handler.store.CreateUserWithPassword(
-	r.Context(),
-	email,
+		r.Context(),
+		email,
 		strings.TrimSpace(request.Name),
 		hash,
 		handler.cfg.DefaultMaxProjects,
@@ -199,6 +204,13 @@ func (handler *Credentials) Register(w http.ResponseWriter, r *http.Request) {
 	handler.sendVerification(w, r, user)
 }
 
+// noMailRegistrationResponse is what registration answers when there is no
+// provider to deliver a confirmation to.
+//
+// It has to differ from the confirmation response: promising an email that was
+// never sent is the instruction to wait for something that cannot arrive.
+const noMailRegistrationResponse = "Account created. Sign in to continue."
+
 // registrationConfirmation is the one body the registration gives the caller.
 //
 // It is the same message for a fresh account and for one that only ever had a
@@ -221,23 +233,81 @@ func (handler *Credentials) sendVerification(
 	r *http.Request,
 	user *dbcontrol.User,
 ) {
+	// With no provider configured there is no address to deliver to. Issuing a
+	// token anyway writes a row nobody will read and answers "check your
+	// email" about an email that cannot exist, which leaves the account unable
+	// to sign in and the person waiting for nothing.
+	if !handler.mailer.Enabled() {
+		handler.completeWithoutMail(w, r, user)
+		return
+	}
+
 	_, err := handler.issueVerification(r.Context(), user)
 	if err != nil {
 		// A token that never reached the inbox is a different problem from one
 		// that never reached the database, and the code tells the frontend which.
 		// Both are reported with the same sentence because from the person's side
 		// they are the same situation: the account exists and cannot be used.
+		//
+		// The id belongs in the log. The account is already written, so if the
+		// outage is long the only way somebody gets in is an operator clearing
+		// the flag, and that starts from knowing which account.
+		handler.log.Error("verification email not sent", logger.Fields{
+			"error":   err.Error(),
+			"user_id": user.ID.String(),
+			"email":   user.Email,
+		})
+
 		code := "internal"
 		if errors.Is(err, errMailFailed) {
 			code = "mail_failed"
 		}
 		httpx.WriteError(w, http.StatusInternalServerError, code,
-			"the account was created but the confirmation email could not be sent")
+			"the account was created but the confirmation email could not be sent; try again in a few minutes")
 		return
 	}
 
 	httpx.WriteJSON(w, http.StatusAccepted, registeredResponse{
 		Message: registrationConfirmation,
+		Email:   user.Email,
+	})
+}
+
+// completeWithoutMail finishes a registration when no provider is configured.
+//
+// In development it marks the address proven, because the alternative is an
+// account that cannot be opened and a developer with no way to test anything
+// that comes after signing up.
+//
+// In production it refuses. Configuration already refuses to boot without a
+// sign-in path, so reaching this means Google is configured and mail is not:
+// the account can still be opened through Google, and saying so is more use
+// than a promise about an email that is never sent.
+func (handler *Credentials) completeWithoutMail(
+	w http.ResponseWriter,
+	r *http.Request,
+	user *dbcontrol.User,
+) {
+	if handler.cfg.IsProduction() {
+		handler.log.Warn("password registration without email delivery", logger.Fields{
+			"user_id": user.ID.String(),
+		})
+		httpx.WriteError(w, http.StatusServiceUnavailable, "email_unavailable",
+			"this deployment cannot send confirmation email; sign in with Google instead")
+		return
+	}
+
+	if err := handler.store.MarkEmailVerified(r.Context(), user.ID); err != nil {
+		handler.log.Error("mark email verified without mail", logger.Fields{
+			"error": err.Error(), "user_id": user.ID.String(),
+		})
+		httpx.WriteError(w, http.StatusInternalServerError, "internal",
+			"could not create the account")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, registeredResponse{
+		Message: noMailRegistrationResponse,
 		Email:   user.Email,
 	})
 }

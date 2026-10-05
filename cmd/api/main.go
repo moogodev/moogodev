@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -28,6 +29,10 @@ import (
 // off by shutdown instead of being allowed to finish or report its own error.
 const shutdownGrace = 30 * time.Second
 
+// checkConfigFlag validates the configuration and exits without opening a
+// database or listening on a port.
+const checkConfigFlag = "--check-config"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "moogo:", err)
@@ -39,6 +44,22 @@ func run() error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+
+	// --check-config validates the environment and exits before anything is
+	// opened. A deployment script wants exactly this: a mistyped
+	// MOOGO_SESSION_SECRET should be reported before the service is enabled,
+	// not five seconds after it starts restarting in a loop.
+	if slices.Contains(os.Args[1:], checkConfigFlag) {
+		fmt.Println("configuration is valid")
+		fmt.Printf("  environment:   %s\n", cfg.Environment)
+		fmt.Printf("  addr:          %s\n", cfg.Addr)
+		fmt.Printf("  public url:    %s\n", cfg.PublicURL)
+		fmt.Printf("  data dir:      %s\n", cfg.DataDir)
+		fmt.Printf("  cookie secure: %v\n", cfg.CookieSecure)
+		fmt.Printf("  mail provider: %v\n", cfg.ResendAPIKey != "")
+		fmt.Printf("  google signin: %v\n", cfg.GoogleClientID != "")
+		return nil
 	}
 
 	log := logger.New(cfg.Environment)

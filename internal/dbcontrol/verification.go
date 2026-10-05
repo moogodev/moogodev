@@ -122,3 +122,22 @@ func (store *Store) EmailVerified(ctx context.Context, userID uuid.UUID) (bool, 
 	}
 	return verifiedAt != nil, nil
 }
+
+// MarkEmailVerified marks an address as proven without a token.
+//
+// This exists for the one case where a token would be pointless: a deployment
+// with no mail delivery, where the address was never going to be confirmed by
+// email. Sending a confirmation nobody can receive produces an account that
+// Login refuses, which is worse than one that was never gated.
+//
+// It is deliberately not a verification path: the caller has to know that no
+// mail is configured, and config refuses to boot in production without a
+// sign-in path, so this never runs where it could let in an unproven address.
+func (store *Store) MarkEmailVerified(ctx context.Context, userID uuid.UUID) error {
+	if _, err := store.pool.Exec(ctx, `
+		UPDATE users SET email_verified_at = now() WHERE id = $1`, userID,
+	); err != nil {
+		return fmt.Errorf("mark email verified: %w", err)
+	}
+	return nil
+}

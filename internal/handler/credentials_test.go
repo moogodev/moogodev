@@ -36,6 +36,8 @@ type credStore struct {
 	verifyTokenHash string
 	verifyErr       error
 	verifiedErr     error
+	markedVerified  uuid.UUID
+	markVerifyErr   error
 	// verificationTokens maps the raw token a test presents to the account it
 	// was issued for, so VerifyEmail can stand in for the real lookup.
 	verificationTokens map[string]*dbcontrol.User
@@ -113,6 +115,23 @@ func (store *credStore) VerifyEmail(ctx context.Context, tokenHash string) error
 	return dbcontrol.ErrVerificationTokenInvalid
 }
 
+// MarkEmailVerified stands in for the production UPDATE ... SET
+// email_verified_at = now(), flipping the same field a confirmation token would.
+func (store *credStore) MarkEmailVerified(ctx context.Context, userID uuid.UUID) error {
+	if store.markVerifyErr != nil {
+		return store.markVerifyErr
+	}
+	store.markedVerified = userID
+	for _, user := range store.byEmail {
+		if user.ID == userID {
+			now := time.Now()
+			user.EmailVerifiedAt = &now
+			return nil
+		}
+	}
+	return nil
+}
+
 func (store *credStore) EmailVerified(ctx context.Context, userID uuid.UUID) (bool, error) {
 	if store.verifiedErr != nil {
 		return false, store.verifiedErr
@@ -130,12 +149,20 @@ type credMailer struct {
 	sentTo  string
 	sentErr error
 
+	// disabled stands in for a deployment with no provider configured at all.
+	// It is false by default so the ordinary tests keep exercising the
+	// send-a-confirmation path.
+	disabled bool
+
 	// verificationToken is the raw confirmation token handed to the mailer, so a
 	// test can present it back to the verify endpoint exactly as the frontend
 	// would after reading it out of the link.
 	verificationToken string
 	sentVerification  bool
 }
+
+// Enabled reports whether a provider is configured, matching mail.Sender.
+func (mailer *credMailer) Enabled() bool { return !mailer.disabled }
 
 func (mailer *credMailer) SendPasswordReset(ctx context.Context, to, token string) error {
 	if mailer.sentErr != nil {
@@ -157,6 +184,12 @@ func (mailer *credMailer) SendEmailVerification(ctx context.Context, to, token s
 
 // newCredHandler wires a Credentials handler over the fakes.
 func newCredHandler(t *testing.T, store *credStore, mailer *credMailer) *Credentials {
+	return newCredHandlerIn(t, store, mailer, "development")
+}
+
+// newCredHandlerIn wires a handler with an explicit environment, so the
+// production branch of the no-provider path is reachable from a test.
+func newCredHandlerIn(t *testing.T, store *credStore, mailer *credMailer, environment string) *Credentials {
 	t.Helper()
 	signer, err := session.NewSigner("a-test-secret-that-is-definitely-long-enough", time.Hour)
 	if err != nil {
@@ -164,6 +197,7 @@ func newCredHandler(t *testing.T, store *credStore, mailer *credMailer) *Credent
 	}
 	sessions := auth.NewSessionManager(signer, false)
 	cfg := config.Config{
+		Environment:            environment,
 		DefaultMaxProjects:     5,
 		DefaultMaxDBBytes:      100 * 1024 * 1024,
 		DefaultMaxStorageBytes: 256 * 1024 * 1024,
@@ -596,4 +630,78 @@ func hasSessionCookie(recorder *httptest.ResponseRecorder) bool {
 		}
 	}
 	return false
+}
+
+// A deployment with no mail provider used to register the account, fail to
+// send, and answer 500 -- leaving a row with email_verified_at NULL that
+// Login refuses with nothing to unblock it. In development the account is now
+// usable immediately instead.
+func TestRegisterWithoutAPrividerProducesAnAccountYouCanOpen(t *testing.T) {
+	store := &credStore{byEmail: map[string]*dbcontrol.User{}}
+	mailer := &credMailer{disabled: true}
+	handler := newCredHandler(t, store, mailer)
+
+	recorder := doJSON(t, handler.Register, http.MethodPost, "/auth/register",
+		`{"email":"dev@example.com","password":"correct-horse-battery-staple"}`)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d (%s)", recorder.Code, recorder.Body.String())
+	}
+	if mailer.sentVerification {
+		t.Error("a confirmation was sent through a provider that does not exist")
+	}
+	if strings.Contains(recorder.Body.String(), "Check your email") {
+		t.Errorf("promised an email that cannot be sent: %s", recorder.Body.String())
+	}
+
+	// The point of the whole change: the account must now pass the same check
+	// that a mailed confirmation token would have satisfied.
+	verified, err := store.EmailVerified(context.Background(), store.createdUser.ID)
+	if err != nil {
+		t.Fatalf("check verification: %v", err)
+	}
+	if !verified {
+		t.Error("the account cannot sign in, which is the bug this replaces")
+	}
+}
+
+// Configuration refuses to boot a production deployment with no sign-in path at
+// all. Reaching this branch means Google is configured and mail is not, so the
+// honest answer is to send the person to Google rather than promise an email.
+func TestRegisterWithoutAPrividerInProductionPointsAtGoogle(t *testing.T) {
+	store := &credStore{byEmail: map[string]*dbcontrol.User{}}
+	mailer := &credMailer{disabled: true}
+	handler := newCredHandlerIn(t, store, mailer, "production")
+
+	recorder := doJSON(t, handler.Register, http.MethodPost, "/auth/register",
+		`{"email":"prod@example.com","password":"correct-horse-battery-staple"}`)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d (%s)", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "sign_in_unavailable") &&
+		!strings.Contains(recorder.Body.String(), "email_unavailable") {
+		t.Errorf("expected the unavailable code, got %s", recorder.Body.String())
+	}
+}
+
+// With a provider configured nothing changed: the account waits for a link.
+func TestRegisterWithAPrividerStillSendsTheConfirmation(t *testing.T) {
+	store := &credStore{byEmail: map[string]*dbcontrol.User{}}
+	mailer := &credMailer{}
+	handler := newCredHandler(t, store, mailer)
+
+	recorder := doJSON(t, handler.Register, http.MethodPost, "/auth/register",
+		`{"email":"real@example.com","password":"correct-horse-battery-staple"}`)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d (%s)", recorder.Code, recorder.Body.String())
+	}
+	if !mailer.sentVerification {
+		t.Error("no confirmation was sent")
+	}
+	verified, _ := store.EmailVerified(context.Background(), store.createdUser.ID)
+	if verified {
+		t.Error("the account was marked verified without a mailed token")
+	}
 }

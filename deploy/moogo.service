@@ -1,0 +1,76 @@
+[Unit]
+Description=Moogo API (control plane, data plane, dashboard)
+Documentation=https://github.com/moogodev/moogodev
+# The service needs Postgres and a writable data directory before it can answer
+# /readyz, so it waits for the network to come up and retries on its own.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=moogo
+Group=moogo
+
+# Secrets live here, not in the unit and not in the working directory.
+# chmod 600, owned by root:moogo.
+EnvironmentFile=/etc/moogo/moogo.env
+
+# WorkingDirectory only matters because config.Load() also reads a .env from
+# the current directory. Keeping it out of the deployment means a stray .env
+# left behind by a developer cannot override what systemd passes in.
+WorkingDirectory=/opt/moogo
+ExecStart=/usr/local/bin/moogo
+
+# The process shuts down gracefully and waits up to 30s for in-flight
+# requests. systemd has to outlive that, or it SIGKILLs a query that was about
+# to succeed.
+KillSignal=SIGTERM
+TimeoutStopSec=45s
+
+# A database that is unreachable is usually a database that is still starting.
+Restart=always
+RestartSec=5s
+# Do not give up: an unreachable Postgres is an outage that resolves, and the
+# alternative is a service that stays down until somebody logs in.
+StartLimitIntervalSec=0
+
+# One descriptor per open SQLite file plus buckets. The default 1024 runs out
+# on a node with many projects.
+LimitNOFILE=65535
+
+# --- Sandboxing ---
+# Everything the service writes is the data directory. With ProtectSystem=strict
+# the rest of the filesystem is read-only, so a bug that walks a path cannot
+# rewrite the binary or the unit.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# The one path that must stay writable.
+ReadWritePaths=/var/lib/moogo
+
+# Logs go to journald; the access log is structured JSON on stdout.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=moogo
+
+[Install]
+WantedBy=multi-user.target

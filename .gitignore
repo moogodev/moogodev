@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # Frontend dependencies. Installed by `npm install` in web/ui, and far too
 # large to keep in history.

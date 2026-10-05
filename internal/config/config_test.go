@@ -139,6 +139,7 @@ func TestProductionRejectsThePublishedDevelopmentSecret(t *testing.T) {
 		"MOOGO_ENV":            "production",
 		"MOOGO_COOKIE_SECURE":  "true",
 		"MOOGO_SESSION_SECRET": "local-dev-session-secret-change-me-0123456789",
+		"RESEND_API_KEY":       "re_test",
 	})
 
 	if err == nil {
@@ -171,6 +172,7 @@ func TestProductionAcceptsAGeneratedSecret(t *testing.T) {
 		"MOOGO_ENV":            "production",
 		"MOOGO_COOKIE_SECURE":  "true",
 		"MOOGO_SESSION_SECRET": strings.Repeat("x", 45),
+		"RESEND_API_KEY":       "re_test",
 	})
 
 	if err != nil {
@@ -178,5 +180,51 @@ func TestProductionAcceptsAGeneratedSecret(t *testing.T) {
 	}
 	if cfg.IsProduction() != true {
 		t.Error("environment was not production")
+	}
+}
+
+// Registration is mounted unconditionally, and an account whose
+// email_verified_at is NULL is refused at login with nothing to unblock it.
+// A production deployment with neither a mail provider nor Google sign-in
+// therefore cannot open a single account, and must not boot into it.
+func TestProductionRefusesToBootWithNoSignInPath(t *testing.T) {
+	_, err := loadWith(t, map[string]string{
+		"MOOGO_ENV":           "production",
+		"MOOGO_COOKIE_SECURE": "true",
+	})
+
+	if err == nil {
+		t.Fatal("production started with no way to verify an account")
+	}
+	if !strings.Contains(err.Error(), "no sign-in path") {
+		t.Errorf("error does not name the problem: %v", err)
+	}
+}
+
+// Google sign-in is an accepted substitute: UpsertUserByEmail sets
+// email_verified_at and keeps it on conflict, so somebody who registered by
+// password can still open the account through Google.
+func TestProductionAcceptsGoogleAsTheOnlySignInPath(t *testing.T) {
+	_, err := loadWith(t, map[string]string{
+		"MOOGO_ENV":              "production",
+		"MOOGO_COOKIE_SECURE":    "true",
+		"MOOGO_GOOGLE_CLIENT_ID": "client-id",
+	})
+
+	if err != nil {
+		t.Fatalf("Google sign-in should satisfy the guard: %v", err)
+	}
+}
+
+// In development none of this is fatal. A laptop with no provider is how the
+// project is normally worked on.
+func TestDevelopmentStartsWithNoSignInPath(t *testing.T) {
+	cfg, err := loadWith(t, nil)
+
+	if err != nil {
+		t.Fatalf("development should start with nothing configured: %v", err)
+	}
+	if cfg.IsProduction() {
+		t.Error("default environment was not development")
 	}
 }
