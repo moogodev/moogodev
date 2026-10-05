@@ -182,6 +182,7 @@ const faqs = [
 const stacks = [
   { name: "JavaScript", doc: "javascript-vanilla", icon: "javascript" },
   { name: "TypeScript", doc: "javascript-vanilla", icon: "typescript" },
+  { name: "React", doc: "react", icon: "react" },
   { name: "Node.js", doc: "javascript-vanilla", icon: "nodedotjs" },
   { name: "Next.js", doc: "nextjs", icon: "nextdotjs" },
   { name: "Nuxt", doc: "nuxt", icon: "nuxt" },
@@ -272,7 +273,7 @@ export default function Landing() {
           content instead of sitting against the window, which is what makes
           them read as deliberate rather than as a border on the browser. */}
       <div className="relative mx-auto w-full max-w-[1280px] border-x border-edge">
-        <Hero />
+<Hero />
         <Languages />
         <Problem />
         <HowItWorks />

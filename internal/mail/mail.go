@@ -234,29 +234,41 @@ func verificationHTML(link string) string {
 func messageShell(title, intro, buttonText, link string) string {
 	return `<!doctype html>
 <html>
-  <body style="margin:0;background:#0b0d10;color:#e8ebf0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+  <body style="margin:0;background:#f5f7fa;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
       <tr>
         <td align="center">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-                 style="max-width:520px;background:#151920;border:1px solid #262c37;border-radius:12px;padding:32px;">
+                 style="max-width:520px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:40px 32px;">
             <tr>
-              <td>
-                <p style="margin:0 0 16px;font-size:18px;font-weight:600;">` + title + `</p>
-                <p style="margin:0 0 24px;color:#9aa4b2;line-height:1.6;">
+              <td align="center" style="padding-bottom:24px;border-bottom:1px solid #e5e7eb;">
+                <img src="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/1.png" alt="Moogo" width="120" style="display:block;" />
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-top:24px;">
+                <p style="margin:0 0 16px;font-size:22px;font-weight:600;color:#111827;">` + title + `</p>
+                <p style="margin:0 0 24px;color:#6b7280;line-height:1.6;">
                   ` + intro + `
                 </p>
-                <a href="` + link + `"
-                   style="display:inline-block;background:#14b8a6;color:#042f2e;font-weight:600;
-                          text-decoration:none;padding:12px 20px;border-radius:8px;">
-                  ` + buttonText + `
-                </a>
-                <p style="margin:24px 0 0;color:#6b7684;font-size:13px;line-height:1.6;">
-                  Or paste this link into your browser:<br/>
-                  <a href="` + link + `" style="color:#2dd4bf;word-break:break-all;">` + link + `</a>
+                <p style="margin:0 0 8px;">
+                  <a href="` + link + `"
+                     style="display:inline-block;background:#15803d;color:#ffffff;font-weight:600;
+                            text-decoration:none;padding:14px 24px;border-radius:8px;">
+                    ` + buttonText + `
+                  </a>
                 </p>
-                <p style="margin:24px 0 0;color:#6b7684;font-size:13px;line-height:1.6;">
+                <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
+                  Or paste this link into your browser:<br/>
+                  <a href="` + link + `" style="color:#15803d;word-break:break-all;">` + link + `</a>
+                </p>
+                <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
                   This link expires soon and can only be used once.
+                </p>
+                <hr style="margin:32px 0 16px;border:none;border-top:1px solid #e5e7eb;" />
+                <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.5;">
+                  &copy; Moogo &mdash; SQLite over HTTP for serverless apps.<br/>
+                  If you did not request this, you can safely ignore this email.
                 </p>
               </td>
             </tr>

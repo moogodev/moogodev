@@ -399,3 +399,144 @@
     transition: none;
   }
 }
+
+/* --- Free tier chalkboard ---------------------------------------------- */
+
+/* Chalkboard background: dark green with subtle grain & dust */
+.free-tier .board-bg {
+  position: absolute;
+  inset: -2rem;
+  background:
+    radial-gradient(ellipse at 30% 20%, #1b3d1b 0%, transparent 60%),
+    radial-gradient(ellipse at 70% 80%, #163316 0%, transparent 50%),
+    #1a3a1a;
+  border-radius: 1.5rem;
+  box-shadow:
+    inset 0 0 0 1px #2d4a2d,
+    inset 0 0 60px #0f2a0f,
+    0 20px 40px -10px rgba(0, 0, 0, 0.5);
+  /* Chalk dust texture */
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='256' height='256' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #1a3a1a 0%, #153015 100%);
+}
+
+.free-tier .board-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 1.5rem;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.008) 2px,
+    rgba(255, 255, 255, 0.008) 4px
+  );
+  pointer-events: none;
+}
+
+/* Card grid */
+.free-tier .board-card {
+  position: relative;
+  padding: 2rem 1.5rem 2.5rem;
+  background: linear-gradient(160deg, #163016 0%, #0f220f 100%);
+  border-radius: 1rem;
+  border: 1px solid #2a4a2a;
+  box-shadow:
+    inset 0 1px 0 #2a4a2a,
+    0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  animation: card-in 0.6s ease backwards;
+  animation-delay: var(--delay, 0ms);
+}
+
+.free-tier .board-card:hover {
+  transform: translateY(-6px);
+  box-shadow:
+    inset 0 1px 0 #3a5a3a,
+    0 16px 32px -12px rgba(0, 0, 0, 0.7);
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.free-tier .card-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+  margin-bottom: 0.75rem;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+}
+
+.free-tier .card-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #8fbc8f;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.free-tier .card-value {
+  font-family: var(--font-mono);
+  font-size: 2.25rem;
+  font-weight: 700;
+  color: #e8f5e9;
+  text-align: center;
+  margin-bottom: 0.25rem;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.free-tier .card-detail {
+  font-size: 0.85rem;
+  color: #a5c9a5;
+  text-align: center;
+  margin-bottom: 1.25rem;
+  min-height: 2.5rem;
+}
+
+.free-tier .card-chalk {
+  position: relative;
+  padding-top: 1rem;
+  border-top: 1px dashed #2d4a2d;
+  text-align: center;
+}
+
+.free-tier .chalk-line {
+  display: block;
+  width: 60px;
+  height: 2px;
+  margin: 0 auto 0.5rem;
+  background: linear-gradient(90deg, transparent, #6abf6a, transparent);
+  border-radius: 1px;
+}
+
+.free-tier .card-chalk code {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: #9ccc9c;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.3rem;
+  border: 1px solid #1d3a1d;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .free-tier .board-bg {
+    inset: -1rem;
+    border-radius: 1rem;
+  }
+  .free-tier .card-value {
+    font-size: 1.75rem;
+  }
+}

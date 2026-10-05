@@ -74,6 +74,7 @@ const layout: { group: string; slugs: string[] }[] = [
     group: "Language Guides",
     slugs: [
       "javascript-vanilla",
+      "react",
       "nextjs",
       "nuxt",
       "vue",

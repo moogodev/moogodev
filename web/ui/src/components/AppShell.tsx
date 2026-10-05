@@ -64,6 +64,20 @@ export function AppShell() {
           >
             Settings
           </NavItem>
+          <NavItem
+            to="/plan"
+            active={location.pathname === "/plan"}
+            icon={<PricingIcon />}
+          >
+            Pricing
+          </NavItem>
+          <NavItem
+            to="/docs/quickstart"
+            active={location.pathname.startsWith("/docs")}
+            icon={<DocsIcon />}
+          >
+            Docs
+          </NavItem>
 
           {projectId && (
             <div className="mt-4">
@@ -133,7 +147,7 @@ function NavItem({
           : "text-muted hover:bg-hover-bg hover:text-foreground"
       }`}
     >
-      <span className="text-current [&>svg]:h-4 [&>svg]:w-4">{icon}</span>
+      <span className="text-current [&>svg]:h-5 [&>svg]:w-5">{icon}</span>
       {children}
     </Link>
   );
@@ -175,47 +189,70 @@ function UserMenu({ me }: { me: Me | null }) {
 
 function DashboardIcon() {
   return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <rect x="2.5" y="2.5" width="6" height="6" rx="1.2" />
-      <rect x="11.5" y="2.5" width="6" height="6" rx="1.2" />
-      <rect x="2.5" y="11.5" width="6" height="6" rx="1.2" />
-      <rect x="11.5" y="11.5" width="6" height="6" rx="1.2" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
     </svg>
   );
 }
 
 function ProjectIcon() {
   return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M2.5 6a1.5 1.5 0 011.5-1.5h3.2l1.5 1.8h7.3A1.5 1.5 0 0117.5 7.8v7.7A1.5 1.5 0 0116 17H4a1.5 1.5 0 01-1.5-1.5V6z" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z" />
+      <line x1="10" y1="10" x2="14" y2="10" />
+      <line x1="10" y1="14" x2="14" y2="14" />
     </svg>
   );
 }
 
 function SettingsIcon() {
   return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <circle cx="10" cy="10" r="2.4" />
-      <path d="M10 2.8v2M10 15.2v2M2.8 10h2M15.2 10h2M4.9 4.9l1.4 1.4M13.7 13.7l1.4 1.4M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+    </svg>
+  );
+}
+
+function PricingIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <line x1="6" y1="10" x2="18" y2="10" />
+      <line x1="6" y1="14" x2="18" y2="14" />
+    </svg>
+  );
+}
+
+function DocsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.5L14.5 3H6a2 2 0 0 1-2-2V5" />
+      <line x1="14" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
     </svg>
   );
 }
 
 function DatabaseIcon() {
   return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <ellipse cx="10" cy="5" rx="6.5" ry="2.6" />
-      <path d="M3.5 5v10c0 1.4 2.9 2.6 6.5 2.6s6.5-1.2 6.5-2.6V5" />
-      <path d="M3.5 10c0 1.4 2.9 2.6 6.5 2.6s6.5-1.2 6.5-2.6" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5v14a5 5 0 0 0 10 0V5" />
+      <path d="M3 12a5 5 0 0 0 10 0" />
     </svg>
   );
 }
 
 function BucketIcon() {
   return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M3 5.5A1.5 1.5 0 014.5 4h11A1.5 1.5 0 0117 5.5v9a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 013 14.5v-9z" />
-      <path d="M3 8h14M6.5 12h3" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z" />
+      <line x1="8" y1="10" x2="16" y2="10" />
+      <line x1="8" y1="14" x2="16" y2="14" />
     </svg>
   );
 }
