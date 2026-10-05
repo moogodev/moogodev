@@ -60,7 +60,8 @@ echo "    built $BIN_PATH"
 echo "==> installing unit and proxy config"
 install -m 0644 "$REPO_ROOT/deploy/moogo.service" /etc/systemd/system/moogo.service
 install -m 0644 "$REPO_ROOT/deploy/backup.sh" /usr/local/bin/moogo-backup
-chmod 0755 /usr/local/bin/moogo-backup
+install -m 0644 "$REPO_ROOT/deploy/verify-backup.sh" /usr/local/bin/moogo-verify-backup
+chmod 0755 /usr/local/bin/moogo-backup /usr/local/bin/moogo-verify-backup
 
 # Refuse to overwrite an environment file: it holds the session secret and the
 # database password, and regenerating them would sign every cookie out.

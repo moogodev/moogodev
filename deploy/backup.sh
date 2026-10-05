@@ -26,10 +26,37 @@ fi
 
 # Take the lock first. Two overlapping runs would write the same archive name and
 # the pruning step would then delete the newer one.
-LOCK="$BACKUP_DIR/.backup.lock"
 mkdir -p "$BACKUP_DIR"
-exec 9>"$LOCK"
-if ! flock -n 9; then
+# flock is not everywhere -- it is missing on macOS and on Alpine, and a backup
+# script that silently does nothing on those is worse than no script. mkdir is
+# atomic on every filesystem that matters, so the lock is a directory.
+#
+# A lock left behind by a killed run has to be recoverable, or one crash stops
+# every future backup. The owning pid is written inside it, and a lock whose
+# process is gone is removed.
+acquire_lock() {
+	local dir="$1"
+	if mkdir "$dir" 2>/dev/null; then
+		echo $$ >"$dir/pid"
+		return 0
+	fi
+
+	local owner
+	owner="$(cat "$dir/pid" 2>/dev/null || true)"
+	if [[ -z "$owner" ]] || ! kill -0 "$owner" 2>/dev/null; then
+		echo "clearing a stale lock left by pid ${owner:-unknown}" >&2
+		rm -rf "$dir"
+		if mkdir "$dir" 2>/dev/null; then
+			echo $$ >"$dir/pid"
+			return 0
+		fi
+	fi
+	return 1
+}
+
+LOCK="$BACKUP_DIR/.backup.lock"
+
+if ! acquire_lock "$LOCK"; then
 	echo "another backup is already running; nothing to do" >&2
 	exit 0
 fi
@@ -37,7 +64,14 @@ fi
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/moogo-backup.XXXXXX")"
 DEST="$BACKUP_DIR/$STAMP"
-trap 'rm -rf "$WORK"' EXIT
+# One trap, both cleanups: a second EXIT trap replaces the first rather than
+# adding to it, and a run that leaves its scratch directory behind fills /tmp.
+trap 'rm -rf "$WORK" "$LOCK"' EXIT
+
+# pg_dump runs before anything else creates a directory below DEST, and it will
+# not create the directory itself: without this the very first step fails with
+# "could not open output file ... No such file or directory".
+mkdir -p "$DEST"
 
 failed=0
 

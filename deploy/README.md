@@ -61,6 +61,7 @@ everybody out.
 | Project databases | `$MOOGO_DATA_DIR/dbs/<uuid>.db` |
 | Object storage | `$MOOGO_DATA_DIR/buckets/` |
 | Nightly backup | `/etc/cron.d/moogo-backup` at 03:17 |
+| Restore check | the same file, 04:23, into a throwaway database |
 
 The binary does not terminate TLS, so Caddy is not optional. Two things follow
 that are easy to miss:
@@ -101,11 +102,26 @@ malformed". **Install the `sqlite3` package.** Without it the script falls back
 to copying, prints a warning, and exits non-zero — the archive is not trustworthy
 in that state.
 
-An archive is worth nothing unless you have restored one. After the first deploy:
+An archive is worth nothing unless you have restored one, so that is the part
+`moogo-verify-backup` exists for. It runs at 04:23, an hour after the backup so
+it never reads an archive that is still being written, and it:
+
+- restores `control-plane.dump` into a throwaway `moogo_restore_check` database
+  and counts the tables, users and projects that came back;
+- runs `PRAGMA integrity_check` over every project database in the archive;
+- reads the bucket tarball;
+- drops the scratch database and exits.
+
+It never touches the live database or `$MOOGO_DATA_DIR`, and it exits non-zero
+on any failure, so a `cron` mail on
+`/var/log/moogo-verify.log` is the alarm. Until that log is clean, treat the
+backups as unproven.
+
+Run both by hand after the first deploy:
 
 ```bash
 sudo /usr/local/bin/moogo-backup
-ls /var/backups/moogo/
+sudo /usr/local/bin/moogo-verify-backup
 ```
 
 Restore into a stopped service:
@@ -118,6 +134,24 @@ sudo -u moogo cp -r /var/backups/moogo/<stamp>/dbs/.   /var/lib/moogo/dbs/
 sudo -u moogo tar -C /var/lib/moogo -xf /var/backups/moogo/<stamp>/buckets.tar
 sudo systemctl start moogo
 ```
+
+## Single node, and what that costs
+
+`DECISIONS.md` D5 fixes one node. It is not a bug in the install: the data
+plane keeps each project's SQLite file and each bucket's objects on local disk,
+so a second node cannot serve them without either a shared filesystem or moving
+buckets to object storage. Until one of those happens, the honest options are:
+
+- **Fail fast and recover fast.** systemd restarts the process, the cron job
+  writes and verifies the backup, and `deploy.sh` rebuilds a dead machine in a
+  few minutes. The gap is detection: nothing pings `/healthz` from outside.
+- **Actual HA.** Move buckets to S3-compatible storage so any node can serve
+  them, then route by project id at the proxy. That is D5 being revisited, and
+  it is a project of its own rather than a config change.
+
+Do not add a second node to the existing layout. A second node with its own data
+directory would serve a different set of projects, which reads as random data
+loss to anybody who reaches the wrong one.
 
 ## Operating it
 
@@ -140,7 +174,7 @@ takes 30 seconds is working, not hanging.
 - **No high availability.** One node. If the VPS is down the product is down.
 - **No multi-tenancy across nodes.** Nothing can be moved to a second node
   without D5 being revisited.
-- **No automated restore.** The backup is written; nobody verifies it restores.
-  A backup you have never restored is a hypothesis.
 - **No metrics.** Logs are structured JSON on stdout to journald. There is no
-  exporter, so alerting is a journal pattern match today.
+  exporter, so alerting is a journal pattern match today. There is nothing
+  watching `/healthz` from outside the machine, which means a dead node is
+  discovered by a customer rather than by a monitor.
