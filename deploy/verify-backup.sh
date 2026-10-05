@@ -166,7 +166,15 @@ if [[ -f "$latest/buckets.tar" ]]; then
 		objects="$(tar -tf "$latest/buckets.tar" | grep -cv '/$' || true)"
 		note "archive readable, $objects entries"
 		if [[ "${objects:-0}" -lt 1 ]]; then
-			fail "the bucket archive is readable but empty"
+			# Empty is only wrong when the live directory is not. A brand new
+			# install has no objects yet, and crying foul there would make this
+			# script's nightly mail meaningless -- the same reasoning the project
+			# databases check above already applies here.
+			if [[ -n "$(ls -A "$MOOGO_DATA_DIR/buckets" 2>/dev/null)" ]]; then
+				fail "archive has no objects but $MOOGO_DATA_DIR/buckets is not empty"
+			else
+				note "empty, and $MOOGO_DATA_DIR/buckets is empty too"
+			fi
 		fi
 	else
 		fail "buckets.tar is not a readable archive"

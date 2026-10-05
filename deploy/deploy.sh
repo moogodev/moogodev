@@ -111,7 +111,7 @@ echo "==> nightly backup at 03:17"
 cat >/etc/cron.d/moogo-backup <<EOF
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-17 3 * * * root . /etc/moogo/moogo.env && BACKUP_DIR=$BACKUP_DIR MOOGO_DATA_DIR=$DATA_DIR /usr/local/bin/moogo-backup >> /var/log/moogo-backup.log 2>&1
+17 3 * * * root set -a && . $ENV_FILE && set +a && BACKUP_DIR=$BACKUP_DIR MOOGO_DATA_DIR=$DATA_DIR /usr/local/bin/moogo-backup >> /var/log/moogo-backup.log 2>&1
 EOF
 chmod 0644 /etc/cron.d/moogo-backup
 
@@ -123,9 +123,20 @@ echo "==> local healthcheck every minute"
 cat >/etc/cron.d/moogo-healthcheck <<EOF
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-* * * * * root . /etc/moogo/moogo.env && MOOGO_HEALTHCHECK_URL=https://$DOMAIN MOOGO_HEALTHCHECK_STATE=$DATA_DIR/healthcheck.state MOOGO_DATA_DIR=$DATA_DIR /usr/local/bin/moogo-healthcheck >> /var/log/moogo-healthcheck.log 2>&1
+* * * * * root set -a && . $ENV_FILE && set +a && MOOGO_HEALTHCHECK_URL=https://$DOMAIN MOOGO_HEALTHCHECK_STATE=$DATA_DIR/healthcheck.state MOOGO_DATA_DIR=$DATA_DIR /usr/local/bin/moogo-healthcheck >> /var/log/moogo-healthcheck.log 2>&1
 EOF
 chmod 0644 /etc/cron.d/moogo-healthcheck
+
+# The backup above is only worth what the verifier proves it can restore.
+# README documents a 04:23 run, an hour after the backup so it never reads an
+# archive that is still being written; install it alongside the others.
+echo "==> nightly restore verification at 04:23"
+cat >/etc/cron.d/moogo-backup-verify <<EOF
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+23 4 * * * root set -a && . $ENV_FILE && set +a && BACKUP_DIR=$BACKUP_DIR MOOGO_DATA_DIR=$DATA_DIR /usr/local/bin/moogo-verify-backup >> /var/log/moogo-verify.log 2>&1
+EOF
+chmod 0644 /etc/cron.d/moogo-backup-verify
 
 cat <<'NOTE'
 
