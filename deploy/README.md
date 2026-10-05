@@ -1,5 +1,9 @@
 # Deploying Moogo
 
+`../deploy-guide.md` is the complete reference: every environment variable and
+its default, every error message the service can print, and the exact recovery
+commands. This file is the walkthrough.
+
 One node, one origin. This is a deliberate design, not a limitation of the
 setup: `DECISIONS.md` D5 fixes a single node with the interfaces kept separate
 so multi-node stays possible later.

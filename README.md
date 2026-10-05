@@ -61,6 +61,8 @@ you find out immediately instead of after it has written something.
 
 ## Documentation
 
+- [Deployment guide](deploy-guide.md) — every step, every setting, every failure
+  mode, written for an agent operating the VPS
 - [Quickstart](quickstart.md) — an account to a working query in two minutes
 - [Architecture decisions](DECISIONS.md) — what is locked in, and why
 - [`prd_moogo.md`](prd_moogo.md) — the product requirements this was built from
