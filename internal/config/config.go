@@ -16,8 +16,20 @@ import (
 // Config is the validated application configuration.
 type Config struct {
 	// HTTP server.
-	Addr            string
-	PublicURL       string
+	Addr string
+	// PublicURL is the origin the browser dashboard is served from, and so the
+	// origin the OAuth redirect URI is built from.
+	PublicURL string
+	// APIURL is the origin a client application is told to talk to: the base of
+	// MOOGO_PROJECT_URL and MOOGO_BUCKET_ENDPOINT.
+	//
+	// It exists because a split deployment puts the dashboard and the data
+	// plane on different hostnames, and the value has to be assembled from
+	// configuration rather than from the request the credential was issued on —
+	// that request arrived at the dashboard, and behind a proxy it arrived over
+	// plain HTTP. Defaults to PublicURL, which is what a single-host
+	// deployment wants.
+	APIURL          string
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
@@ -174,6 +186,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		Addr:            reader.string("MOOGO_ADDR", ":8080"),
 		PublicURL:       strings.TrimRight(reader.string("MOOGO_PUBLIC_URL", "http://localhost:8080"), "/"),
+		APIURL:          strings.TrimRight(reader.string("MOOGO_API_URL", ""), "/"),
 		ReadTimeout:     reader.duration("MOOGO_READ_TIMEOUT", 15*time.Second),
 		WriteTimeout:    reader.duration("MOOGO_WRITE_TIMEOUT", 30*time.Second),
 		IdleTimeout:     reader.duration("MOOGO_IDLE_TIMEOUT", 120*time.Second),
@@ -223,6 +236,11 @@ func Load() (Config, error) {
 
 	if len(reader.problems) > 0 {
 		return Config{}, reader.err()
+	}
+	// The data plane only has a hostname of its own when a deployment splits it
+	// off from the dashboard; otherwise the two are the same host.
+	if cfg.APIURL == "" {
+		cfg.APIURL = cfg.PublicURL
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err

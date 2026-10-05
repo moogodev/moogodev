@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
 import { api } from "../lib/api";
+import { appOrigin } from "../lib/origin";
 
 export default function OAuthSetup() {
   const navigate = useNavigate();
@@ -124,7 +125,7 @@ export default function OAuthSetup() {
                 <li>
                   Under <strong>Authorized redirect URIs</strong>, add:
                   <code className="rounded bg-panel-raised px-1.5 font-mono text-[0.87em] text-accent block mt-1">
-                    {`${window.location.origin}/auth/google/callback`}
+                    {`${appOrigin()}/auth/google/callback`}
                   </code>
                 </li>
                 <li>

@@ -218,18 +218,28 @@ func describeStorageCredential(credential *dbcontrol.StorageCredential) StorageC
 }
 
 // storageEndpoint builds the endpoint a client points its storage SDK at.
+//
+// It comes from configuration rather than from the request, for two reasons
+// that made the request the wrong source:
+//
+//   - The scheme. r.TLS is nil behind a TLS-terminating proxy, so reading it
+//     handed out an http:// URL for a site that is only ever served over
+//     https. X-Forwarded-Proto would fix the scheme and nothing else.
+//   - The host. A credential is issued while its owner is looking at the
+//     dashboard, so r.Host is the dashboard's host. The data plane may well be
+//     a different one, and an endpoint naming the dashboard sends every client
+//     application to the wrong surface.
+//
+// MOOGO_API_URL names the data plane's public origin. It falls back to
+// MOOGO_PUBLIC_URL and then to the request, so a single-host deployment and
+// the tests need no extra configuration.
 func (handler *ControlPlane) storageEndpoint(r *http.Request, projectID uuid.UUID) string {
-	// Prefer the host the caller actually reached, so the value pasted into
-	// someone's env works rather than pointing back at a configured default
-	// that may be a different hostname in this deployment.
-	scheme := "https"
-	if r.TLS == nil {
-		scheme = "http"
+	base := handler.cfg.APIURL
+	if base == "" {
+		base = handler.cfg.PublicURL
 	}
-	host := r.Host
-	if host == "" {
-		host = strings.TrimPrefix(handler.cfg.PublicURL, "https://")
-		host = strings.TrimPrefix(host, "http://")
+	if base == "" {
+		base = publicBaseURL(r)
 	}
-	return scheme + "://" + host + "/p/" + projectID.String() + "/bucket"
+	return base + "/p/" + projectID.String() + "/bucket"
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { api, ApiError, type Project } from "../lib/api";
+import { apiOrigin } from "../lib/origin";
 
 interface CreateProjectModalProps {
   isOpen: boolean;
@@ -147,7 +148,7 @@ export default function CreateProjectModal({
                 <div className="space-y-3">
                   <EnvRow
                     name="MOOGO_PROJECT_URL"
-                    value={`${window.location.origin}/p/${created?.id ?? ""}`}
+                    value={`${apiOrigin()}/p/${created?.id ?? ""}`}
                   />
                   <EnvRow name="MOOGO_PROJECT_ID" value={created?.id ?? ""} />
                   <EnvRow name="MOOGO_SECRET_KEY" value={secretKey} highlight />

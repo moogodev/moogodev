@@ -8,6 +8,7 @@
 
 import { useCallback, useState } from "react";
 import { api, type Project } from "../lib/api";
+import { apiOrigin } from "../lib/origin";
 import StorageCredentials from "./StorageCredentials";
 
 interface ProjectSettingsProps {
@@ -33,7 +34,7 @@ export default function ProjectSettings({
   const [rotatedKey, setRotatedKey] = useState<string | null>(null);
   const [rotatedCopied, setRotatedCopied] = useState(false);
 
-  const baseUrl = window.location.origin;
+  const baseUrl = apiOrigin();
   // The URL the user's own application talks to. It carries the project id so a
   // client appends "/query" or "/bucket/<key>" directly, instead of assembling
   // Moogo's internal route layout and having to keep it in sync.
