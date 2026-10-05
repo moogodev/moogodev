@@ -62,6 +62,7 @@ everybody out.
 | Object storage | `$MOOGO_DATA_DIR/buckets/` |
 | Nightly backup | `/etc/cron.d/moogo-backup` at 03:17 |
 | Restore check | the same file, 04:23, into a throwaway database |
+| Health check | `/etc/cron.d/moogo-healthcheck`, every minute, public URL |
 
 The binary does not terminate TLS, so Caddy is not optional. Two things follow
 that are easy to miss:
@@ -135,6 +136,49 @@ sudo -u moogo tar -C /var/lib/moogo -xf /var/backups/moogo/<stamp>/buckets.tar
 sudo systemctl start moogo
 ```
 
+## Knowing it is down
+
+`moogo-healthcheck` probes the **public** URL, `/healthz` and `/readyz`, and
+alerts on the transition rather than on every failed run. `deploy.sh` installs it
+into cron every minute against `https://$DOMAIN`.
+
+Liveness and readiness are checked separately because they mean different
+things. With Postgres stopped:
+
+```
+{"status":"ok"}                     <- /healthz, the process is fine
+503                                 <- /readyz, it cannot reach the database
+  - readiness /readyz did not answer 200 with a status
+```
+
+That alert says "the database is down" rather than "restart the service", which
+is the difference between a two-minute fix and a pointless restart loop.
+
+Exit codes, so any scheduler can use it:
+
+| Code | Meaning |
+|---|---|
+| `0` | healthy, or still failing but already alerted — a repeat is not news |
+| `1` | not answering, or answering wrong, and this run is the alert |
+| `2` | the check cannot run: no URL, or `curl` missing |
+
+Alerts go to `MOOGO_HEALTHCHECK_ALERT_WEBHOOK` and, with `mailx` installed, to
+`MOOGO_HEALTHCHECK_ALERT_EMAIL`. It announces recovery as well as failure,
+because silence after an outage reads as "still broken" to whoever is waiting.
+
+**The cron entry is not enough, and no local check can be.** It only sees the
+deployment while the VPS is alive. If the machine is gone — provider outage,
+disk failure, someone pulling the plug — nothing on it sends a message. Point an
+external monitor at the public URL:
+
+```bash
+MOOGO_HEALTHCHECK_URL=https://moogo.example.com /usr/local/bin/moogo-healthcheck
+```
+
+Healthchecks.io, Uptime Kuma or any uptime service will do, and if you would
+rather install nothing at all, a plain external `GET /healthz` every minute
+catches the same thing.
+
 ## Single node, and what that costs
 
 `DECISIONS.md` D5 fixes one node. It is not a bug in the install: the data
@@ -143,8 +187,10 @@ so a second node cannot serve them without either a shared filesystem or moving
 buckets to object storage. Until one of those happens, the honest options are:
 
 - **Fail fast and recover fast.** systemd restarts the process, the cron job
-  writes and verifies the backup, and `deploy.sh` rebuilds a dead machine in a
-  few minutes. The gap is detection: nothing pings `/healthz` from outside.
+  writes and verifies the backup, `moogo-healthcheck` notices most failures
+  within a minute, and `deploy.sh` rebuilds a dead machine in a few minutes.
+  What is still missing is an external monitor: nothing outside the VPS knows
+  when the whole machine goes.
 - **Actual HA.** Move buckets to S3-compatible storage so any node can serve
   them, then route by project id at the proxy. That is D5 being revisited, and
   it is a project of its own rather than a config change.
@@ -175,6 +221,4 @@ takes 30 seconds is working, not hanging.
 - **No multi-tenancy across nodes.** Nothing can be moved to a second node
   without D5 being revisited.
 - **No metrics.** Logs are structured JSON on stdout to journald. There is no
-  exporter, so alerting is a journal pattern match today. There is nothing
-  watching `/healthz` from outside the machine, which means a dead node is
-  discovered by a customer rather than by a monitor.
+  exporter, so anything beyond "is it up" is a journal pattern match.
