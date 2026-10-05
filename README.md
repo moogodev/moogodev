@@ -70,3 +70,7 @@ you find out immediately instead of after it has written something.
 ```bash
 go test ./...
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE). Use it, change it, sell it; keep the notice.
