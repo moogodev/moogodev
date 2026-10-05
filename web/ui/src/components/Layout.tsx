@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { Brand } from "./Brand";
 import { ThemeToggle } from "./ThemeToggle";
 import { useSession } from "../lib/session";
+import { useState } from "react";
 
 // Marketing chrome: sticky header and a small footer. The dashboard uses its own
 // shell because it needs the account controls instead of the site nav.
@@ -47,11 +48,14 @@ function SiteHeader() {
   const location = useLocation();
   const isAuthPage = authPaths.includes(location.pathname);
   const session = useSession();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Only an authenticated visitor is treated as signed in. "unknown" is the
   // server being unreachable, which is not evidence of anything, and treating it
   // as signed out is what the previous hard-coded link did anyway.
   const signedIn = session.status === "authenticated";
+
+  const closeMobileMenu = () => setMobileMenuOpen(false);
 
   return (
     <header className="sticky top-0 z-50 border-b border-edge bg-background/80 backdrop-blur-md">
@@ -74,6 +78,29 @@ function SiteHeader() {
           )}
         </nav>
 
+        {/* Mobile menu button */}
+        <button
+          type="button"
+          className="md:hidden inline-flex items-center justify-center p-2 rounded-md text-muted hover:text-foreground hover:bg-hover-bg transition-colors"
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          aria-expanded={mobileMenuOpen}
+          aria-controls="mobile-menu"
+          aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+        >
+          {mobileMenuOpen ? (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          )}
+        </button>
+
         {/*
           One button, and which one it is depends on the session. A signed-in
           visitor has no use for "Register / Login": they are already in, and
@@ -90,19 +117,77 @@ function SiteHeader() {
         {isAuthPage || session.status === "loading" || session.status === "unknown" ? null : signedIn ? (
           <Link
             to="/app"
-            className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.88rem] font-semibold text-accent-ink transition-colors hover:bg-accent"
+            className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.88rem] font-semibold text-accent-ink transition-colors hover:bg-accent md:inline-flex hidden"
           >
             Open dashboard
           </Link>
         ) : (
           <Link
             to="/login"
-            className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.88rem] font-semibold text-accent-ink transition-colors hover:bg-accent"
+            className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.88rem] font-semibold text-accent-ink transition-colors hover:bg-accent md:inline-flex hidden"
           >
             Sign in
           </Link>
         )}
       </div>
+
+      {/* Mobile menu */}
+      {mobileMenuOpen && (
+        <div id="mobile-menu" className="md:hidden fixed inset-0 z-40 bg-background/95 backdrop-blur-sm animate-slide-down" onClick={closeMobileMenu}>
+          <div className="flex flex-col items-center justify-center min-h-screen gap-8 px-6 pt-20">
+            <nav className="flex flex-col items-center gap-6 text-center" aria-label="Mobile main">
+              {navLinks.map((link) =>
+                link.to.startsWith("/#") ? (
+                  <a
+                    key={link.label}
+                    className="text-xl font-medium text-foreground hover:text-accent-strong transition-colors"
+                    href={link.to}
+                    onClick={closeMobileMenu}
+                  >
+                    {link.label}
+                  </a>
+                ) : (
+                  <Link
+                    key={link.label}
+                    className="text-xl font-medium text-foreground hover:text-accent-strong transition-colors"
+                    to={link.to}
+                    onClick={closeMobileMenu}
+                  >
+                    {link.label}
+                  </Link>
+                )
+              )}
+
+              {!signedIn ? (
+                <>
+                  <Link
+                    to="/login"
+                    className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-6 py-3 text-lg font-semibold text-accent-ink transition-colors hover:bg-accent w-64"
+                    onClick={closeMobileMenu}
+                  >
+                    Sign in
+                  </Link>
+                  <Link
+                    to="/register"
+                    className="inline-flex items-center justify-center rounded-lg border border-edge-strong px-6 py-3 text-lg font-semibold text-muted hover:border-hover-edge hover:bg-hover-bg hover:text-foreground transition-colors w-64"
+                    onClick={closeMobileMenu}
+                  >
+                    Sign up
+                  </Link>
+                </>
+              ) : (
+                <Link
+                  to="/app"
+                  className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-6 py-3 text-lg font-semibold text-accent-ink transition-colors hover:bg-accent w-64"
+                  onClick={closeMobileMenu}
+                >
+                  Open dashboard
+                </Link>
+              )}
+            </nav>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

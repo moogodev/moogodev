@@ -540,3 +540,26 @@
     font-size: 1.75rem;
   }
 }
+
+/* --- Mobile menu slide-down -------------------------------------------- */
+
+.animate-slide-down {
+  animation: slide-down 0.25s ease-out forwards;
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-down {
+    animation: none;
+  }
+}
