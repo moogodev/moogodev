@@ -303,6 +303,16 @@ func (cfg Config) validate() error {
 		problems = append(problems, "MOOGO_COOKIE_SECURE must be true in production")
 	}
 
+	// dev.sh ships a working session secret so a laptop can start without
+	// setup. Length validation does not help here: that value is longer than
+	// the minimum, and it is published in the repository, so anyone can read it
+	// and sign their own session cookies. In production that is the same as no
+	// authentication at all, so the known value is refused outright.
+	if cfg.IsProduction() && isKnownSessionSecret(cfg.SessionSecret) {
+		problems = append(problems, "MOOGO_SESSION_SECRET is the published development default; "+
+			"generate a real one with `openssl rand -base64 32`")
+	}
+
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(problems, "\n  - "))
 	}
@@ -368,6 +378,28 @@ const (
 	minimumBodyBytes           = 1024
 	minimumSessionSecretLength = 32
 )
+
+// knownSessionSecrets are the session secrets that appear in the repository,
+// in dev.sh and in .env.example.
+//
+// They are listed rather than pattern-matched on words like "change" so that
+// editing the development script cannot quietly remove the guard and leave
+// production running on a value the repository publishes.
+var knownSessionSecrets = []string{
+	"local-dev-session-secret-change-me-0123456789",
+	"change-me-to-a-long-random-string",
+}
+
+// isKnownSessionSecret reports whether a session secret is one of the published
+// development values.
+func isKnownSessionSecret(secret string) bool {
+	for _, known := range knownSessionSecrets {
+		if secret == known {
+			return true
+		}
+	}
+	return false
+}
 
 // StorageCeilingBytes is the most one project can hold.
 //

@@ -130,3 +130,53 @@ func TestAProjectLimitBelowOneIsRejected(t *testing.T) {
 		t.Fatal("a zero project limit should be rejected: signup would create an account that cannot use the product")
 	}
 }
+
+// The development secret is published in the repository, and it is longer than
+// the minimum length, so the length check alone accepts it. In production that
+// would let anyone sign their own session cookies, so it has to be refused.
+func TestProductionRejectsThePublishedDevelopmentSecret(t *testing.T) {
+	_, err := loadWith(t, map[string]string{
+		"MOOGO_ENV":            "production",
+		"MOOGO_COOKIE_SECURE":  "true",
+		"MOOGO_SESSION_SECRET": "local-dev-session-secret-change-me-0123456789",
+	})
+
+	if err == nil {
+		t.Fatal("the published development secret was accepted in production")
+	}
+	if !strings.Contains(err.Error(), "MOOGO_SESSION_SECRET is the published development default") {
+		t.Errorf("error does not name the problem: %v", err)
+	}
+}
+
+// Outside production the same value is fine: that is what it is for.
+func TestDevelopmentAcceptsThePublishedSecret(t *testing.T) {
+	cfg, err := loadWith(t, map[string]string{
+		"MOOGO_ENV":            "development",
+		"MOOGO_SESSION_SECRET": "local-dev-session-secret-change-me-0123456789",
+	})
+
+	if err != nil {
+		t.Fatalf("local development should start with it: %v", err)
+	}
+	if cfg.IsProduction() {
+		t.Error("environment was not development")
+	}
+}
+
+// A real secret of the same length must still be accepted, so the guard is not
+// just a length rule wearing a disguise.
+func TestProductionAcceptsAGeneratedSecret(t *testing.T) {
+	cfg, err := loadWith(t, map[string]string{
+		"MOOGO_ENV":            "production",
+		"MOOGO_COOKIE_SECURE":  "true",
+		"MOOGO_SESSION_SECRET": strings.Repeat("x", 45),
+	})
+
+	if err != nil {
+		t.Fatalf("a generated secret should be accepted: %v", err)
+	}
+	if cfg.IsProduction() != true {
+		t.Error("environment was not production")
+	}
+}
