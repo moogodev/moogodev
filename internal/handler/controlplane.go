@@ -628,7 +628,8 @@ func (handler *ControlPlane) DeleteProject(w http.ResponseWriter, r *http.Reques
 	}
 
 	// The row is already soft-deleted, so a failure here leaves an orphaned
-	// file rather than a live project with no data. The sweep job removes it.
+	// file rather than a live project with no data. It is logged and nothing
+	// retries it, which is why the log line matters.
 	if err := handler.databases.RemoveProject(project.ID); err != nil {
 		handler.log.Error("remove project files", logger.Fields{
 			"project_id": project.ID.String(),

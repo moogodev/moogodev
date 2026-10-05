@@ -262,11 +262,15 @@ func (manager *Manager) Close() error {
 	return errors.Join(closeErrors...)
 }
 
-// RemoveProject closes the handle and deletes the project's database files.
+// RemoveProject closes the handle and deletes the project's database files and
+// its bucket.
 //
 // SQLite in WAL mode leaves -wal and -shm sidecars next to the main file.
 // Removing only the .db would leak the sidecars and eventually fill the disk,
-// so all three go together.
+// so all three go together. The bucket goes with them for the same reason: a
+// project deletion is final, so the objects would otherwise sit on the disk
+// where nothing reads them — and where the nightly tar of buckets/ keeps
+// archiving them.
 func (manager *Manager) RemoveProject(projectID uuid.UUID) error {
 	manager.mu.Lock()
 	if connection, found := manager.projects[projectID]; found {
@@ -287,6 +291,13 @@ func (manager *Manager) RemoveProject(projectID uuid.UUID) error {
 			removeErrors = append(removeErrors, fmt.Errorf("remove %s: %w", filepath.Base(path), err))
 		}
 	}
+
+	// RemoveAll on a directory that is already gone is not an error, so a
+	// project that never uploaded anything is unaffected.
+	if err := os.RemoveAll(manager.bucketProjectPath(projectID)); err != nil {
+		removeErrors = append(removeErrors, fmt.Errorf("remove bucket: %w", err))
+	}
+
 	return errors.Join(removeErrors...)
 }
 

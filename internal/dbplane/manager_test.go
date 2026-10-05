@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -323,6 +324,40 @@ func TestRemoveProjectDeletesSidecarFiles(t *testing.T) {
 		if _, err := os.Stat(databasePath + suffix); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("file %q should be gone, stat returned %v", suffix, err)
 		}
+	}
+}
+
+// TestRemoveProjectDeletesBucket is the object-storage half of the same
+// promise. Deletion has no undo, so an object left behind would be a file
+// nothing reads that the nightly backup keeps archiving.
+func TestRemoveProjectDeletesBucket(t *testing.T) {
+	manager := newTestManager(t, 100*1024*1024)
+	projectID := uuid.New()
+
+	objectDir := filepath.Join(manager.bucketProjectPath(projectID), "default")
+	if err := os.MkdirAll(objectDir, 0o700); err != nil {
+		t.Fatalf("create bucket: %v", err)
+	}
+	objectPath := filepath.Join(objectDir, "avatar.png")
+	if err := os.WriteFile(objectPath, []byte("png"), 0o600); err != nil {
+		t.Fatalf("write object: %v", err)
+	}
+
+	if err := manager.RemoveProject(projectID); err != nil {
+		t.Fatalf("remove project: %v", err)
+	}
+
+	if _, err := os.Stat(objectPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("uploaded object should be gone, stat returned %v", err)
+	}
+	if _, err := os.Stat(manager.bucketProjectPath(projectID)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("bucket directory should be gone, stat returned %v", err)
+	}
+
+	// Removing a project that never uploaded anything is still not an error.
+	other := uuid.New()
+	if err := manager.RemoveProject(other); err != nil {
+		t.Errorf("remove project without a bucket: %v", err)
 	}
 }
 
