@@ -91,6 +91,10 @@ const layout: { group: string; slugs: string[] }[] = [
     ],
   },
   {
+    group: "Database",
+    slugs: ["schema-best-practices"],
+  },
+  {
     group: "Reference",
     slugs: ["limits", "security", "errors", "feedback"],
   },

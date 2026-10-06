@@ -11,6 +11,10 @@ file per project, SQL over HTTP, no connection string and no driver.
 
 - [Architecture decisions](/docs/DECISIONS) — what has been locked in, and why
 
+## Database
+
+- [Schema & Migration Best Practices](/docs/schema-best-practices) — migration workflow, schema design, SQL style guide
+
 ## The two endpoints
 
 | Endpoint | Accepts | Rejects |
