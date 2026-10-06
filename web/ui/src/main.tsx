@@ -37,6 +37,11 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/plan" element={<Plan />} />
         <Route path="/docs" element={<Docs />} />
         <Route path="/docs/:slug" element={<Docs />} />
+        {/* Guides are linked from the corpus as /docs/guides/<slug> but the page
+            itself is registered under <slug> alone, so :slug above would capture
+            "guides" and leave the real segment stranded against the catch-all
+            below. Declared here so those forty cross links land on a page. */}
+        <Route path="/docs/guides/:slug" element={<Docs />} />
         <Route element={<AppShell />}>
           <Route path="/app" element={<Dashboard />} />
           <Route path="/app/projects" element={<Projects />} />

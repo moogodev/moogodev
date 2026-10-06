@@ -103,15 +103,26 @@ const check = (label, condition, extra = "") => {
   }
 };
 
-const files = readdirSync(docsDir).filter((name) => name.endsWith(".md")).sort();
+// Recurse. docs/guides/*.md are real pages the app ships, and reading only the
+// top level left every link into guides/ unverified -- the check reported a
+// valid link as broken because guides/ was never in the set of slugs.
+const files = readdirSync(docsDir, { recursive: true })
+  .filter((name) => name.endsWith(".md"))
+  .map((name) => name.replaceAll("\\", "/"))
+  .sort();
+
+// Files are named NN-slug.md; the URL uses the slug alone. The leading numeric
+// prefix is stripped from the basename only, so guides/14-schema.md and
+// schema.md agree on one slug, matching slugFromPath() in lib/docs.ts.
+const slugOf = (path) =>
+  path.split("/").pop().replace(/\.md$/, "").replace(/^\d+-/, "");
+
 console.log(`Checking ${files.length} documents\n`);
 
-const allSlugs = new Set(
-  files.map((name) => name.replace(/\.md$/, "").replace(/^\d+-/, "")),
-);
+const allSlugs = new Set(files.map(slugOf));
 
 for (const file of files) {
-  const slug = file.replace(/\.md$/, "").replace(/^\d+-/, "");
+  const slug = slugOf(file);
   const source = readFileSync(join(docsDir, file), "utf8");
   const tokens = parser.lexer(source);
 
@@ -170,9 +181,15 @@ for (const file of files) {
   check(`${slug}: H2 anchors emitted`, (html.match(/id="/g) ?? []).length >= headings.length);
   check(`${slug}: code blocks survive sanitize`, !/class="code-block"[\s\S]{0,400}<pre><code><\/code>/.test(html));
 
-  // Every internal /docs link must resolve to a real page.
-  for (const match of html.matchAll(/href="(\/docs\/[a-z0-9-]+)"/g)) {
-    const target = match[1].replace("/docs/", "");
+  // Every internal /docs link must resolve to a real page. The path may span
+  // more than one segment -- /docs/guides/nextjs addresses one page through a
+  // two segment URL -- so the pattern has to allow slashes, or the longest and
+  // most fragile links in the corpus are the ones never checked at all.
+  for (const match of html.matchAll(/href="(\/docs\/[a-z0-9/-]+)"/g)) {
+    let target = match[1].slice("/docs/".length);
+    // The SPA serves /docs/guides/:slug from the page whose slug omits the
+    // guides/ prefix; resolve it exactly the way main.tsx does.
+    if (target.startsWith("guides/")) target = target.slice("guides/".length);
     check(
       `${slug}: link ${match[1]} resolves`,
       allSlugs.has(target),
