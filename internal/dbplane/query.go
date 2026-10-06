@@ -6,8 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/moogo/moogo/internal/metrics"
+	"github.com/moogo/moogo/pkg/logger"
 )
 
 // defaultMaxRows caps a single query result.
@@ -15,6 +19,13 @@ import (
 // A host with 2 GB of RAM cannot absorb an unbounded result set, and
 // "SELECT * FROM large_table" is an easy thing to write by accident.
 const defaultMaxRows = 1000
+
+// slowQueryThreshold is how long a statement runs before it is logged.
+//
+// One second is far above what SQLite needs for anything an interactive
+// application sends, and far below what a missing index on a large table
+// costs, so the line shows up exactly when there is something to look at.
+const slowQueryThreshold = time.Second
 
 // Query executes a read statement and returns the rows.
 //
@@ -38,10 +49,31 @@ func (manager *Manager) Query(
 		maxRows = defaultMaxRows
 	}
 
-	connection, err := manager.connect(ctx, projectID)
+	connection, release, err := manager.acquire(projectID)
 	if err != nil {
 		return nil, err
 	}
+	defer release()
+
+	// Statement slots are taken on the request context, not the statement
+	// timeout: a caller that gives up while queued gets ErrBusy instead of
+	// a running statement, and a slot that is granted gets the full time
+	// budget for the statement itself.
+	releaseSlots, err := manager.acquireSlots(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseSlots()
+
+	// Timed from here, not from the start: the wait for a slot is the
+	// queue-depth gauge's story, and what follows is the statement itself.
+	started := time.Now()
+	rowsReturned := 0
+	defer func() {
+		took := time.Since(started)
+		metrics.ObserveQuery("query", projectID.String(), took)
+		manager.logSlowStatement("query", projectID, took, rowsReturned)
+	}()
 
 	// The statement timeout is enforced with a context, which SQLite honors at
 	// the step boundary. A single blocking call would need an interrupt, and
@@ -82,14 +114,16 @@ func (manager *Manager) Query(
 	if err := rows.Err(); err != nil {
 		return nil, classifyError(err, statementCtx)
 	}
+	rowsReturned = len(result.Rows)
 	return result, nil
 }
 
 // Exec executes a write or DDL statement.
 //
-// The write lock is held for the whole operation, including the size recheck.
-// Releasing it before the recheck would let two concurrent large writes each
-// see a size under the limit and jointly exceed it.
+// The write lock is held for the whole operation, including the size check.
+// The check runs inside the lock so every writer sees the size the previous
+// writer committed: two statements that each fit on their own cannot jointly
+// exceed the limit, which is exactly what the lock makes impossible.
 func (manager *Manager) Exec(
 	ctx context.Context,
 	projectID uuid.UUID,
@@ -100,16 +134,27 @@ func (manager *Manager) Exec(
 		return nil, err
 	}
 
-	connection, err := manager.connect(ctx, projectID)
+	connection, release, err := manager.acquire(projectID)
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 
-	// Check the size before writing. Checking only afterwards would be too
-	// late: the disk space would already be committed.
-	if err := manager.checkSize(ctx, connection.db); err != nil {
+	releaseSlots, err := manager.acquireSlots(ctx, projectID)
+	if err != nil {
 		return nil, err
 	}
+	defer releaseSlots()
+
+	// Same basis as Query: the statement itself, with the wait for a slot
+	// left to the queue-depth gauge.
+	started := time.Now()
+	var rowsAffected int64
+	defer func() {
+		took := time.Since(started)
+		metrics.ObserveQuery("exec", projectID.String(), took)
+		manager.logSlowStatement("exec", projectID, took, int(rowsAffected))
+	}()
 
 	statementCtx, cancel := context.WithTimeout(ctx, manager.queryTimeout)
 	defer cancel()
@@ -117,29 +162,45 @@ func (manager *Manager) Exec(
 	connection.writeLock.Lock()
 	defer connection.writeLock.Unlock()
 
+	// Check the size before writing, under the lock. Checking only afterwards
+	// would be too late: the disk space would already be committed. This is
+	// the one size check per statement; it both refuses writes to a database
+	// that is already at its limit and, because it is serialized, catches a
+	// write that jointly pushed past the limit with an earlier one.
+	if err := manager.checkSize(ctx, connection.db); err != nil {
+		return nil, err
+	}
+
 	execResult, err := connection.db.ExecContext(statementCtx, statement, args...)
 	if err != nil {
 		return nil, classifyError(err, statementCtx)
 	}
 
-	rowsAffected, err := execResult.RowsAffected()
+	rowsAffected, err = execResult.RowsAffected()
 	if err != nil {
 		// Not fatal: some statements simply do not report a count.
 		rowsAffected = 0
 	}
 
-	// Recheck after the write and report if the result now exceeds the limit.
-	// The data stays, since rolling back would discard a successful statement;
-	// the error tells the caller the database needs attention.
-	size, err := databaseSize(ctx, connection.db)
-	if err == nil && size > manager.maxDBBytes {
-		return &ExecResult{
-			RowsAffected: rowsAffected,
-			SizeBytes:    size,
-		}, fmt.Errorf("%w: database is now %d bytes, limit is %d",
-			ErrSizeExceeded, size, manager.maxDBBytes)
+	// The size for the response is read from the files on disk instead of
+	// through a second PRAGMA while the write lock is held. A statement that
+	// crosses the limit still succeeds here (rolling back would discard a
+	// successful write); the next one is refused by the check above with
+	// ErrSizeExceeded, which tells the caller the database needs attention.
+	path := manager.databasePath(projectID)
+	size, err := DatabaseSizeBytes(path)
+	if err != nil {
+		// The stat should not fail for a database that just accepted a
+		// write, but if it does the driver's own accounting is the answer.
+		if size, err = databaseSize(ctx, connection.db); err != nil {
+			size = 0
+		}
+	} else {
+		// Bytes written since the last checkpoint live in the WAL sidecar,
+		// not the main file, so the sidecar is part of the size the caller
+		// is told about.
+		size += sidecarSize(path)
 	}
-
 	return &ExecResult{RowsAffected: rowsAffected, SizeBytes: size}, nil
 }
 
@@ -154,6 +215,26 @@ func (manager *Manager) checkSize(ctx context.Context, database *sql.DB) error {
 			ErrSizeExceeded, size, manager.maxDBBytes)
 	}
 	return nil
+}
+
+// logSlowStatement emits a log line for a statement that ran at least
+// slowQueryThreshold.
+//
+// The statement text and its arguments are deliberately absent: they carry
+// user data, and the line's job is to say which project, which operation,
+// and how long it took -- never what was asked.
+func (manager *Manager) logSlowStatement(
+	op string, projectID uuid.UUID, took time.Duration, rows int,
+) {
+	if took < slowQueryThreshold {
+		return
+	}
+	manager.logger.Info("slow statement", logger.Fields{
+		"op":          op,
+		"project_id":  projectID.String(),
+		"duration_ms": took.Milliseconds(),
+		"rows":        rows,
+	})
 }
 
 // databaseSize reports the main database size via page_count times page_size.

@@ -241,6 +241,21 @@ func (store *Store) ListProjects(ctx context.Context, userID uuid.UUID, limit in
 	return projects, nil
 }
 
+// ProjectCount reports how many live projects this deployment holds.
+//
+// The metrics scrape reads it, so an error returns no number rather than a
+// zero: a stale or wrong count would answer a scaling question with a lie,
+// and absence is the honest answer.
+func (store *Store) ProjectCount(ctx context.Context) (int, error) {
+	const query = `SELECT count(*) FROM projects WHERE deleted_at IS NULL`
+
+	var count int
+	if err := store.pool.QueryRow(ctx, query).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count projects: %w", err)
+	}
+	return count, nil
+}
+
 // RotateSecretKey issues a new secret key for a project and invalidates the
 // previous one, since only a single hash is stored per project.
 //

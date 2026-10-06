@@ -29,10 +29,13 @@ type Config struct {
 	// that request arrived at the dashboard, and behind a proxy it arrived over
 	// plain HTTP. Defaults to PublicURL, which is what a single-host
 	// deployment wants.
-	APIURL          string
-	ReadTimeout     time.Duration
-	WriteTimeout    time.Duration
-	IdleTimeout     time.Duration
+	APIURL      string
+	ReadTimeout time.Duration
+	IdleTimeout time.Duration
+	// ShutdownTimeout bounds graceful shutdown after a signal. It must
+	// exceed the statement timeout, otherwise a running query would be cut
+	// off by shutdown instead of being allowed to finish or report its own
+	// error.
 	ShutdownTimeout time.Duration
 
 	// Control plane (Postgres).
@@ -47,6 +50,12 @@ type Config struct {
 	MaxStorageBytes int64
 	QueryTimeout    time.Duration
 	MaxBodyBytes    int64
+	// MaxCachedProjects bounds how many project database handles stay open
+	// at once. Past it the least recently used idle handle is closed; the
+	// next request for that project reopens it. Without a bound, a
+	// deployment that has seen many projects would hold a connection pool
+	// for every one of them for the life of the process.
+	MaxCachedProjects int
 
 	// MaxObjectBytes caps a single object upload.
 	//
@@ -188,21 +197,21 @@ func Load() (Config, error) {
 		PublicURL:       strings.TrimRight(reader.string("MOOGO_PUBLIC_URL", "http://localhost:8080"), "/"),
 		APIURL:          strings.TrimRight(reader.string("MOOGO_API_URL", ""), "/"),
 		ReadTimeout:     reader.duration("MOOGO_READ_TIMEOUT", 15*time.Second),
-		WriteTimeout:    reader.duration("MOOGO_WRITE_TIMEOUT", 30*time.Second),
 		IdleTimeout:     reader.duration("MOOGO_IDLE_TIMEOUT", 120*time.Second),
-		ShutdownTimeout: reader.duration("MOOGO_SHUTDOWN_TIMEOUT", 20*time.Second),
+		ShutdownTimeout: reader.duration("MOOGO_SHUTDOWN_TIMEOUT", 30*time.Second),
 
 		DatabaseURL:      reader.requiredString("MOOGO_DATABASE_URL"),
-		DBMaxConns:       int32(reader.int("MOOGO_DB_MAX_CONNS", 8)),
+		DBMaxConns:       int32(reader.int("MOOGO_DB_MAX_CONNS", 32)),
 		DBMinConns:       int32(reader.int("MOOGO_DB_MIN_CONNS", 2)),
 		DBConnectTimeout: reader.duration("MOOGO_DB_CONNECT_TIMEOUT", 10*time.Second),
 
-		DataDir:         reader.string("MOOGO_DATA_DIR", "/data"),
-		MaxDBBytes:      reader.int64("MOOGO_MAX_DB_BYTES", 100*1024*1024),
-		MaxStorageBytes: reader.int64("MOOGO_MAX_STORAGE_BYTES", 256*1024*1024),
-		QueryTimeout:    reader.duration("MOOGO_QUERY_TIMEOUT", 15*time.Second),
-		MaxBodyBytes:    reader.int64("MOOGO_MAX_BODY_BYTES", 1*1024*1024),
-		MaxObjectBytes:  reader.int64("MOOGO_MAX_OBJECT_BYTES", StorageCeilingBytes),
+		DataDir:           reader.string("MOOGO_DATA_DIR", "/data"),
+		MaxDBBytes:        reader.int64("MOOGO_MAX_DB_BYTES", 100*1024*1024),
+		MaxStorageBytes:   reader.int64("MOOGO_MAX_STORAGE_BYTES", 256*1024*1024),
+		QueryTimeout:      reader.duration("MOOGO_QUERY_TIMEOUT", 15*time.Second),
+		MaxBodyBytes:      reader.int64("MOOGO_MAX_BODY_BYTES", 1*1024*1024),
+		MaxObjectBytes:    reader.int64("MOOGO_MAX_OBJECT_BYTES", StorageCeilingBytes),
+		MaxCachedProjects: reader.int("MOOGO_MAX_CACHED_PROJECTS", 512),
 
 		GoogleClientID:     reader.string("MOOGO_GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret: reader.string("MOOGO_GOOGLE_CLIENT_SECRET", ""),
@@ -263,6 +272,9 @@ func (cfg Config) validate() error {
 
 	if cfg.DBMaxConns < 1 {
 		problems = append(problems, "MOOGO_DB_MAX_CONNS must be at least 1")
+	}
+	if cfg.MaxCachedProjects < 1 {
+		problems = append(problems, "MOOGO_MAX_CACHED_PROJECTS must be at least 1")
 	}
 	if cfg.DBMinConns < 0 || cfg.DBMinConns > cfg.DBMaxConns {
 		problems = append(problems, "MOOGO_DB_MIN_CONNS must be between 0 and MOOGO_DB_MAX_CONNS")

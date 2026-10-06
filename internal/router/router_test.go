@@ -19,6 +19,7 @@ import (
 
 	"github.com/moogo/moogo/internal/auth"
 	"github.com/moogo/moogo/internal/dbcontrol"
+	"github.com/moogo/moogo/internal/metrics"
 	"github.com/moogo/moogo/pkg/bucketkey"
 	"github.com/moogo/moogo/pkg/httpx"
 	"github.com/moogo/moogo/pkg/logger"
@@ -367,6 +368,7 @@ func testRouter(t *testing.T, projectID uuid.UUID) (
 		MaxBodyBytes:   64 * 1024,
 		MaxObjectBytes: 8 * 1024 * 1024,
 		RequestTimeout: 5 * time.Second,
+		Metrics:        metrics.Handler(metrics.Providers{}),
 	})
 
 	return built, oauthStub, controlStub, dataStub
@@ -1201,5 +1203,140 @@ func TestBucketUploadIsCappedByTheObjectLimit(t *testing.T) {
 
 	if recorder.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want 413 for an upload over the object cap", recorder.Code)
+	}
+}
+
+// The data plane's query allowance is spent per project, not per address: an
+// application whose users arrive from a thousand addresses still gets one
+// budget, and once it is spent the refusal arrives with a Retry-After.
+func TestDataPlaneQueryIsRateLimitedPerProject(t *testing.T) {
+	projectID := uuid.New()
+	built, _, _, _ := testRouter(t, projectID)
+
+	post := func(path, address string) int {
+		recorder := httptest.NewRecorder()
+		request := withProjectKey(httptest.NewRequest(http.MethodPost, path, nil))
+		request.RemoteAddr = address
+		built.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+	queryPath := "/p/" + projectID.String() + "/query"
+
+	// The first request must reach the handler: a limiter that refused
+	// everything would pass this check while breaking the data plane.
+	if code := post(queryPath, "203.0.113.10:1000"); code != http.StatusOK {
+		t.Fatalf("first query should reach the handler, got %d", code)
+	}
+
+	// A fresh address on every attempt: if the address were the key, this
+	// sequence would never hit the limit.
+	limited := false
+	for attempt := 0; attempt < 305; attempt++ {
+		address := fmt.Sprintf("203.0.113.%d:%d", attempt%256, attempt)
+		if code := post(queryPath, address); code == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("expected /p/{id}/query to start refusing with 429")
+	}
+
+	// Another project on the same host has its own allowance: one project
+	// running out must not freeze its neighbours.
+	otherPath := "/p/" + uuid.New().String() + "/query"
+	if code := post(otherPath, "203.0.113.10:1000"); code != http.StatusOK {
+		t.Errorf("a second project should have its own allowance, got %d", code)
+	}
+}
+
+// Spending the allowance on the /p prefix must also empty the /db bucket: the
+// allowance cannot be multiplied by moving between endpoints.
+func TestQueryRateLimitIsSharedAcrossPrefixes(t *testing.T) {
+	projectID := uuid.New()
+	built, _, _, _ := testRouter(t, projectID)
+
+	post := func(path string) int {
+		recorder := httptest.NewRecorder()
+		request := withProjectKey(httptest.NewRequest(http.MethodPost, path, nil))
+		request.RemoteAddr = "203.0.113.20:2000"
+		built.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+
+	for attempt := 0; attempt < 305; attempt++ {
+		post("/p/" + projectID.String() + "/query")
+	}
+	if code := post("/db/" + projectID.String() + "/query"); code != http.StatusTooManyRequests {
+		t.Errorf("expected /db to share the /p allowance, got %d", code)
+	}
+}
+
+// Bucket routes are limited per caller address instead: object traffic is
+// usually one browser fetching many small files, which is a per-client
+// pattern, and the budget should follow the client.
+func TestBucketRoutesAreRateLimitedPerAddress(t *testing.T) {
+	projectID := uuid.New()
+	built, _, _, _ := testRouter(t, projectID)
+
+	get := func(address string) int {
+		recorder := httptest.NewRecorder()
+		request := withStorageCredential(httptest.NewRequest(http.MethodGet,
+			"/p/"+projectID.String()+"/bucket/logo.png", nil))
+		request.RemoteAddr = address
+		built.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+
+	if code := get("198.51.100.30:3000"); code != http.StatusOK {
+		t.Fatalf("first download should reach the handler, got %d", code)
+	}
+
+	limited := false
+	for attempt := 0; attempt < 305; attempt++ {
+		if code := get("198.51.100.30:3000"); code == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("expected /p/{id}/bucket/{key} to start refusing with 429")
+	}
+
+	// A different client keeps downloading: the refusal belongs to the
+	// address that exhausted its budget, not to the route.
+	if code := get("198.51.100.31:3000"); code != http.StatusOK {
+		t.Errorf("another address should have its own allowance, got %d", code)
+	}
+}
+
+// /metrics answers from the machine itself and disappears for everybody
+// else: the counters describe internal saturation, which is useful on the
+// host and to nobody else.
+func TestMetricsEndpointIsLoopbackOnly(t *testing.T) {
+	built, _, _, _ := testRouter(t, uuid.New())
+
+	local := httptest.NewRecorder()
+	localRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	localRequest.RemoteAddr = "127.0.0.1:7777"
+	built.ServeHTTP(local, localRequest)
+
+	if local.Code != http.StatusOK {
+		t.Fatalf("loopback status = %d, want 200", local.Code)
+	}
+	if !strings.Contains(local.Body.String(), "moogo_query_queue_depth") {
+		t.Errorf("loopback scrape is missing the counters:\n%s", local.Body.String())
+	}
+
+	remote := httptest.NewRecorder()
+	remoteRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	remoteRequest.RemoteAddr = "203.0.113.44:443"
+	built.ServeHTTP(remote, remoteRequest)
+
+	if remote.Code != http.StatusNotFound {
+		t.Errorf("remote status = %d, want 404", remote.Code)
+	}
+	if strings.Contains(remote.Body.String(), "moogo_") {
+		t.Error("the remote body must not reveal that metrics exist")
 	}
 }

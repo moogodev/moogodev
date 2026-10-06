@@ -244,3 +244,64 @@ func TestForwardedForIsUsedWithTrustedProxies(t *testing.T) {
 		t.Errorf("a different forwarded caller should have its own allowance, got %d", code)
 	}
 }
+
+// MiddlewareKey spends the allowance against whatever identity the caller
+// supplies instead of the address, and the identities are as separate as
+// addresses would be. The data plane leans on this: one project's budget is
+// never another project's, wherever the requests arrive from.
+func TestMiddlewareKeySeparatesIdentities(t *testing.T) {
+	limiter := New(Config{Limit: 1, Window: time.Minute}, nil)
+
+	handler := limiter.MiddlewareKey(func(r *http.Request) string {
+		return "project:" + r.Header.Get("X-Project")
+	})(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+
+	send := func(project string) int {
+		request := httptest.NewRequest(http.MethodPost, "/p/x/query", nil)
+		// A different address every time: the address must play no part in
+		// what this limiter counts.
+		request.RemoteAddr = "203.0.113.50:5555"
+		request.Header.Set("X-Project", project)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+
+	if code := send("alpha"); code != http.StatusOK {
+		t.Fatalf("first request for alpha: expected 200, got %d", code)
+	}
+	if code := send("alpha"); code != http.StatusTooManyRequests {
+		t.Errorf("alpha over its limit: expected 429, got %d", code)
+	}
+	if code := send("beta"); code != http.StatusOK {
+		t.Errorf("beta must not spend alpha's allowance, got %d", code)
+	}
+}
+
+// Middleware delegates to MiddlewareKey on the address, so the two stay
+// behaviourally identical: the same 429 contract from both entry points.
+func TestMiddlewareIsKeyedByAddress(t *testing.T) {
+	limiter := New(Config{Limit: 1, Window: time.Minute}, nil)
+
+	handler := limiter.Middleware(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+
+	send := func(remote string) int {
+		request := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
+		request.RemoteAddr = remote
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+
+	if code := send("203.0.113.60:5555"); code != http.StatusOK {
+		t.Fatalf("first caller: expected 200, got %d", code)
+	}
+	if code := send("203.0.113.60:5555"); code != http.StatusTooManyRequests {
+		t.Errorf("same caller over limit: expected 429, got %d", code)
+	}
+	if code := send("203.0.113.61:5555"); code != http.StatusOK {
+		t.Errorf("a different caller should have its own allowance, got %d", code)
+	}
+}

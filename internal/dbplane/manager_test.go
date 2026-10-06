@@ -19,7 +19,7 @@ import (
 func newTestManager(t *testing.T, maxDBBytes int64) *Manager {
 	t.Helper()
 
-	manager, err := NewManager(t.TempDir(), maxDBBytes, 5*time.Second, logger.Nop())
+	manager, err := NewManager(t.TempDir(), maxDBBytes, 5*time.Second, 512, logger.Nop())
 	if err != nil {
 		t.Fatalf("create manager: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestProjectsAreIsolatedFromEachOther(t *testing.T) {
 }
 
 func TestManagerRejectsQueriesAfterClose(t *testing.T) {
-	manager, err := NewManager(t.TempDir(), 100*1024*1024, time.Second, logger.Nop())
+	manager, err := NewManager(t.TempDir(), 100*1024*1024, time.Second, 512, logger.Nop())
 	if err != nil {
 		t.Fatalf("create manager: %v", err)
 	}
@@ -406,5 +406,181 @@ func TestManagerRejectsQueriesAfterClose(t *testing.T) {
 	// A query after close must fail loudly rather than reopening silently.
 	if _, err := manager.Query(context.Background(), projectID, `SELECT 1`, nil, 0); err == nil {
 		t.Error("expected an error after the manager was closed")
+	}
+}
+
+// TestQueryTimeoutInterruptsRunningStatement asserts that a statement stops
+// consuming CPU once its context deadline passes, instead of running to
+// completion and reporting the timeout afterwards.
+//
+// The driver is expected to watch the context and call sqlite3_interrupt.
+// If that wiring ever breaks, the recursion below runs all 10 million rows,
+// the query returns a success instead of ErrTimeout, and this test fails.
+func TestQueryTimeoutInterruptsRunningStatement(t *testing.T) {
+	manager := newTestManager(t, 100*1024*1024)
+	projectID := uuid.New()
+	if err := manager.InitializeProject(context.Background(), projectID); err != nil {
+		t.Fatalf("initialize project: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := manager.Query(ctx, projectID, `
+		WITH RECURSIVE cnt(x) AS (
+			SELECT 1 UNION ALL SELECT x + 1 FROM cnt WHERE x < 10000000
+		)
+		SELECT count(x) FROM cnt`, nil, 0)
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("expected ErrTimeout, got %v (after %v)", err, elapsed)
+	}
+	// The deadline was 100ms. A generous ceiling still catches a driver that
+	// only notices the deadline after finishing all 10 million rows, which
+	// takes far longer than this on the pure-Go build.
+	if elapsed > 5*time.Second {
+		t.Errorf("statement was not interrupted: took %v, want under 5s", elapsed)
+	}
+}
+
+// newTestManagerWithCache creates a manager whose handle cache holds at most
+// maxCached projects.
+func newTestManagerWithCache(t *testing.T, maxCached int) *Manager {
+	t.Helper()
+
+	manager, err := NewManager(t.TempDir(), 100*1024*1024, 5*time.Second, maxCached, logger.Nop())
+	if err != nil {
+		t.Fatalf("create manager: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	return manager
+}
+
+// cachedCount reports how many handles are open. Test support only.
+func (manager *Manager) cachedCount() int {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return len(manager.dbs)
+}
+
+func TestConnectionCacheEvictsLeastRecentlyUsed(t *testing.T) {
+	manager := newTestManagerWithCache(t, 2)
+	ctx := context.Background()
+
+	projects := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+	for _, projectID := range projects {
+		if err := manager.InitializeProject(ctx, projectID); err != nil {
+			t.Fatalf("initialize project: %v", err)
+		}
+	}
+
+	// Touch all three, most recently used last.
+	for _, projectID := range projects {
+		if _, err := manager.Query(ctx, projectID, `SELECT 1`, nil, 0); err != nil {
+			t.Fatalf("query after cache churn: %v", err)
+		}
+	}
+
+	if got := manager.cachedCount(); got > 2 {
+		t.Errorf("cached handles = %d, want at most 2", got)
+	}
+
+	// The oldest project was evicted; querying it must reopen it rather
+	// than fail.
+	if _, err := manager.Query(ctx, projects[0], `SELECT 1`, nil, 0); err != nil {
+		t.Errorf("query evicted project: %v", err)
+	}
+}
+
+func TestConnectionCacheNeverEvictsProjectInUse(t *testing.T) {
+	manager := newTestManagerWithCache(t, 1)
+	ctx := context.Background()
+
+	projectA, projectB := uuid.New(), uuid.New()
+	for _, projectID := range []uuid.UUID{projectA, projectB} {
+		if err := manager.InitializeProject(ctx, projectID); err != nil {
+			t.Fatalf("initialize project: %v", err)
+		}
+	}
+
+	// Hold A in flight, then bring B into a full cache. A has a non-zero
+	// ref count, so it must survive; closing it here would pull the handle
+	// out from under the operation that is using it.
+	_, releaseA, err := manager.acquire(projectA)
+	if err != nil {
+		t.Fatalf("acquire A: %v", err)
+	}
+	_, releaseB, err := manager.acquire(projectB)
+	if err != nil {
+		t.Fatalf("acquire B: %v", err)
+	}
+	if got := manager.cachedCount(); got != 2 {
+		t.Errorf("cached handles = %d while A is in use, want A kept open (2 total)", got)
+	}
+	releaseA()
+	releaseB()
+
+	// Once released, A is the least recently used idle entry and the next
+	// acquisition may evict it.
+	if _, release, err := manager.acquire(projectB); err != nil {
+		t.Fatalf("acquire B: %v", err)
+	} else {
+		release()
+	}
+	if got := manager.cachedCount(); got > 1 {
+		t.Errorf("cached handles = %d after release, want at most 1", got)
+	}
+}
+
+func TestConcurrentUseDuringEviction(t *testing.T) {
+	manager := newTestManagerWithCache(t, 2)
+	ctx := context.Background()
+
+	projects := make([]uuid.UUID, 5)
+	for index := range projects {
+		projects[index] = uuid.New()
+		if err := manager.InitializeProject(ctx, projects[index]); err != nil {
+			t.Fatalf("initialize project: %v", err)
+		}
+		if _, err := manager.Exec(ctx, projects[index],
+			`CREATE TABLE t (v INTEGER)`, nil); err != nil {
+			t.Fatalf("create table: %v", err)
+		}
+	}
+
+	// Round-robin reads and writes while the cache is smaller than the
+	// working set, so handles are opened and evicted underneath real
+	// traffic. A handle closed mid-operation, a lost write lock, or an
+	// unsynchronized map would show up here, especially under -race.
+	var waitGroup sync.WaitGroup
+	errorChannel := make(chan error, 64)
+	for worker := 0; worker < 8; worker++ {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			for iteration := 0; iteration < 50; iteration++ {
+				projectID := projects[iteration%len(projects)]
+				if _, err := manager.Exec(ctx, projectID,
+					`INSERT INTO t (v) VALUES (?)`, []any{iteration}); err != nil {
+					errorChannel <- err
+					return
+				}
+				if _, err := manager.Query(ctx, projectID, `SELECT count(*) FROM t`, nil, 0); err != nil {
+					errorChannel <- err
+					return
+				}
+			}
+		}()
+	}
+	waitGroup.Wait()
+	close(errorChannel)
+
+	for err := range errorChannel {
+		t.Fatalf("concurrent operation during eviction: %v", err)
+	}
+	if got := manager.cachedCount(); got > 2 {
+		t.Errorf("cached handles = %d, want at most 2", got)
 	}
 }

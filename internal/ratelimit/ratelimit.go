@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/moogo/moogo/internal/metrics"
 	"github.com/moogo/moogo/pkg/httpx"
 )
 
@@ -64,6 +65,9 @@ type Limiter struct {
 	trustedProxies []string
 	// now is injectable so tests can advance time without sleeping.
 	now func() time.Time
+	// plane names this limiter in moogo_rate_limited_total, so a refusal can
+	// be attributed to the auth, query, or bucket ceiling.
+	plane string
 
 	mu      sync.Mutex
 	buckets map[string]*entry
@@ -84,12 +88,20 @@ func New(config Config, trustedProxies []string) *Limiter {
 		config = DefaultCredentialLimit
 	}
 	return &Limiter{
-		config:        config,
+		config:         config,
 		trustedProxies: trustedProxies,
-		now:           time.Now,
-		buckets:       make(map[string]*entry),
-		lastSweep:     time.Now(),
+		now:            time.Now,
+		plane:          "auth",
+		buckets:        make(map[string]*entry),
+		lastSweep:      time.Now(),
 	}
+}
+
+// Plane names this limiter in the moogo_rate_limited_total metric and
+// returns the limiter, so construction reads as one expression.
+func (limiter *Limiter) Plane(name string) *Limiter {
+	limiter.plane = name
+	return limiter
 }
 
 // sweepInterval is how often idle buckets are dropped. Every window is enough:
@@ -174,29 +186,42 @@ func (limiter *Limiter) Size() int {
 	return len(limiter.buckets)
 }
 
-// Middleware throttles a handler, answering 429 with a Retry-After when the
-// caller is over their limit.
+// Middleware throttles a handler by the caller's address, answering 429 with
+// a Retry-After when the caller is over their limit.
 //
 // A 429 and not a 403: the request was not refused on its merits, it arrived
 // too fast, and the distinction matters to every client that retries.
 func (limiter *Limiter) Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := clientKey(r, limiter.trustedProxies)
+	return limiter.MiddlewareKey(func(r *http.Request) string {
+		return clientKey(r, limiter.trustedProxies)
+	})(next)
+}
 
-		allowed, wait := limiter.allow(key)
-		if !allowed {
-			seconds := int(wait.Seconds())
-			if seconds < 1 {
-				seconds = 1
+// MiddlewareKey is Middleware keyed on a caller-supplied identity instead of
+// the network address: the data plane limits per project, so one
+// application's traffic cannot exhaust another's budget no matter where the
+// requests come from.
+//
+// keyFn runs on every request; the 429 contract is identical.
+func (limiter *Limiter) MiddlewareKey(keyFn func(*http.Request) string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			allowed, wait := limiter.allow(keyFn(r))
+			if !allowed {
+				metrics.IncRateLimited(limiter.plane)
+				seconds := int(wait.Seconds())
+				if seconds < 1 {
+					seconds = 1
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(seconds))
+				httpx.WriteError(w, http.StatusTooManyRequests, "rate_limited",
+					"too many attempts, try again shortly")
+				return
 			}
-			w.Header().Set("Retry-After", strconv.Itoa(seconds))
-			httpx.WriteError(w, http.StatusTooManyRequests, "rate_limited",
-				"too many attempts, try again shortly")
-			return
-		}
 
-		next.ServeHTTP(w, r)
-	})
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // clientKey identifies the caller.

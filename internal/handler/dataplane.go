@@ -234,6 +234,13 @@ func (runner sqlRunner) writeDataPlaneError(
 ) {
 	status, code, message := classifyDataPlaneError(err)
 
+	// A busy project is the one failure worth retrying as-is: the slot will
+	// free up, and the header tells the client how soon to try rather than
+	// hammering the endpoint.
+	if errors.Is(err, dbplane.ErrBusy) {
+		w.Header().Set("Retry-After", "1")
+	}
+
 	runner.log.Warn("data plane request failed", logger.Fields{
 		"project_id": projectID.String(),
 		"operation":  operation,
@@ -259,6 +266,9 @@ func classifyDataPlaneError(err error) (int, string, string) {
 			"the database has reached its size limit"
 	case errors.Is(err, dbplane.ErrTimeout):
 		return http.StatusGatewayTimeout, "statement_timeout", "the statement took too long"
+	case errors.Is(err, dbplane.ErrBusy):
+		return http.StatusServiceUnavailable, "database_busy",
+			"the project database is at its concurrency limit; retry shortly"
 	case errors.Is(err, dbplane.ErrClosed):
 		return http.StatusServiceUnavailable, "service_unavailable", "the service is restarting"
 	case errors.Is(err, dbcontrol.ErrQuotaExceeded):

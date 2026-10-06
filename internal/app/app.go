@@ -18,6 +18,7 @@ import (
 	"github.com/moogo/moogo/internal/dbplane"
 	"github.com/moogo/moogo/internal/handler"
 	"github.com/moogo/moogo/internal/mail"
+	"github.com/moogo/moogo/internal/metrics"
 	"github.com/moogo/moogo/internal/router"
 	"github.com/moogo/moogo/pkg/logger"
 	"github.com/moogo/moogo/pkg/session"
@@ -61,7 +62,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		return nil, fmt.Errorf("control plane: %w", err)
 	}
 
-	databases, err := dbplane.NewManager(cfg.DataDir, cfg.MaxDBBytes, cfg.QueryTimeout, options.Log)
+	databases, err := dbplane.NewManager(cfg.DataDir, cfg.MaxDBBytes, cfg.QueryTimeout, cfg.MaxCachedProjects, options.Log)
 	if err != nil {
 		store.Close()
 		return nil, fmt.Errorf("data plane: %w", err)
@@ -117,6 +118,13 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		MaxBodyBytes:   cfg.MaxBodyBytes,
 		MaxObjectBytes: cfg.MaxObjectBytes,
 		RequestTimeout: cfg.QueryTimeout + requestGrace,
+		// The counters themselves are process-wide; these providers are the
+		// two values read fresh at scrape time. Both come from objects that
+		// outlive the handler, so there is no lifetime to coordinate.
+		Metrics: metrics.Handler(metrics.Providers{
+			OpenConnections: databases.OpenConnections,
+			ProjectCount:    store.ProjectCount,
+		}),
 	})
 
 	reconciler := NewReconciler(store, databases, options.Log)
@@ -131,7 +139,11 @@ func Build(ctx context.Context, options Options) (*App, error) {
 			// successful results.
 			ReadHeaderTimeout: cfg.ReadTimeout,
 			IdleTimeout:       cfg.IdleTimeout,
-			ErrorLog:          options.Log.Standard(),
+			// Go's default header cap is 1 MB, which is far more than the
+			// cookies and tokens here ever need. A smaller ceiling turns a
+			// header flood into a fast 431 instead of buffered memory.
+			MaxHeaderBytes: 64 << 10,
+			ErrorLog:       options.Log.Standard(),
 		},
 		Store:     store,
 		Databases: databases,

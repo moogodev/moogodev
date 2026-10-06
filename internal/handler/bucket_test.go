@@ -2369,3 +2369,117 @@ func TestBucketQuotaCannotPromiseMoreThanTheProjectHas(t *testing.T) {
 		t.Fatal("a bucket quota above the project limit was stored")
 	}
 }
+
+// TestConcurrentUploadsCannotJointlyExceedTheQuota runs two uploads whose
+// bodies each fit the ceiling alone but not together.
+//
+// The undeclared length forces both streams past the advisory check, so the
+// only thing standing between the project and 120 bytes in a 100-byte quota
+// is the recheck under the project lock.
+func TestConcurrentUploadsCannotJointlyExceedTheQuota(t *testing.T) {
+	plane, store, fs := testBucketPlane(t, 100)
+	store.addBucket("default")
+
+	keys := []string{"first.bin", "second.bin"}
+	start := make(chan struct{})
+	statuses := make([]int, len(keys))
+
+	var waitGroup sync.WaitGroup
+	for index, key := range keys {
+		waitGroup.Add(1)
+		go func(index int, key string) {
+			defer waitGroup.Done()
+			request := httptest.NewRequest(
+				http.MethodPost, "/bucket/x/"+key,
+				strings.NewReader(strings.Repeat("y", 60)),
+			).WithContext(requestContext(store.projectID, key))
+			request.ContentLength = -1
+			recorder := httptest.NewRecorder()
+			<-start
+			plane.Upload(recorder, request)
+			statuses[index] = recorder.Code
+		}(index, key)
+	}
+	close(start)
+	waitGroup.Wait()
+
+	created := 0
+	for _, status := range statuses {
+		if status == http.StatusCreated {
+			created++
+		} else if status != http.StatusInsufficientStorage {
+			t.Errorf("loser got status %d, want 507", status)
+		}
+	}
+	if created != 1 {
+		t.Fatalf("created = %d, want exactly 1 (statuses %v)", created, statuses)
+	}
+
+	used, err := store.StorageUsedBytes(context.Background(), store.projectID)
+	if err != nil {
+		t.Fatalf("usage: %v", err)
+	}
+	if used > 100 {
+		t.Errorf("used = %d bytes, want at most the 100-byte quota", used)
+	}
+	if len(fs.contents) != 1 {
+		t.Errorf("files on disk = %d, want 1 (the refusal must remove the file)", len(fs.contents))
+	}
+}
+
+// TestConcurrentUploadsToTheSameKeyKeepOneWholeObject runs two streams for
+// one key at once.
+//
+// They share a temporary file path on disk, so without serialization their
+// bytes would interleave and the rename would pick a winner at random. With
+// the key lock both may succeed -- the second replaces the first -- but the
+// stored file and the catalog row must always describe one complete
+// payload, never a mix of the two.
+func TestConcurrentUploadsToTheSameKeyKeepOneWholeObject(t *testing.T) {
+	plane, store, fs := testBucketPlane(t, 1<<20)
+	store.addBucket("default")
+
+	payloadA := strings.Repeat("a", 4096)
+	payloadB := strings.Repeat("b", 4096)
+
+	start := make(chan struct{})
+	statuses := make([]int, 2)
+
+	var waitGroup sync.WaitGroup
+	for index, payload := range []string{payloadA, payloadB} {
+		waitGroup.Add(1)
+		go func(index int, payload string) {
+			defer waitGroup.Done()
+			request := httptest.NewRequest(
+				http.MethodPost, "/bucket/x/same.bin",
+				strings.NewReader(payload),
+			).WithContext(requestContext(store.projectID, "same.bin"))
+			recorder := httptest.NewRecorder()
+			<-start
+			plane.Upload(recorder, request)
+			statuses[index] = recorder.Code
+		}(index, payload)
+	}
+	close(start)
+	waitGroup.Wait()
+
+	for index, status := range statuses {
+		if status != http.StatusCreated {
+			t.Errorf("upload %d status = %d, want 201", index, status)
+		}
+	}
+
+	content := fs.contents["same.bin"]
+	if string(content) != payloadA && string(content) != payloadB {
+		t.Fatalf("stored content is neither payload: %d bytes", len(content))
+	}
+
+	object, err := store.ObjectByKey(context.Background(), store.projectID, "same.bin")
+	if err != nil {
+		t.Fatalf("catalog row: %v", err)
+	}
+	if object.SizeBytes != int64(len(content)) {
+		t.Errorf("catalog size = %d, file size = %d; they must describe the same object",
+			object.SizeBytes, len(content))
+	}
+}

@@ -23,12 +23,6 @@ import (
 	"github.com/moogo/moogo/web"
 )
 
-// shutdownGrace is how long in-flight requests get to finish after a signal.
-//
-// It must exceed the statement timeout, otherwise a running query would be cut
-// off by shutdown instead of being allowed to finish or report its own error.
-const shutdownGrace = 30 * time.Second
-
 // checkConfigFlag validates the configuration and exits without opening a
 // database or listening on a port.
 const checkConfigFlag = "--check-config"
@@ -112,7 +106,7 @@ func run() error {
 		log.Info("shutdown requested", nil)
 	}
 
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), shutdownGrace)
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancelShutdown()
 
 	if err := built.Server.Shutdown(shutdownCtx); err != nil {

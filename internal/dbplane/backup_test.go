@@ -15,7 +15,7 @@ import (
 
 func newBackupManager(t *testing.T) *Manager {
 	t.Helper()
-	manager, err := NewManager(t.TempDir(), 100*1024*1024, 5*time.Second, logger.Nop())
+	manager, err := NewManager(t.TempDir(), 100*1024*1024, 5*time.Second, 512, logger.Nop())
 	if err != nil {
 		t.Fatalf("create manager: %v", err)
 	}
@@ -23,26 +23,32 @@ func newBackupManager(t *testing.T) *Manager {
 	return manager
 }
 
-func newSeededProject(t *testing.T, manager *Manager, rows int) (uuid.UUID, *projectConnection) {
+// newSeededProject initializes a project, seeds it, and returns its
+// connection with a release function. The caller must call release when done
+// with the connection; until then the handle is marked in use and cannot be
+// evicted from the cache.
+func newSeededProject(t *testing.T, manager *Manager, rows int) (uuid.UUID, *projectConnection, func()) {
 	t.Helper()
 	ctx := context.Background()
 	projectID := uuid.New()
 	if err := manager.InitializeProject(ctx, projectID); err != nil {
 		t.Fatalf("initialize: %v", err)
 	}
-	connection, err := manager.connect(ctx, projectID)
+	connection, release, err := manager.acquire(projectID)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	if _, err := connection.db.Exec(`CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)`); err != nil {
+		release()
 		t.Fatalf("create table: %v", err)
 	}
 	for i := 0; i < rows; i++ {
 		if _, err := connection.db.Exec(`INSERT INTO t (v) VALUES (?)`, "x"); err != nil {
+			release()
 			t.Fatalf("insert: %v", err)
 		}
 	}
-	return projectID, connection
+	return projectID, connection, release
 }
 
 // countRowsIn opens a snapshot as an independent database and counts its rows.
@@ -71,7 +77,8 @@ func countRowsIn(t *testing.T, path string) int {
 // database directory nowhere in sight.
 func TestBackupDatabaseIsSelfContained(t *testing.T) {
 	manager := newBackupManager(t)
-	projectID, _ := newSeededProject(t, manager, 500)
+	projectID, _, release := newSeededProject(t, manager, 500)
+	defer release()
 
 	path, err := manager.BackupDatabase(context.Background(), projectID)
 	if err != nil {
@@ -90,7 +97,8 @@ func TestBackupDatabaseIsSelfContained(t *testing.T) {
 func TestBackupIncludesUncheckpointedWrites(t *testing.T) {
 	manager := newBackupManager(t)
 	ctx := context.Background()
-	projectID, connection := newSeededProject(t, manager, 10)
+	projectID, connection, release := newSeededProject(t, manager, 10)
+	defer release()
 
 	if _, err := connection.db.Exec(`INSERT INTO t (v) VALUES ('latest')`); err != nil {
 		t.Fatalf("insert: %v", err)
@@ -112,7 +120,8 @@ func TestBackupIncludesUncheckpointedWrites(t *testing.T) {
 // first.
 func TestBackupReplacesTheTargetEachTime(t *testing.T) {
 	manager := newBackupManager(t)
-	projectID, _ := newSeededProject(t, manager, 5)
+	projectID, _, release := newSeededProject(t, manager, 5)
+	defer release()
 
 	first, err := manager.BackupDatabase(context.Background(), projectID)
 	if err != nil {

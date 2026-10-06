@@ -143,6 +143,10 @@ type Deps struct {
 	// 2 MB image.
 	MaxObjectBytes int64
 	RequestTimeout time.Duration
+	// Metrics answers GET /metrics with the operational counters. It is nil
+	// in tests that do not care, and a nil handler leaves the route
+	// unregistered rather than failing to build.
+	Metrics http.Handler
 }
 
 // New builds the router.
@@ -195,6 +199,13 @@ func New(deps Deps) http.Handler {
 	root.Get("/healthz", deps.Health.Liveness)
 	root.Get("/readyz", deps.Health.Readiness)
 
+	// Operational counters. The handler itself refuses anything that is not
+	// from the loopback interface: the numbers describe internal saturation
+	// and are useful on the host, not off it.
+	if deps.Metrics != nil {
+		root.Get("/metrics", deps.Metrics.ServeHTTP)
+	}
+
 	// --- Public: sign in and session inspection ---
 
 	root.Get("/auth/setup", deps.OAuth.Setup)
@@ -219,6 +230,27 @@ func New(deps Deps) http.Handler {
 	// proxy hop.
 	credentials := ratelimit.New(ratelimit.DefaultCredentialLimit, deps.TrustedProxies)
 	limited := credentials.Middleware
+
+	// The data plane gets two ceilings of its own, both deliberately
+	// generous: they exist to stop a runaway client or a stolen key from
+	// saturating the host, not to shape ordinary use.
+	//
+	// The query limiter is keyed on the project rather than the address, so
+	// one application's traffic cannot exhaust another's budget no matter
+	// where it arrives from, and a stolen project key stops at that
+	// project's allowance instead of reaching the whole host. One limiter
+	// is shared between the /p and /db prefixes for the same reason the
+	// credential limiter is shared across its endpoints: the allowance
+	// cannot be multiplied by moving between prefixes.
+	//
+	// The bucket limiter is keyed on the caller's address, because object
+	// routes are hammered by a browser fetching many small files at once,
+	// which is a per-client pattern. It covers the catalog, both object
+	// prefixes, and the public downloads.
+	dataQuery := ratelimit.New(ratelimit.Config{Limit: 300, Window: time.Minute}, deps.TrustedProxies).Plane("query")
+	dataBucket := ratelimit.New(ratelimit.Config{Limit: 300, Window: time.Minute}, deps.TrustedProxies).Plane("bucket")
+	queryLimited := dataQuery.MiddlewareKey(projectRateKey)
+	bucketLimited := dataBucket.Middleware
 
 	root.With(limited).Post("/auth/register", deps.Credentials.Register)
 	root.With(limited).Post("/auth/login", deps.Credentials.Login)
@@ -338,6 +370,10 @@ func New(deps Deps) http.Handler {
 	root.Route("/pub/{project_id}", func(publicPlane chi.Router) {
 		publicPlane.Use(ProjectContext)
 		publicPlane.Use(ObjectKeyContext)
+		// Unauthenticated and cacheable, so it gets the address-keyed bucket
+		// limit: a page with fifty objects loads from one address without
+		// ceremony, and one address cannot pull the host down.
+		publicPlane.Use(bucketLimited)
 		publicPlane.Get("/*", deps.Bucket.PublicDownload)
 		publicPlane.Head("/*", deps.Bucket.PublicDownload)
 	})
@@ -352,6 +388,7 @@ func New(deps Deps) http.Handler {
 		catalog.Use(httpx.Timeout(deps.RequestTimeout))
 		catalog.Use(ProjectContext)
 		catalog.Use(auth.RequireStorageCredential(deps.StorageKeys, deps.ProjectKeys))
+		catalog.Use(bucketLimited)
 
 		catalog.Get("/", deps.Bucket.ListBuckets)
 		catalog.Post("/", deps.Bucket.CreateBucket)
@@ -377,6 +414,10 @@ func New(deps Deps) http.Handler {
 		projectPlane.Use(httpx.Timeout(deps.RequestTimeout))
 		projectPlane.Use(ProjectContext)
 		projectPlane.Use(auth.RequireProjectKey(deps.ProjectKeys))
+		// After the key check, so the allowance belongs to whoever holds the
+		// key: one project's traffic never spends another's budget, and an
+		// unauthenticated probe is answered by RequireProjectKey first.
+		projectPlane.Use(queryLimited)
 
 		projectPlane.Post("/query", deps.Data.Query)
 		projectPlane.Post("/exec", deps.Data.Exec)
@@ -393,6 +434,7 @@ func New(deps Deps) http.Handler {
 		bucketPlane.Use(ProjectContext)
 		bucketPlane.Use(ObjectKeyContext)
 		bucketPlane.Use(auth.RequireStorageCredential(deps.StorageKeys, deps.ProjectKeys))
+		bucketPlane.Use(bucketLimited)
 
 		bucketPlane.Post("/*", deps.Bucket.Upload)
 		bucketPlane.Get("/*", deps.Bucket.Download)
@@ -415,6 +457,9 @@ func New(deps Deps) http.Handler {
 		// the project id in the path, so the id has to be in the context first.
 		dataPlane.Use(ProjectContext)
 		dataPlane.Use(auth.RequireProjectKey(deps.ProjectKeys))
+		// The same limiter as /p, so switching prefixes hands out no second
+		// allowance.
+		dataPlane.Use(queryLimited)
 
 		dataPlane.Post("/query", deps.Data.Query)
 		dataPlane.Post("/exec", deps.Data.Exec)
@@ -428,6 +473,7 @@ func New(deps Deps) http.Handler {
 		bucketPlane.Use(ProjectContext)
 		bucketPlane.Use(ObjectKeyContext)
 		bucketPlane.Use(auth.RequireProjectKey(deps.ProjectKeys))
+		bucketPlane.Use(bucketLimited)
 
 		bucketPlane.Post("/*", deps.Bucket.Upload)
 		bucketPlane.Get("/*", deps.Bucket.Download)
@@ -476,6 +522,21 @@ func ProjectContext(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(
 			context.WithValue(r.Context(), auth.ContextKeyProjectID, projectID.String())))
 	})
+}
+
+// projectRateKey identifies a data plane caller by the project their
+// credential grants access to, so the allowance follows the project rather
+// than the address it arrived from.
+//
+// It runs after RequireProjectKey, so the id is always present on the routes
+// it guards; "unknown" is a defensive fallback that gets its own shared
+// bucket rather than panicking.
+func projectRateKey(r *http.Request) string {
+	projectID, ok := auth.ProjectIDFromContext(r.Context())
+	if !ok {
+		return "unknown"
+	}
+	return "project:" + projectID.String()
 }
 
 // CredentialContext copies a storage credential id from the route into the

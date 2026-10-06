@@ -620,3 +620,33 @@ func TestRevokedStorageCredentialNoLongerVerifies(t *testing.T) {
 		t.Error("a revoked credential must not carry a usable hash")
 	}
 }
+
+// The metrics scrape reads ProjectCount, so it has to count live projects
+// and skip the soft-deleted ones: otherwise moogo_project_count drifts from
+// reality every time somebody deletes a project.
+func TestProjectCountCountsOnlyLiveProjects(t *testing.T) {
+	store := testStore(t)
+	user := newTestUser(t, store, 3)
+
+	before, err := store.ProjectCount(context.Background())
+	if err != nil {
+		t.Fatalf("count before: %v", err)
+	}
+
+	newTestProject(t, store, user.ID)
+	deleted := newTestProject(t, store, user.ID)
+
+	if err := store.SoftDeleteProject(context.Background(), deleted.ID, user.ID); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	after, err := store.ProjectCount(context.Background())
+	if err != nil {
+		t.Fatalf("count after: %v", err)
+	}
+	// One live project created, one deleted: the count moves by exactly the
+	// first, which proves both halves of the filter in one comparison.
+	if after != before+1 {
+		t.Errorf("count = %d, want %d", after, before+1)
+	}
+}

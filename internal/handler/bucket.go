@@ -95,14 +95,82 @@ type BucketPlane struct {
 	// development deployment want.
 	publicBase string
 
-	// uploadLocks serializes the quota-check-then-write sequence per project.
+	// projectLocks serializes the final quota check and the catalog insert
+	// per project.
 	//
 	// Reading the usage total and writing the object cannot be one atomic
 	// operation across Postgres and the filesystem, so without a lock two
-	// concurrent uploads both see room for 100 MB and together land 180 MB in a
-	// 256 MB bucket. The lock is per project rather than global so a slow upload
-	// on one project does not stall uploads on every other project.
-	uploadLocks sync.Map // map[uuid.UUID]*sync.Mutex
+	// concurrent uploads both see room for 100 MB and together land 180 MB
+	// in a 256 MB bucket. The lock spans only those fast Postgres round
+	// trips -- never the client's body -- so a slow upload cannot stall
+	// everyone else's.
+	projectLocks lockMap
+
+	// objectLocks serializes uploads that target the same key, from the
+	// first byte read off the wire through the catalog insert. Two streams
+	// for one key write the same temporary file, so without this their
+	// bytes would interleave and the rename would pick a winner at random.
+	objectLocks lockMap
+}
+
+// objectLockKey names one object within one project.
+type objectLockKey struct {
+	projectID uuid.UUID
+	key       string
+}
+
+// lockEntry is one named mutex plus the number of callers holding or
+// waiting for it.
+type lockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lockMap is a set of mutexes that appear on first use and are dropped once
+// the last caller releases, so the map never grows past the locks there is
+// live traffic for.
+//
+// The ref count is what makes dropping safe: a waiter increments it before
+// it blocks, so the entry cannot be deleted out from under a goroutine that
+// is still holding a pointer to it. Deleting on release without a count
+// would let a third caller create a fresh mutex while a second still waits
+// on the old one, and the two would no longer be serialized against each
+// other.
+type lockMap struct {
+	mu      sync.Mutex
+	entries map[any]*lockEntry
+}
+
+// lock returns the mutex for key, creating it if needed, and a release
+// function that returns the mutex and drops the entry once the last caller
+// is done with it. Release must be called exactly once, normally with defer.
+func (locks *lockMap) lock(key any) func() {
+	locks.mu.Lock()
+	if locks.entries == nil {
+		locks.entries = make(map[any]*lockEntry)
+	}
+	entry, found := locks.entries[key]
+	if !found {
+		entry = &lockEntry{}
+		locks.entries[key] = entry
+	}
+	entry.refs++
+	locks.mu.Unlock()
+
+	entry.mu.Lock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			entry.mu.Unlock()
+			locks.mu.Lock()
+			entry.refs--
+			if entry.refs == 0 {
+				delete(locks.entries, key)
+			}
+			locks.mu.Unlock()
+		})
+	}
 }
 
 // defaultObjectPageSize is how many objects a listing returns when the caller
@@ -146,21 +214,69 @@ func NewBucketPlane(
 // ever removed them: the map grew for the lifetime of the process. On a
 // deployment that has seen a lot of projects that is a slow leak of a map entry
 // and a mutex each, held forever for projects that no longer exist.
-func (handler *BucketPlane) uploadLock(projectID uuid.UUID) (*sync.Mutex, func()) {
-	value, _ := handler.uploadLocks.LoadOrStore(projectID, &sync.Mutex{})
-	lock := value.(*sync.Mutex)
+// storageBudget is one project's storage headroom as sampled at a single
+// moment.
+type storageBudget struct {
+	used            int64
+	bucketUsed      int64
+	remaining       int64
+	bucketRemaining int64
+}
 
-	var released sync.Once
-	release := func() {
-		released.Do(func() {
-			// Delete only if this exact mutex is still the one in the map. If a
-			// later caller replaced it, deleting would remove a lock some
-			// in-flight upload is holding, and the next upload would get a
-			// third mutex and stop being serialized against the second.
-			handler.uploadLocks.CompareAndDelete(projectID, value)
-		})
+// storageBudget samples the project ceiling, the bucket ceiling, and any
+// object this key would replace, so the credit an overwrite earns is
+// applied to both ceilings from one consistent reading.
+//
+// The returned operation names which read failed, for the error log.
+func (handler *BucketPlane) storageBudget(
+	ctx context.Context,
+	projectID uuid.UUID,
+	bucket *dbcontrol.Bucket,
+	key string,
+) (storageBudget, string, error) {
+	used, err := handler.store.StorageUsedBytes(ctx, projectID)
+	if err != nil {
+		return storageBudget{}, "quota check", err
 	}
-	return lock, release
+
+	bucketUsed, err := handler.store.BucketStorageUsedBytes(ctx, projectID, bucket.ID)
+	if err != nil {
+		return storageBudget{}, "bucket quota check", err
+	}
+
+	// An overwrite frees the bytes it replaces, so they count as available
+	// room. Without this, a project at 90% of its quota could never replace
+	// a file: the old version still counted against the total, so any
+	// replacement looked oversized even when it was smaller.
+	//
+	// Only a replacement can add room, and only in the bucket that actually
+	// holds it: a key is unique per project rather than per bucket, so the
+	// same bytes must never be credited to two ceilings at once.
+	var replacedSize int64
+	replacingInThisBucket := false
+	if existing, err := handler.store.ObjectByKey(ctx, projectID, key); err == nil {
+		replacedSize = existing.SizeBytes
+		replacingInThisBucket = existing.BucketID == bucket.ID
+	} else if !errors.Is(err, dbcontrol.ErrNotFound) {
+		return storageBudget{}, "load existing object", err
+	}
+
+	budget := storageBudget{
+		used:            used,
+		bucketUsed:      bucketUsed,
+		remaining:       handler.quota - used + replacedSize,
+		bucketRemaining: bucket.QuotaBytes - bucketUsed,
+	}
+	if replacingInThisBucket {
+		budget.bucketRemaining += replacedSize
+	}
+	if budget.remaining < 0 {
+		budget.remaining = 0
+	}
+	if budget.bucketRemaining < 0 {
+		budget.bucketRemaining = 0
+	}
+	return budget, "", nil
 }
 
 // ObjectResponse is the wire shape of one object.
@@ -251,92 +367,34 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Serialize against other uploads to the same project so the usage total read
-	// below and the write that follows it cannot be interleaved.
-	//
-	// The lock is dropped again on the way out. Holding it for the whole upload
-	// is what makes the quota check correct; holding it for the lifetime of the
-	// process is what made the map a leak.
-	lock, release := handler.uploadLock(projectID)
-	lock.Lock()
-	defer func() {
-		lock.Unlock()
-		release()
-	}()
-
-	used, err := handler.store.StorageUsedBytes(r.Context(), projectID)
+	// The budget is sampled twice. This first reading, without any lock,
+	// only bounds how much is read from the wire: it keeps a runaway body
+	// from filling the disk while the real decision is still pending. It can
+	// be stale by the time the stream finishes, which is exactly why there
+	// is a second reading under the project lock below.
+	budget, operation, err := handler.storageBudget(r.Context(), projectID, bucket, key)
 	if err != nil {
-		handler.writeStoreError(w, r, projectID, err, "quota check")
+		handler.writeStoreError(w, r, projectID, err, operation)
 		return
-	}
-
-	remaining := handler.quota - used
-
-	// The bucket's own quota is a second ceiling on the same bytes. It is read
-	// here rather than derived from the project's number because they are
-	// independent: two buckets at half their quotas can fill a project, and a
-	// single bucket can be refused while the project still has room.
-	bucketUsed, err := handler.store.BucketStorageUsedBytes(r.Context(), projectID, bucket.ID)
-	if err != nil {
-		handler.writeStoreError(w, r, projectID, err, "bucket quota check")
-		return
-	}
-	bucketRemaining := bucket.QuotaBytes - bucketUsed
-
-	// An overwrite frees the bytes it replaces, so they count as available room.
-	//
-	// Without this, a project at 90% of its quota could never replace a file: the
-	// old version still counted against the total, so any replacement looked
-	// oversized even when it was smaller. A storage bucket that cannot be
-	// trimmed is worse than one with no quota at all, since there is no way back
-	// once the total crosses the line.
-	//
-	// Only a replacement can add room, so this is one extra indexed lookup on the
-	// upload path, and a miss simply leaves the budget alone.
-	var replacedSize int64
-	replacingInThisBucket := false
-	if existing, err := handler.store.ObjectByKey(r.Context(), projectID, key); err == nil {
-		replacedSize = existing.SizeBytes
-		replacingInThisBucket = existing.BucketID == bucket.ID
-	} else if !errors.Is(err, dbcontrol.ErrNotFound) {
-		handler.writeStoreError(w, r, projectID, err, "load existing object")
-		return
-	}
-	remaining += replacedSize
-
-	// The same credit for the bucket, and only for the bucket that actually holds
-	// the object being replaced. A key is unique per project rather than per
-	// bucket, so a replacement can arrive through a different bucket than the one
-	// it replaces; crediting this bucket regardless would let the same bytes be
-	// reclaimed in two places and both quotas would drift above their real usage.
-	if replacingInThisBucket {
-		bucketRemaining += replacedSize
-	}
-
-	if remaining < 0 {
-		remaining = 0
-	}
-	if bucketRemaining < 0 {
-		bucketRemaining = 0
 	}
 
 	// The bucket's per-object cap is a separate ceiling from the project quota.
 	// All three apply: a bucket can be stricter than the project (an image bucket
-	// capped at 5 MB inside a 256 MB project) and the project can be stricter
+	// capped at 5 MB inside a 256 MB bucket) and the project can be stricter
 	// than the bucket (a 200 MB file into the last 10 MB of a project).
 	//
 	// Whichever is smallest is the budget the body is measured against, so the
 	// streaming guard below enforces every limit with one number rather than
 	// checking each separately and risking a case where none applies.
-	limit := min(remaining, bucketRemaining)
+	limit := min(budget.remaining, budget.bucketRemaining)
 	objectCap := bucket.MaxObjectSizeBytes
 
 	if r.ContentLength > limit {
-		if bucketRemaining < remaining {
-			handler.writeBucketQuotaExceeded(w, bucketUsed, bucket)
+		if budget.bucketRemaining < budget.remaining {
+			handler.writeBucketQuotaExceeded(w, budget.bucketUsed, bucket)
 			return
 		}
-		handler.writeQuotaExceeded(w, used)
+		handler.writeQuotaExceeded(w, budget.used)
 		return
 	}
 	if objectCap > 0 {
@@ -347,6 +405,11 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 		limit = min(limit, objectCap)
 	}
 
+	// Hold the key lock for the rest of this request: through the stream and
+	// the catalog insert below.
+	releaseObject := handler.objectLocks.lock(objectLockKey{projectID: projectID, key: key})
+	defer releaseObject()
+
 	// Read one byte past the budget. If the body really fits, the copy stops at
 	// the limit and the extra byte is never read; if it does not, the returned
 	// size exceeds the limit and the upload is rejected with the file removed.
@@ -354,6 +417,24 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 	size, err := handler.fs.WriteObject(projectID, key, io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		handler.writeError(w, r, projectID, err, "write object")
+		return
+	}
+
+	// The authoritative quota check runs under the project lock with a fresh
+	// sample: the advisory numbers above were taken before a transfer that may
+	// have taken minutes, and other uploads to this project could have filled
+	// the ceiling in the meantime. The lock spans only this recheck and the
+	// catalog insert -- both fast Postgres round trips -- so no client's body
+	// is ever held under it.
+	releaseProject := handler.projectLocks.lock(projectID)
+	defer releaseProject()
+
+	budget, operation, err = handler.storageBudget(r.Context(), projectID, bucket, key)
+	if err != nil {
+		// The file is on disk now and nothing references it; leaving it
+		// would leak bytes that no quota counts.
+		_ = handler.fs.DeleteObject(projectID, key)
+		handler.writeStoreError(w, r, projectID, err, operation)
 		return
 	}
 
@@ -367,17 +448,18 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 		handler.writeObjectTooLarge(w, objectCap)
 		return
 	}
-	if size > bucketRemaining {
+	if size > budget.bucketRemaining {
 		_ = handler.fs.DeleteObject(projectID, key)
-		handler.writeBucketQuotaExceeded(w, bucketUsed, bucket)
+		handler.writeBucketQuotaExceeded(w, budget.bucketUsed, bucket)
 		return
 	}
-	if size > remaining {
+	if size > budget.remaining {
 		_ = handler.fs.DeleteObject(projectID, key)
-		handler.writeQuotaExceeded(w, used)
+		handler.writeQuotaExceeded(w, budget.used)
 		return
 	}
 
+	used := budget.used
 	object, prevSize, err := handler.store.PutObject(
 		r.Context(), projectID, bucket.ID, key, size, contentType, bucket.IsPublic,
 	)

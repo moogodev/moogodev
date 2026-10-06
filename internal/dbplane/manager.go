@@ -28,8 +28,8 @@ import (
 var (
 	// ErrNotFound means the project's database file does not exist.
 	ErrNotFound = errors.New("database not found")
-	// ErrSizeExceeded means the operation would push the database past its
-	// configured limit.
+	// ErrSizeExceeded means the database is at or over its configured
+	// limit, so the statement was refused before writing.
 	ErrSizeExceeded = errors.New("database size limit exceeded")
 	// ErrTimeout means the statement exceeded its time budget.
 	ErrTimeout = errors.New("statement timed out")
@@ -51,9 +51,16 @@ const (
 
 // Manager owns the per-project SQLite connections.
 //
-// One connection per project rather than a shared pool: SQLite allows a single
-// writer, so extra connections buy nothing, and one handle per project makes
-// the open-file count bounded and predictable on a 2 GB host.
+// Each project gets its own small connection pool rather than one shared
+// globally: WAL lets readers run alongside the single writer, so several
+// connections buy real concurrency where a single handle serialized every
+// request. The pool is small and its idle handles expire, so the open-file
+// count stays bounded and predictable on a 2 GB host.
+//
+// The handles themselves are cached with an upper bound: a deployment that
+// has seen thousands of projects does not keep a pool open for every one of
+// them forever. Past maxCachedProjects the least recently used idle handle
+// is closed, and the next request for that project simply reopens it.
 type Manager struct {
 	dataDir string
 	logger  *logger.Logger
@@ -62,10 +69,33 @@ type Manager struct {
 	maxDBBytes int64
 	// queryTimeout bounds a single statement.
 	queryTimeout time.Duration
+	// maxCachedProjects is how many handles stay open at once.
+	maxCachedProjects int
 
-	mu       sync.Mutex
-	projects map[uuid.UUID]*projectConnection
-	closed   bool
+	mu sync.Mutex
+	// dbs is the handle cache, open projects only. Entries are evicted down
+	// to maxCachedProjects, least recently used first.
+	dbs map[uuid.UUID]*sql.DB
+	// refs counts in-flight operations per project. A project with a
+	// non-zero count is never evicted: closing its handle underneath a
+	// running query would either block every other project on manager.mu
+	// for the length of that query or pull the connection away from it.
+	refs map[uuid.UUID]int
+	// used stamps each cache hit so eviction can find the least recently
+	// used entry.
+	used map[uuid.UUID]time.Time
+	// writeLocks outlive the cached handles on purpose. A handle may be
+	// evicted while a write is still running on it; the next request opens
+	// a fresh handle, and both must serialize against the same mutex or
+	// SQLite would see two writers at once.
+	writeLocks map[uuid.UUID]*sync.Mutex
+	// gates carries the per-project statement budget, on the same lifetime
+	// as the write locks for the same reason: two gates for one project
+	// would double its budget across an eviction.
+	gates map[uuid.UUID]chan struct{}
+	// slots is the process-wide statement budget.
+	slots  chan struct{}
+	closed bool
 
 	// Bucket storage
 	bucketDir string
@@ -85,7 +115,9 @@ type projectConnection struct {
 // NewManager creates a Manager rooted at dataDir.
 //
 // The directory is created if missing, since a fresh host will not have it.
-func NewManager(dataDir string, maxDBBytes int64, queryTimeout time.Duration, log *logger.Logger) (*Manager, error) {
+// maxCachedProjects caps how many project handles stay open; values below 1
+// mean one.
+func NewManager(dataDir string, maxDBBytes int64, queryTimeout time.Duration, maxCachedProjects int, log *logger.Logger) (*Manager, error) {
 	databaseDir := filepath.Join(dataDir, "dbs")
 	bucketDir := filepath.Join(dataDir, "buckets")
 
@@ -95,14 +127,23 @@ func NewManager(dataDir string, maxDBBytes int64, queryTimeout time.Duration, lo
 	if err := os.MkdirAll(bucketDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create bucket directory: %w", err)
 	}
+	if maxCachedProjects < 1 {
+		maxCachedProjects = 1
+	}
 
 	return &Manager{
-		dataDir:      databaseDir,
-		bucketDir:    bucketDir,
-		logger:       log,
-		maxDBBytes:   maxDBBytes,
-		queryTimeout: queryTimeout,
-		projects:     make(map[uuid.UUID]*projectConnection),
+		dataDir:           databaseDir,
+		bucketDir:         bucketDir,
+		logger:            log,
+		maxDBBytes:        maxDBBytes,
+		queryTimeout:      queryTimeout,
+		maxCachedProjects: maxCachedProjects,
+		dbs:               make(map[uuid.UUID]*sql.DB),
+		refs:              make(map[uuid.UUID]int),
+		used:              make(map[uuid.UUID]time.Time),
+		writeLocks:        make(map[uuid.UUID]*sync.Mutex),
+		gates:             make(map[uuid.UUID]chan struct{}),
+		slots:             newSlotChannel(),
 	}, nil
 }
 
@@ -154,54 +195,116 @@ func (manager *Manager) InitializeProject(ctx context.Context, projectID uuid.UU
 	}
 
 	// Re-open through the manager so the handle is cached for later requests.
-	cached, err := manager.connect(ctx, projectID)
+	_, release, err := manager.acquire(projectID)
 	if err != nil {
 		return err
 	}
-	manager.store(projectID, cached)
+	release()
 	return nil
 }
 
-// connect opens and caches a project's database, or returns the existing one.
-func (manager *Manager) connect(ctx context.Context, projectID uuid.UUID) (*projectConnection, error) {
+// acquire returns the project's connection for the duration of one
+// operation, opening and caching the handle if it is not already there.
+//
+// The returned release function must be called exactly once, normally with
+// defer. It marks the handle idle again, which is what allows a later
+// acquisition to evict it; until then the handle is in use and stays open.
+func (manager *Manager) acquire(projectID uuid.UUID) (*projectConnection, func(), error) {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 
+	noop := func() {}
 	if manager.closed {
-		return nil, ErrClosed
-	}
-	if existing, found := manager.projects[projectID]; found {
-		return existing, nil
+		manager.mu.Unlock()
+		return nil, noop, ErrClosed
 	}
 
-	path := manager.databasePath(projectID)
-	if _, err := os.Stat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, ErrNotFound
+	handle, found := manager.dbs[projectID]
+	if found {
+		manager.refs[projectID]++
+		manager.used[projectID] = time.Now()
+		// A hit can still leave the cache over budget, for example when
+		// earlier evictions were skipped because everything was in flight.
+		manager.evictLocked()
+	} else {
+		path := manager.databasePath(projectID)
+		if _, err := os.Stat(path); err != nil {
+			manager.mu.Unlock()
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, noop, ErrNotFound
+			}
+			return nil, noop, fmt.Errorf("stat database file: %w", err)
 		}
-		return nil, fmt.Errorf("stat database file: %w", err)
+
+		opened, err := openProjectDatabase(path, manager.queryTimeout)
+		if err != nil {
+			manager.mu.Unlock()
+			return nil, noop, err
+		}
+
+		handle = opened
+		manager.dbs[projectID] = opened
+		manager.refs[projectID] = 1
+		manager.used[projectID] = time.Now()
+		manager.evictLocked()
 	}
 
-	connection, err := openProjectDatabase(path, manager.queryTimeout)
-	if err != nil {
-		return nil, err
+	if manager.writeLocks[projectID] == nil {
+		manager.writeLocks[projectID] = &sync.Mutex{}
 	}
+	connection := &projectConnection{
+		db:        handle,
+		writeLock: manager.writeLocks[projectID],
+	}
+	manager.mu.Unlock()
 
-	cached := &projectConnection{
-		db:        connection,
-		writeLock: &sync.Mutex{},
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			manager.mu.Lock()
+			if manager.refs[projectID] > 0 {
+				manager.refs[projectID]--
+			}
+			manager.mu.Unlock()
+		})
 	}
-	manager.projects[projectID] = cached
-	return cached, nil
+	return connection, release, nil
 }
 
-func (manager *Manager) store(projectID uuid.UUID, connection *projectConnection) {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	if manager.closed {
-		return
+// evictLocked closes idle handles until the cache fits its budget.
+//
+// It runs with manager.mu held. Entries in use are skipped rather than
+// closed: their queries are still running, and the cache is allowed to sit
+// over budget until those operations finish.
+func (manager *Manager) evictLocked() {
+	for len(manager.dbs) > manager.maxCachedProjects {
+		var (
+			oldestID    uuid.UUID
+			oldestStamp time.Time
+			found       bool
+		)
+		for projectID, stamp := range manager.used {
+			if manager.refs[projectID] > 0 {
+				continue
+			}
+			if !found || stamp.Before(oldestStamp) {
+				oldestID, oldestStamp, found = projectID, stamp, true
+			}
+		}
+		if !found {
+			// Everything left is in flight. Stop; a later acquisition
+			// retries once something has been released.
+			return
+		}
+
+		handle := manager.dbs[oldestID]
+		delete(manager.dbs, oldestID)
+		delete(manager.refs, oldestID)
+		delete(manager.used, oldestID)
+		if err := handle.Close(); err != nil {
+			manager.logger.Warn("evict project connection failed",
+				logger.Fields{"project_id": oldestID.String(), "error": err.Error()})
+		}
 	}
-	manager.projects[projectID] = connection
 }
 
 // openProjectDatabase opens a project file with the pragmas every connection
@@ -216,19 +319,33 @@ func openProjectDatabase(path string, queryTimeout time.Duration) (*sql.DB, erro
 	// write, which turns a late SQLITE_BUSY into an immediate one. The write
 	// mutex makes that rare, but a checkpoint or another process can still
 	// hold the file.
+	//
+	// cache_size is negative kilobytes, so -4000 is a 4 MB page cache per
+	// physical connection. temp_store(MEMORY) keeps scratch space out of the
+	// data directory, journal_size_limit caps the rollback journal after a
+	// checkpoint, and wal_autocheckpoint keeps the WAL from growing without
+	// bound. These are connection-scoped, so they live in the DSN and apply
+	// to every connection the pool opens.
 	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)" +
-		"&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate"
+		"&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate" +
+		"&_pragma=cache_size(-4000)&_pragma=temp_store(MEMORY)" +
+		"&_pragma=journal_size_limit(67108864)&_pragma=wal_autocheckpoint(1000)"
 
 	database, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database %s: %w", filepath.Base(path), err)
 	}
 
-	// One connection per project: SQLite serializes writers anyway, and this
-	// keeps the open-handle count equal to the project count.
-	database.SetMaxOpenConns(1)
-	database.SetMaxIdleConns(1)
+	// A small per-project pool. Writes are still serialized by the write
+	// mutex, but reads no longer queue behind them: WAL supports one writer
+	// plus any number of readers, and with a single handle a slow read
+	// blocked every write and vice versa. Four idle handles and a five
+	// minute idle timeout keep an unused project from holding file handles
+	// and a warm page cache open forever.
+	database.SetMaxOpenConns(8)
+	database.SetMaxIdleConns(4)
 	database.SetConnMaxLifetime(0)
+	database.SetConnMaxIdleTime(5 * time.Minute)
 
 	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 	defer cancel()
@@ -249,13 +366,17 @@ func (manager *Manager) Close() error {
 		return nil
 	}
 	manager.closed = true
-	connections := manager.projects
-	manager.projects = make(map[uuid.UUID]*projectConnection)
+	handles := manager.dbs
+	manager.dbs = make(map[uuid.UUID]*sql.DB)
+	manager.refs = make(map[uuid.UUID]int)
+	manager.used = make(map[uuid.UUID]time.Time)
+	manager.writeLocks = make(map[uuid.UUID]*sync.Mutex)
+	manager.gates = make(map[uuid.UUID]chan struct{})
 	manager.mu.Unlock()
 
 	var closeErrors []error
-	for projectID, connection := range connections {
-		if err := connection.db.Close(); err != nil {
+	for projectID, handle := range handles {
+		if err := handle.Close(); err != nil {
 			closeErrors = append(closeErrors, fmt.Errorf("close project %s: %w", projectID, err))
 		}
 	}
@@ -273,15 +394,18 @@ func (manager *Manager) Close() error {
 // archiving them.
 func (manager *Manager) RemoveProject(projectID uuid.UUID) error {
 	manager.mu.Lock()
-	if connection, found := manager.projects[projectID]; found {
-		delete(manager.projects, projectID)
-		manager.mu.Unlock()
-		if err := connection.db.Close(); err != nil {
+	handle, found := manager.dbs[projectID]
+	delete(manager.dbs, projectID)
+	delete(manager.refs, projectID)
+	delete(manager.used, projectID)
+	delete(manager.writeLocks, projectID)
+	delete(manager.gates, projectID)
+	manager.mu.Unlock()
+	if found {
+		if err := handle.Close(); err != nil {
 			manager.logger.Warn("close project connection before removal failed",
 				logger.Fields{"project_id": projectID.String(), "error": err.Error()})
 		}
-	} else {
-		manager.mu.Unlock()
 	}
 
 	var removeErrors []error
@@ -310,16 +434,33 @@ func (manager *Manager) ProjectExists(projectID uuid.UUID) bool {
 	return err == nil
 }
 
+// OpenConnections reports the live SQLite connections held per project.
+//
+// The /metrics scrape reads it: a project whose pool sits at its ceiling
+// while the rest idle is the shape of saturation this gauge exists to show.
+// It takes the same lock as acquire, so the map cannot change under it.
+func (manager *Manager) OpenConnections() map[string]int {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	connections := make(map[string]int, len(manager.dbs))
+	for projectID, connection := range manager.dbs {
+		connections[projectID.String()] = connection.Stats().OpenConnections
+	}
+	return connections
+}
+
 // DatabaseSize returns a project's database size in bytes.
 //
 // SQLite reports the main database size only, so the WAL sidecar is added in.
 // A project with an unflushed WAL can be over its limit in total bytes on disk
 // while page_count says otherwise.
 func (manager *Manager) DatabaseSize(ctx context.Context, projectID uuid.UUID) (int64, error) {
-	connection, err := manager.connect(ctx, projectID)
+	connection, release, err := manager.acquire(projectID)
 	if err != nil {
 		return 0, err
 	}
+	defer release()
 
 	size, err := databaseSize(ctx, connection.db)
 	if err != nil {
@@ -347,10 +488,11 @@ func (manager *Manager) BackupDatabase(ctx context.Context, projectID uuid.UUID)
 		return "", err
 	}
 
-	connection, err := manager.connect(ctx, projectID)
+	connection, release, err := manager.acquire(projectID)
 	if err != nil {
 		return "", err
 	}
+	defer release()
 
 	// VACUUM INTO refuses to overwrite, so the target has to be a path that does
 	// not exist yet. The directory is created first and the file is left to
@@ -361,9 +503,15 @@ func (manager *Manager) BackupDatabase(ctx context.Context, projectID uuid.UUID)
 	}
 	target := filepath.Join(dir, "database.sqlite")
 
-	if _, err := connection.db.ExecContext(ctx, `VACUUM INTO ?`, target); err != nil {
+	// The write mutex is held because the pool may have several connections
+	// now: a concurrent Exec could be holding SQLite's writer role and the
+	// vacuum would fail with SQLITE_BUSY instead of waiting for it.
+	connection.writeLock.Lock()
+	_, vacuumErr := connection.db.ExecContext(ctx, `VACUUM INTO ?`, target)
+	connection.writeLock.Unlock()
+	if vacuumErr != nil {
 		_ = os.RemoveAll(dir)
-		return "", fmt.Errorf("snapshot database: %w", err)
+		return "", fmt.Errorf("snapshot database: %w", vacuumErr)
 	}
 
 	// A zero-length result means VACUUM reported success but wrote nothing,
