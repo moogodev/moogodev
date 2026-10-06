@@ -238,15 +238,15 @@ func New(deps Deps) http.Handler {
 	root.Group(func(private chi.Router) {
 		private.Use(auth.RequireSession(deps.Sessions))
 
-private.Get("/api/me", deps.Control.Me)
+		private.Get("/api/me", deps.Control.Me)
 
-	// Account-level, not project-level, so it sits beside /api/me rather
-	// than inside the projects route group. POST rather than PATCH because a
-	// password is never part of a returned account document.
-	private.Post("/api/account/password", deps.Control.ChangePassword)
-	private.Patch("/api/account/profile", deps.Control.UpdateProfile)
+		// Account-level, not project-level, so it sits beside /api/me rather
+		// than inside the projects route group. POST rather than PATCH because a
+		// password is never part of a returned account document.
+		private.Post("/api/account/password", deps.Control.ChangePassword)
+		private.Patch("/api/account/profile", deps.Control.UpdateProfile)
 
-	private.Route("/api/projects", func(projects chi.Router) {
+		private.Route("/api/projects", func(projects chi.Router) {
 			projects.Get("/", deps.Control.ListProjects)
 			projects.Post("/", deps.Control.CreateProject)
 
@@ -437,18 +437,17 @@ private.Get("/api/me", deps.Control.Me)
 		bucketPlane.Get("/", deps.Bucket.List)
 	})
 
-	// --- Documentation (public) ---
+	// --- Documentation API (public) ---
 	//
-	// The `/docs/*` pages are served by DocsHandler (raw markdown from the
-	// embedded `internal/docs` FS), not by the SPA. DocsHandler is registered
-	// first; the page routes below deliberately do not touch `/docs`. Docs
-	// contains the escaping for XSS, so a raw .md file rendered through it is
-	// safe.
+	// The `/docs` page routes are client routes: they are served by the SPA
+	// below so that a hard refresh on /docs/quickstart renders the same
+	// styled page as an in-app navigation. Only the JSON/markdown endpoints
+	// live here, and DocsHandler escapes everything it writes.
 	if deps.Docs != nil {
 		root.Get("/api/docs", deps.Docs.DocList)
+		root.Head("/api/docs", deps.Docs.DocList)
 		root.Get("/api/docs/*", deps.Docs.Doc)
-		root.Get("/docs", deps.Docs.Doc)
-		root.Get("/docs/*", deps.Docs.Doc)
+		root.Head("/api/docs/*", deps.Docs.Doc)
 	}
 
 	// --- Pages and static files ---
@@ -620,7 +619,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		header.Set("Content-Security-Policy", strings.Join([]string{
 			"default-src 'self'",
 			"script-src 'self'",
-			"style-src 'self'",
+			"style-src 'self' 'unsafe-inline'",
 			"img-src 'self' data: https:",
 			"connect-src 'self'",
 			"font-src 'self'",
@@ -674,6 +673,13 @@ func registerPages(root chi.Router, deps Deps) {
 	root.Get("/plan", index)
 	root.Get("/app", index)
 	root.Get("/app/*", index)
+
+	// Docs is a client route like the rest. Without these two registrations
+	// a hard refresh on /docs/quickstart fell through to NotFound, or to the
+	// markdown handler, which renders a bare page with no sidebar, no search
+	// and none of the site's styling.
+	root.Get("/docs", index)
+	root.Get("/docs/*", index)
 }
 
 // spa returns a handler that serves the built index.html for any page route.

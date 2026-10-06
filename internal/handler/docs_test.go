@@ -12,11 +12,12 @@ import (
 )
 
 // escapeHTML used to replace every character with itself, so markdown was
-// interpolated into the docs page unescaped. The DocsHandler is currently
-// shadowed by the SPA route, which is the only reason this was not exploitable.
+// interpolated into the docs page unescaped. /api/docs/* serves that page in
+// the app's own origin, which is exactly where unescaped markdown would be
+// stored XSS.
 //
-// These tests pin the behaviour so that reordering the routes cannot turn it
-// into a stored XSS bug without a test failing first.
+// These tests pin the behaviour so that a regression cannot turn the docs
+// endpoints into a stored XSS bug without a test failing first.
 func TestEscapeHTMLRemovesMarkupCharacters(t *testing.T) {
 	testCases := []struct {
 		name  string
@@ -82,6 +83,7 @@ func TestMarkdownToHTMLEscapesContent(t *testing.T) {
 		}
 	}
 }
+
 // A table used to be recognised by the separator row alone, so the header was
 // emitted as body cells before <table> was even opened, the "---" rule was
 // written out as a <th> header, and </table> was never written at all.
@@ -294,5 +296,149 @@ func TestDocListReturnsAnArray(t *testing.T) {
 		if !strings.Contains(recorder.Body.String(), slug) {
 			t.Errorf("missing %s in %s", slug, recorder.Body.String())
 		}
+	}
+}
+
+// The inline rules used to be single ReplaceAll calls that opened <strong>,
+// <em> and <code> and never closed them, and links were not converted at all.
+// Each construct is pinned with the closing tag in the expectation.
+func TestMarkdownToHTMLInlineConstructs(t *testing.T) {
+	testCases := []struct {
+		name    string
+		source  string
+		want    string
+		notWant string
+	}{
+		{"link", "See [quickstart](/docs/quickstart).", `<a href="/docs/quickstart">quickstart</a>`, "[quickstart]"},
+		{"anchor link", "Jump to [the table](#the-table).", `<a href="#the-table">the table</a>`, ""},
+		{"bold closes", "Use **SQL**, not a DSL.", "<strong>SQL</strong>", ""},
+		{"italic closes", "the shared-cluster problem is one *your* app has", "<em>your</em>", ""},
+		{"code span", "run `CREATE TABLE t` once", "<code>CREATE TABLE t</code>", "&#96;CREATE"},
+		{"code swallows markup", "`**not bold**`", "<code>**not bold**</code>", "<strong>"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := markdownToHTML(testCase.source)
+			if !strings.Contains(got, testCase.want) {
+				t.Errorf("expected %q in output:\n%s", testCase.want, got)
+			}
+			if testCase.notWant != "" && strings.Contains(got, testCase.notWant) {
+				t.Errorf("did not expect %q in output:\n%s", testCase.notWant, got)
+			}
+		})
+	}
+}
+
+// A javascript: URL is the one link target that must never be emitted: the
+// docs are served in the app origin, so an attacker-controlled markdown file
+// would otherwise run script on click.
+func TestMarkdownToHTMLRejectsUnsafeHrefs(t *testing.T) {
+	source := "[click](javascript:alert(1)) and [ok](https://example.com/x)"
+
+	got := markdownToHTML(source)
+
+	if strings.Contains(got, "javascript:") {
+		t.Errorf("a javascript: href was emitted:\n%s", got)
+	}
+	if !strings.Contains(got, `<a href="https://example.com/x">ok</a>`) {
+		t.Errorf("the safe link was dropped as well:\n%s", got)
+	}
+}
+
+// Blockquotes in the docs are hard-wrapped " > " lines with a bare ">" as the
+// paragraph separator. They used to render as raw "> text" paragraphs.
+func TestMarkdownToHTMLBlockquote(t *testing.T) {
+	source := "> **Tip:** one line\n> still the quote\n>\n> second paragraph\n\nAfter\n"
+
+	got := markdownToHTML(source)
+
+	if !strings.Contains(got, "<blockquote>") {
+		t.Fatalf("no blockquote in output:\n%s", got)
+	}
+	if strings.Contains(got, "\n> ") {
+		t.Errorf("raw quote markers left in output:\n%s", got)
+	}
+	if !strings.Contains(got, "<strong>Tip:</strong>") {
+		t.Errorf("inline markdown inside the quote was not converted:\n%s", got)
+	}
+	// The paragraph break inside the quote must not escape the quote, and the
+	// text after the blank line must be back outside it.
+	if idx, close := strings.Index(got, "<p>second paragraph</p>"), strings.Index(got, "</blockquote>"); idx == -1 || idx > close {
+		t.Errorf("the second quote paragraph is outside the blockquote:\n%s", got)
+	}
+	if strings.Index(got, "</blockquote>") > strings.Index(got, "<p>After</p>") {
+		t.Errorf("the blockquote swallowed the following paragraph:\n%s", got)
+	}
+}
+
+// An ordered list closed with </ul>, which the browser treats as an error and
+// recovers from by ending the list early; and a two-digit marker was not a
+// marker at all, so the item fell through to the paragraph branch.
+func TestMarkdownToHTMLOrderedListStructure(t *testing.T) {
+	source := "1. first\n2. second\n\n## After\n"
+	got := markdownToHTML(source)
+
+	if !strings.Contains(got, "<ol>") || !strings.Contains(got, "</ol>") {
+		t.Errorf("ordered list is not opened and closed as <ol>:\n%s", got)
+	}
+	if strings.Contains(got, "</ul>") {
+		t.Errorf("the ordered list was closed with </ul>:\n%s", got)
+	}
+	if strings.Index(got, "</ol>") > strings.Index(got, "<h2>After</h2>") {
+		t.Errorf("the list was closed after the heading:\n%s", got)
+	}
+
+	multiDigit := markdownToHTML("12. twelfth\n")
+	if !strings.Contains(multiDigit, "<ol>") {
+		t.Errorf("a two-digit marker did not open an ordered list:\n%s", multiDigit)
+	}
+}
+
+// The docs hard-wrap their prose. One <p> per source line put a paragraph
+// margin between every line of a single paragraph.
+func TestMarkdownToHTMLJoinsWrappedLines(t *testing.T) {
+	source := "first line of a paragraph\nsecond line of the same paragraph\n\nNext one.\n"
+
+	got := markdownToHTML(source)
+
+	if strings.Contains(got, "<p>second line") {
+		t.Errorf("wrapped lines were not joined into one paragraph:\n%s", got)
+	}
+	if !strings.Contains(got, "<p>first line of a paragraph second line of the same paragraph</p>") {
+		t.Errorf("expected the wrapped lines joined with a space:\n%s", got)
+	}
+	if !strings.Contains(got, "<p>Next one.</p>") {
+		t.Errorf("the blank line did not end the paragraph:\n%s", got)
+	}
+}
+
+// A fenced block holding markup is text, not markup: the block content used to
+// be written through unescaped.
+func TestMarkdownToHTMLFencedCodeIsEscaped(t *testing.T) {
+	source := "```html\n<script>alert(1)</script>\n```\n"
+
+	got := markdownToHTML(source)
+
+	if strings.Contains(got, "<script>") {
+		t.Errorf("fenced code block was not escaped:\n%s", got)
+	}
+	if !strings.Contains(got, "&lt;script&gt;") {
+		t.Errorf("expected the escaped tag inside the block:\n%s", got)
+	}
+}
+
+// The docs wrap long list items onto an indented continuation line. That line
+// used to close the list and become a paragraph after it.
+func TestMarkdownToHTMLListItemContinuation(t *testing.T) {
+	source := "- You want **SQL**, so you should be able to point the\n  official tooling at your data.\n- Second item.\n\nAfter.\n"
+
+	got := markdownToHTML(source)
+
+	if !strings.Contains(got, "<li>You want <strong>SQL</strong>, so you should be able to point the official tooling at your data.</li>") {
+		t.Errorf("the indented continuation line did not stay in the item:\n%s", got)
+	}
+	if strings.Contains(got, "<p>official tooling") {
+		t.Errorf("the continuation line became a paragraph:\n%s", got)
 	}
 }

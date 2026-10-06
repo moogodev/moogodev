@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/moogo/moogo/internal/docs"
@@ -34,6 +36,12 @@ func NewDocsHandler(docsFS DocsFS, log *logger.Logger) *DocsHandler {
 // The slug is the markdown filename without .md extension. E.g. /docs/DECISIONS
 // serves docs/DECISIONS.md. Empty slug serves index.md.
 func (handler *DocsHandler) Doc(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	slug := strings.TrimPrefix(r.URL.Path, "/api/docs/")
 	slug = strings.TrimPrefix(slug, "/docs/")
 
@@ -135,27 +143,132 @@ func markdownToHTML(markdown string) string {
 	var html strings.Builder
 
 	inCodeBlock := false
-	inList := false
+	listTag := ""
+	liOpen := false
 	inTable := false
+	var quoteLines []string
+
+	// closeList writes the correct closing tag for whichever list is open.
+	// Writing a literal "</ul>" was the bug: an ordered list closed with the
+	// wrong tag, which the browser repairs by ending the list at the first
+	// stray </ul> and rendering everything after it outside the list.
+	//
+	// The current item's lines are buffered until it is flushed, because the
+	// docs wrap long items — and the emphasis inside them — across lines, and
+	// inline markdown cannot match a "**" that is split between them.
+	var liContent []string
+	flushItem := func() {
+		if !liOpen {
+			return
+		}
+		html.WriteString("<li>" + inlineMarkdown(strings.Join(liContent, " ")) + "</li>\n")
+		liContent = nil
+		liOpen = false
+	}
+	closeList := func() {
+		flushItem()
+		if listTag != "" {
+			html.WriteString("</" + listTag + ">\n")
+			listTag = ""
+		}
+	}
+
+	openItem := func(tag, content string) {
+		flushItem()
+		if listTag != tag {
+			closeList()
+			listTag = tag
+			html.WriteString("<" + tag + ">\n")
+		}
+		liOpen = true
+		liContent = append(liContent, content)
+	}
+
+	// flushQuote ends a block of consecutive "> " lines. A bare ">" line is a
+	// paragraph break inside the quote, which is how the quotes in the docs
+	// separate their paragraphs.
+	flushQuote := func() {
+		if len(quoteLines) == 0 {
+			return
+		}
+
+		html.WriteString("<blockquote>\n")
+		var paragraph []string
+		flushParagraph := func() {
+			if len(paragraph) == 0 {
+				return
+			}
+			html.WriteString("<p>" + inlineMarkdown(strings.Join(paragraph, " ")) + "</p>\n")
+			paragraph = paragraph[:0]
+		}
+		for _, quoteLine := range quoteLines {
+			if quoteLine == "" {
+				flushParagraph()
+				continue
+			}
+			paragraph = append(paragraph, quoteLine)
+		}
+		flushParagraph()
+		html.WriteString("</blockquote>\n")
+		quoteLines = nil
+	}
+
+	// Prose is hard-wrapped in the source files. Emitting one <p> per source
+	// line put a paragraph margin between every line of the same paragraph,
+	// so consecutive plain lines are buffered and joined, as markdown does.
+	var prose []string
+	flushProse := func() {
+		if len(prose) == 0 {
+			return
+		}
+		html.WriteString("<p>" + inlineMarkdown(strings.Join(prose, " ")) + "</p>\n")
+		prose = nil
+	}
 
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
-		// Code block
+		// Code block fence
 		if strings.HasPrefix(trimmed, "```") {
+			flushProse()
+			flushQuote()
+			closeList()
 			if inCodeBlock {
 				html.WriteString("</code></pre>\n")
-				inCodeBlock = false
 			} else {
 				html.WriteString("<pre><code>")
-				inCodeBlock = true
 			}
+			inCodeBlock = !inCodeBlock
 			continue
 		}
 
 		if inCodeBlock {
-			html.WriteString(line + "\n")
+			// Code block content is escaped like everything else: a fenced
+			// block holding an <img> tag would otherwise be written into the
+			// page as live markup.
+			html.WriteString(escapeHTML(line) + "\n")
+			continue
+		}
+
+		// Blockquote: consecutive lines starting with ">".
+		if strings.HasPrefix(trimmed, ">") {
+			flushProse()
+			if inTable {
+				html.WriteString("</tbody>\n</table>\n")
+				inTable = false
+			}
+			closeList()
+			quoteLines = append(quoteLines, strings.TrimSpace(strings.TrimPrefix(trimmed, ">")))
+			continue
+		}
+		flushQuote()
+
+		// A blank line ends the buffered prose. A list survives it, so that
+		// "item\n\nparagraph" closes the list on the paragraph line rather
+		// than merging the paragraph into the last item.
+		if trimmed == "" {
+			flushProse()
 			continue
 		}
 
@@ -167,13 +280,11 @@ func markdownToHTML(markdown string) string {
 		// never written at all.
 		if isTableRow(trimmed) && i+1 < len(lines) &&
 			isTableSeparator(strings.TrimSpace(lines[i+1])) {
-			if inList {
-				html.WriteString("</ul>\n")
-				inList = false
-			}
+			flushProse()
+			closeList()
 			html.WriteString("<table>\n<thead>\n<tr>")
 			for _, cell := range splitTableCells(trimmed) {
-				html.WriteString("<th>" + escapeHTML(cell) + "</th>")
+				html.WriteString("<th>" + inlineMarkdown(cell) + "</th>")
 			}
 			html.WriteString("</tr>\n</thead>\n<tbody>\n")
 			inTable = true
@@ -190,7 +301,7 @@ func markdownToHTML(markdown string) string {
 			} else {
 				html.WriteString("<tr>")
 				for _, cell := range splitTableCells(trimmed) {
-					html.WriteString("<td>" + escapeHTML(cell) + "</td>")
+					html.WriteString("<td>" + inlineMarkdown(cell) + "</td>")
 				}
 				html.WriteString("</tr>\n")
 				continue
@@ -199,76 +310,58 @@ func markdownToHTML(markdown string) string {
 
 		// Headers
 		if strings.HasPrefix(trimmed, "# ") {
-			if inList {
-				html.WriteString("</ul>\n")
-				inList = false
-			}
-			html.WriteString("<h1>" + escapeHTML(strings.TrimPrefix(trimmed, "# ")) + "</h1>\n")
+			flushProse()
+			closeList()
+			html.WriteString("<h1>" + inlineMarkdown(strings.TrimPrefix(trimmed, "# ")) + "</h1>\n")
 			continue
 		}
 		if strings.HasPrefix(trimmed, "## ") {
-			if inList {
-				html.WriteString("</ul>\n")
-				inList = false
-			}
-			html.WriteString("<h2>" + escapeHTML(strings.TrimPrefix(trimmed, "## ")) + "</h2>\n")
+			flushProse()
+			closeList()
+			html.WriteString("<h2>" + inlineMarkdown(strings.TrimPrefix(trimmed, "## ")) + "</h2>\n")
 			continue
 		}
 		if strings.HasPrefix(trimmed, "### ") {
-			if inList {
-				html.WriteString("</ul>\n")
-				inList = false
-			}
-			html.WriteString("<h3>" + escapeHTML(strings.TrimPrefix(trimmed, "### ")) + "</h3>\n")
+			flushProse()
+			closeList()
+			html.WriteString("<h3>" + inlineMarkdown(strings.TrimPrefix(trimmed, "### ")) + "</h3>\n")
 			continue
 		}
 
-		// Unordered list
+		// Unordered list item
 		if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
-			if !inList {
-				html.WriteString("<ul>\n")
-				inList = true
-			}
-			html.WriteString("<li>" + escapeHTML(strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")) + "</li>\n")
+			flushProse()
+			openItem("ul", trimmed[2:])
 			continue
 		}
 
-		// Ordered list
-		if len(trimmed) > 2 && trimmed[0] >= '0' && trimmed[0] <= '9' && trimmed[1] == '.' && trimmed[2] == ' ' {
-			if !inList {
-				html.WriteString("<ol>\n")
-				inList = true
-			}
-			html.WriteString("<li>" + escapeHTML(strings.TrimPrefix(trimmed, trimmed[:3])) + "</li>\n")
+		// Ordered list item. The marker is one or more digits followed by
+		// ". ", so "12. " is a marker as much as "1. " is.
+		if content, ok := orderedListItemContent(trimmed); ok {
+			flushProse()
+			openItem("ol", content)
 			continue
 		}
 
-		if inList && trimmed == "" {
+		// An indented line while a list is open continues the current item
+		// rather than ending the list: the docs wrap long items onto the next
+		// line with a two-space indent.
+		if listTag != "" && line != "" && (line[0] == ' ' || line[0] == '\t') {
+			liContent = append(liContent, trimmed)
 			continue
 		}
 
-		if inList && trimmed != "" && !strings.HasPrefix(trimmed, "- ") && !strings.HasPrefix(trimmed, "* ") && !(len(trimmed) > 2 && trimmed[0] >= '0' && trimmed[0] <= '9' && trimmed[1] == '.' && trimmed[2] == ' ') {
-			html.WriteString("</ul>\n")
-			inList = false
+		if listTag != "" {
+			closeList()
 		}
 
-		// Paragraph
-		if trimmed != "" {
-			if inList {
-				html.WriteString("</ul>\n")
-				inList = false
-			}
-			processed := escapeHTML(trimmed)
-			processed = strings.ReplaceAll(processed, "**", "<strong>")
-			processed = strings.ReplaceAll(processed, "*", "<em>")
-			processed = strings.ReplaceAll(processed, "`", "<code>")
-			html.WriteString("<p>" + processed + "</p>\n")
-		}
+		// Paragraph: buffered so that hard-wrapped source lines rejoin.
+		prose = append(prose, trimmed)
 	}
 
-	if inList {
-		html.WriteString("</ul>\n")
-	}
+	flushProse()
+	closeList()
+	flushQuote()
 	if inTable {
 		html.WriteString("</tbody>\n</table>\n")
 	}
@@ -292,12 +385,120 @@ func markdownToHTML(markdown string) string {
         a:hover { text-decoration: underline; }
         ul, ol { padding-left: 1.5rem; }
         li { margin: 0.5rem 0; }
+        blockquote { border-left: 4px solid #dee2e6; margin: 1rem 0; padding: 0.25rem 1rem; color: #555; background: #f1f3f5; border-radius: 0 8px 8px 0; }
+        blockquote p { margin: 0.5rem 0; }
     </style>
 </head>
 <body>
     %s
 </body>
 </html>`, html.String())
+}
+
+// orderedListItemContent returns the item text when trimmed starts with an
+// ordered marker such as "1. " or "12. ", and false otherwise.
+//
+// The old check read only trimmed[1] == '.', so "10. " never opened an <ol>
+// and the item fell through to the paragraph branch.
+func orderedListItemContent(trimmed string) (string, bool) {
+	i := 0
+	for i < len(trimmed) && trimmed[i] >= '0' && trimmed[i] <= '9' {
+		i++
+	}
+	if i == 0 || i+2 > len(trimmed) {
+		return "", false
+	}
+	if trimmed[i] != '.' || trimmed[i+1] != ' ' {
+		return "", false
+	}
+	return trimmed[i+2:], true
+}
+
+var (
+	codeSpanPattern  = regexp.MustCompile("`([^`]+)`")
+	linkPattern      = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)\)`)
+	boldPattern      = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	italicPattern    = regexp.MustCompile(`\*([^*\s][^*]*[^*\s]|[^*\s])\*`)
+	referencePattern = regexp.MustCompile(`(^|[\s(])(https?://[^\s<>"')\]]+)`)
+)
+
+// inlineMarkdown converts the inline markdown of one line or cell: code spans,
+// links, bold, italic, and bare URLs.
+//
+// Everything is escaped first, so the markup this function inserts is the only
+// markup left in the output. The order matters: code spans are masked out
+// before any other rule runs, so `**not bold**` inside backticks stays literal
+// — and a construct that *wraps* a code span ("**`0` means no limit**") still
+// has both of its markers in the same string, which they never are when the
+// line is processed segment by segment.
+func inlineMarkdown(s string) string {
+	spans := codeSpanPattern.FindAllStringSubmatch(s, -1)
+	if len(spans) == 0 {
+		return convertInlineText(s)
+	}
+
+	codes := make([]string, len(spans))
+	for i, span := range spans {
+		codes[i] = "<code>" + escapeHTML(span[1]) + "</code>"
+	}
+
+	// The mask is NUL-delimited digits: escapeHTML leaves it untouched and no
+	// markdown rule below matches it, so it survives to the restore pass.
+	n := 0
+	masked := codeSpanPattern.ReplaceAllStringFunc(s, func(string) string {
+		mask := "\x00" + strconv.Itoa(n) + "\x00"
+		n++
+		return mask
+	})
+
+	out := convertInlineText(masked)
+	for i, code := range codes {
+		out = strings.Replace(out, "\x00"+strconv.Itoa(i)+"\x00", code, 1)
+	}
+	return out
+}
+
+// convertInlineText escapes and then links/bolds/italicises a run of text
+// that contains no code spans.
+func convertInlineText(s string) string {
+	out := escapeHTML(s)
+
+	// Links. The URL was escaped with the text, so a quote cannot break out
+	// of the href attribute; javascript: is rejected outright.
+	out = linkPattern.ReplaceAllStringFunc(out, func(match string) string {
+		sub := linkPattern.FindStringSubmatch(match)
+		if !safeHref(sub[2]) {
+			return sub[1]
+		}
+		return `<a href="` + sub[2] + `">` + sub[1] + `</a>`
+	})
+
+	// Bare URLs. The leading capture keeps the match off the inside of an
+	// anchor: the href is preceded by '"' and the anchor text by '>', so a
+	// URL already wrapped by the link rule above is never wrapped twice.
+	out = referencePattern.ReplaceAllString(out, "$1<a href=\"$2\">$2</a>")
+
+	out = boldPattern.ReplaceAllString(out, "<strong>$1</strong>")
+	out = italicPattern.ReplaceAllString(out, "<em>$1</em>")
+	return out
+}
+
+// safeHref reports whether url may be placed in an href attribute.
+func safeHref(url string) bool {
+	lower := strings.ToLower(strings.TrimSpace(url))
+	switch {
+	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"):
+		return true
+	case strings.HasPrefix(lower, "mailto:"):
+		return true
+	case strings.HasPrefix(lower, "/"), strings.HasPrefix(lower, "#"):
+		return true
+	case strings.ContainsAny(lower, ":"):
+		// Any other scheme (javascript:, data:, ...) is refused.
+		return false
+	}
+	// A relative URL without a scheme.
+	return !strings.Contains(lower, ":")
 }
 
 // isTableRow reports whether a trimmed line is a markdown table row.
@@ -350,7 +551,9 @@ func formatTitle(slug string) string {
 		}
 	}
 	return strings.Join(words, " ")
-}// escapeHTML escapes HTML special characters.
+}
+
+// escapeHTML escapes HTML special characters.
 //
 // The ampersand has to be replaced first and the others on the escaped result.
 // Doing it the other way round turns the "&" of a freshly written "&lt;" back
@@ -358,13 +561,12 @@ func formatTitle(slug string) string {
 // with a raw angle bracket left in the output, which is the one character this
 // function exists to remove.
 //
-// This was a no-op: every replacement mapped a character to itself, so
-// markdown was interpolated into the page unescaped. Nothing exploited it
-// because the whole DocsHandler is currently shadowed by the SPA route in
-// registerPages (the later chi.Get on the same pattern wins), but it is one
-// route reorder away from serving stored XSS from any markdown file in the
-// embed, and a function called escapeHTML that escapes nothing is worse than no
-// function at all because it reads as protection.
+// This used to be a no-op: every replacement mapped a character to itself, so
+// markdown was interpolated into the page unescaped. It matters now that
+// /api/docs/* serves these pages in the app's own origin: unescaped markdown
+// from the embedded filesystem would be stored XSS there, and a function called
+// escapeHTML that escapes nothing is worse than no function at all because it
+// reads as protection.
 func escapeHTML(s string) string {
 	replacer := strings.NewReplacer(
 		"&", "&amp;",

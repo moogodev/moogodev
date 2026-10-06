@@ -858,10 +858,11 @@ func TestProbesAreReachableWithoutSession(t *testing.T) {
 func TestPagesAreServed(t *testing.T) {
 	built, _, _, _ := testRouter(t, uuid.New())
 
-	// /docs and /docs/... are deliberately absent: they are served by the
-	// docs handler as documents, not by the single-page app. That split is
-	// asserted in the docs tests instead.
-	for _, path := range []string{"/", "/app", "/login", "/register", "/plan", "/app/settings/profile"} {
+	// /docs and /docs/... are client routes too: registerPages serves the
+	// app shell for them so a hard refresh matches in-app navigation. The
+	// split with the /api/docs document endpoints is asserted in the docs
+	// tests instead.
+	for _, path := range []string{"/", "/app", "/login", "/register", "/plan", "/app/settings/profile", "/docs", "/docs/quickstart"} {
 		t.Run(path, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
@@ -1109,9 +1110,8 @@ func TestEveryPageRouteServesTheApp(t *testing.T) {
 		"/verify-email",
 		"/plan",
 		"/app",
-		// "/docs" and "/docs/..." are deliberately absent: they are
-		// served by the docs handler as documents, not by the app shell.
-		// That split is asserted in the docs tests.
+		"/docs",
+		"/docs/quickstart",
 	} {
 		recorder := httptest.NewRecorder()
 		built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
