@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { HomeLink } from "../components/HomeLink";
 import { GoogleSignInButton } from "../components/GoogleSignInButton";
 import { SiteLayout } from "../components/Layout";
 import { PasswordInput } from "../components/PasswordInput";
@@ -234,9 +235,9 @@ export default function Login() {
           </div>
 
           <p className="mt-6 text-center">
-            <Link to="/" className="text-[0.9rem] text-faint hover:text-foreground">
+            <HomeLink className="text-[0.9rem] text-faint hover:text-foreground">
               ← Back to the landing page
-            </Link>
+            </HomeLink>
           </p>
         </div>
       </section>

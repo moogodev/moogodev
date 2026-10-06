@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Brand } from "./Brand";
+import { homeHref } from "../lib/origin";
 import { ThemeToggle } from "./ThemeToggle";
 import { useSession } from "../lib/session";
 import { useState } from "react";
@@ -67,7 +68,15 @@ function SiteHeader() {
         >
           {navLinks.map((link) =>
             link.to.startsWith("/#") ? (
-              <a key={link.label} className="hover:text-foreground" href={link.to}>
+              // "Features" anchors onto the landing page, which only exists on
+              // the apex. Same reasoning as HomeLink: from a subdomain it has
+              // to name moogo.dev, or it would render the landing page under
+              // that hostname until the next reload.
+              <a
+                key={link.label}
+                className="hover:text-foreground"
+                href={homeHref(link.to)}
+              >
                 {link.label}
               </a>
             ) : (

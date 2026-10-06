@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
+import { HomeLink } from "../components/HomeLink";
 
 export default function NotFound() {
   return (
@@ -15,12 +15,11 @@ export default function NotFound() {
           <p className="mb-7 text-muted">
             The link may be old, or the address may have a typo.
           </p>
-          <Link
-            to="/"
+          <HomeLink
             className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-5 py-3 font-semibold text-accent-ink transition-colors hover:bg-accent"
           >
             Back to the landing page
-          </Link>
+          </HomeLink>
         </div>
       </section>
     </SiteLayout>

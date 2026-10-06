@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { HomeLink } from "../components/HomeLink";
 import { SiteLayout } from "../components/Layout";
 import { api, ApiError } from "../lib/api";
 
@@ -177,9 +178,9 @@ export default function VerifyEmail() {
           </div>
 
           <p className="mt-6 text-center">
-            <Link to="/" className="text-[0.9rem] text-faint hover:text-foreground">
+            <HomeLink className="text-[0.9rem] text-faint hover:text-foreground">
               ← Back to the landing page
-            </Link>
+            </HomeLink>
           </p>
         </div>
       </section>

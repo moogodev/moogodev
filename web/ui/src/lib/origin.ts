@@ -45,3 +45,25 @@ export function appOrigin(): string {
 
   return window.location.origin;
 }
+
+// Where "Moogo's home" is. The landing page lives on the apex and nowhere else.
+//
+// The subdomains serve the same SPA, so the client router will happily render
+// the Landing component at app.moogo.dev/ — but nginx answers a real load of
+// that URL with a 301 back to /app (vhost app.moogo.dev, `location = /`). A link
+// that gets there in place therefore shows a page that a reload takes away, and
+// duplicates the apex's content on a second host. That is not a layout quirk to
+// tolerate: it is the same URL meaning two different things.
+//
+// So any link meaning "Moogo's home" has to name the apex explicitly whenever
+// the page is served from a subdomain. On the apex itself — and anywhere that is
+// not moogo.dev at all, where local development has no apex to point at and the
+// dev server owns the root — a relative path is still correct, and keeps the
+// navigation inside the SPA instead of introducing a full page load.
+export function homeHref(pathname = "/"): string {
+  if (!onMoogo() || window.location.hostname === "moogo.dev") {
+    return pathname;
+  }
+
+  return `https://moogo.dev${pathname}`;
+}
