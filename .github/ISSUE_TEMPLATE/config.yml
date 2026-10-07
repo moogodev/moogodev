@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Read the feedback guide first
+    url: https://moogo.dev/docs/feedback
+    about: What makes a report actionable, what is already decided, and how security issues are handled.
+  - name: Security vulnerability
+    url: https://github.com/moogodev/moogodev/security/policy
+    about: Do not open a public issue for security reports — see the security policy.
+  - name: Documentation
+    url: https://moogo.dev/docs
+    about: Quickstart, SQL API reference, error codes, and guides.

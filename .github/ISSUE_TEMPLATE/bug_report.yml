@@ -1,0 +1,65 @@
+name: Bug report
+description: Something does not work the way the docs say it should.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The five fields below are the
+        ones that make a report actionable — see [Feedback](https://moogo.dev/docs/feedback)
+        for why each matters. **Never paste a secret key here.**
+  - type: textarea
+    id: what-you-did
+    attributes:
+      label: What you did
+      description: The request, or the steps you followed in the dashboard.
+      placeholder: "I pasted a two-statement script into the SQL console and pressed Run."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: The behaviour the docs describe, or that seemed obvious.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: The actual behaviour, including any error message verbatim.
+    validations:
+      required: true
+  - type: input
+    id: error-code
+    attributes:
+      label: Error code
+      description: The `code` from the error envelope, if there was one (e.g. `sql_multiple_statements`). See https://moogo.dev/docs/errors
+      placeholder: sql_error
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface did it happen on
+      description: The dashboard and the public API are separate authorization paths over shared handlers — a difference between them is a real signal.
+      options:
+        - Dashboard
+        - SQL API
+        - Storage API
+        - Documentation
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, OS, self-hosted or moogo.dev, anything that narrows it down.
+      placeholder: "moogo.dev, Firefox 142, macOS"
+  - type: checkboxes
+    id: secrets
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have not pasted any secret keys or passwords. (If I had, I rotated them first.)
+          required: true

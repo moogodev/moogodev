@@ -2883,8 +2883,9 @@ Feedback is genuinely useful here — especially the parts that were unclear.
 
 ### Bugs and feature requests
 
-Open an issue on the project's GitHub repository. Issues are the fastest route,
-and everything is tracked publicly.
+[Open an issue](https://github.com/moogodev/moogodev/issues/new/choose) on the
+project's GitHub repository — the templates ask for exactly the fields listed
+below. Issues are the fastest route, and everything is tracked publicly.
 
 When reporting something, include:
 
@@ -2904,9 +2905,16 @@ see [Credentials](/docs/credentials#if-a-credential-leaks).
 
 ### Security vulnerabilities
 
-Please report security issues privately rather than in a public issue. Include
-what is affected, how to reproduce it, and the impact you believe it has. You will
-get an acknowledgement.
+Please report security issues privately rather than in a public issue. The
+channels are the project's
+[security policy](https://github.com/moogodev/moogodev/security/policy):
+
+- **Email** — [moogo.dev@gmail.com](mailto:moogo.dev@gmail.com), subject
+  \`[SECURITY]\`.
+- **GitHub Security Advisories** — a private report against the repository.
+
+Include what is affected, how to reproduce it, and the impact you believe it
+has. You will get an acknowledgement.
 
 ### Documentation problems
 

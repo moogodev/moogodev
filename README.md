@@ -105,6 +105,8 @@ you find out immediately instead of after it has written something.
 - [`prd_moogo.md`](prd_moogo.md) — the product requirements this was built from
 - [`deploy/README.md`](deploy/README.md) — systemd unit, Caddyfile, backup and
   healthcheck scripts
+- [Contributing](CONTRIBUTING.md) — what makes a good change, and the gates to run
+- [Security policy](SECURITY.md) — how to report a vulnerability
 
 ## Tests
 
@@ -123,10 +125,14 @@ MOOGO_TEST_DATABASE_URL='postgres://user:pass@localhost:5432/moogo_test?sslmode=
 useful to you, here is how to give back — all of it matters:
 
 - **Use it & report issues** — a clear bug report with steps to reproduce is
-  funding-grade help. Open an issue on
-  [github.com/moogodev/moogodev](https://github.com/moogodev/moogodev).
+  funding-grade help. [Open an issue](https://github.com/moogodev/moogodev/issues/new/choose)
+  — the bug template asks for exactly what makes it actionable.
 - **Contribute** — docs, fixes, tests, guides for your favourite framework.
-  Small pull requests are welcome and reviewed.
+  Small pull requests are welcome and reviewed — see
+  [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Report security problems privately** — never in a public issue. See
+  [SECURITY.md](SECURITY.md): email [moogo.dev@gmail.com](mailto:moogo.dev@gmail.com)
+  with `[SECURITY]` in the subject, or use a private GitHub security advisory.
 - **Sponsor / become a funder** — running the infrastructure, the VPS, domains,
   and ongoing development are paid for out of pocket. If Moogo saves you time,
   consider backing it: the **Sponsor** button on the repository leads to
