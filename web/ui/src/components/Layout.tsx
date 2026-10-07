@@ -115,10 +115,13 @@ function SiteHeader() {
           )}
         </nav>
 
-        {/* Mobile menu button */}
+        {/* Mobile menu button. Right-aligned on small screens: with the nav and
+            the session button both hidden there, the bar holds only the brand
+            and this, and the two belong at opposite ends. On desktop it is
+            display:none, so its auto margin costs the layout nothing. */}
         <button
           type="button"
-          className="md:hidden inline-flex items-center justify-center p-2 rounded-md text-muted hover:text-foreground hover:bg-hover-bg transition-colors"
+          className="ml-auto inline-flex items-center justify-center rounded-md p-2 text-muted transition-colors hover:bg-hover-bg hover:text-foreground md:hidden"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           aria-expanded={mobileMenuOpen}
           aria-controls="mobile-menu"
@@ -150,18 +153,24 @@ function SiteHeader() {
           the header does not flash "Sign in" at someone who is already signed
           in. The auth pages hide the button entirely: they are the answer to
           this question already.
+
+          Hidden below md on purpose: the mobile menu carries the same buttons,
+          and the base class has to be "hidden" rather than "inline-flex" —
+          both were listed once, and display utilities resolve by stylesheet
+          order, where inline-flex comes after hidden and won. The button then
+          showed on a phone, crowded against the hamburger.
         */}
         {isAuthPage || session.status === "loading" || session.status === "unknown" ? null : signedIn ? (
           <Link
             to="/app"
-            className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.88rem] font-semibold text-accent-ink transition-colors hover:bg-accent md:inline-flex hidden"
+            className="hidden items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.88rem] font-semibold text-accent-ink transition-colors hover:bg-accent md:inline-flex"
           >
             Open dashboard
           </Link>
         ) : (
           <Link
             to="/login"
-            className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.88rem] font-semibold text-accent-ink transition-colors hover:bg-accent md:inline-flex hidden"
+            className="hidden items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.88rem] font-semibold text-accent-ink transition-colors hover:bg-accent md:inline-flex"
           >
             Sign in
           </Link>
