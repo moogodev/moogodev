@@ -220,9 +220,13 @@ function Hero() {
         <p className="mb-10 max-w-[42em] mx-auto text-lg text-muted">
           Built with Go for serverless apps. Each project gets its own SQLite
           file and key — SQL over HTTP, no connection string, no driver. A
-          <code className="rounded bg-panel-raised px-1.5 font-mono text-[0.87em] text-accent">
+          <Link
+            to="/docs/ai-adoption-prompt"
+            title="The Moogo reference for AI agents — copy it as moogo.md"
+            className="rounded bg-panel-raised px-1.5 font-mono text-[0.87em] text-accent underline decoration-accent/40 underline-offset-4 transition-colors hover:decoration-accent"
+          >
             moogo.md
-          </code>
+          </Link>
           lets AI use your DB directly. No pause, no cold starts, no credit card.
         </p>
         <div className="mb-12 flex flex-wrap justify-center gap-3">
