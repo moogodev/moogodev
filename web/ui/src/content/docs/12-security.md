@@ -182,13 +182,14 @@ Being clear about this is more useful than a reassuring summary.
   plaintext on disk. Protection here depends on host and disk-level access control.
 - **There is no multi-factor authentication.** One email and a password is the
   whole account security model.
-- **The data plane is not rate limited.** Signing in with a project key is not
-  throttled per caller; the credential itself is the control, and a deployment
-  that needs a ceiling should put one at the edge or gateway in front of it. The
-  sign-in endpoints (`/auth/login`, `/auth/register`, `/auth/forgot-password`,
-  `/auth/verify-email`, `/auth/resend-verification`) *are* limited to 10 attempts
-  per minute per client address, because they are the ones an unauthenticated
-  caller can hammer. A `429` from those endpoints carries a `Retry-After` header.
+- **Rate limits are ceilings, not traffic shaping.** The data plane allows 300
+  requests a minute — queries keyed per project, storage operations per client
+  address — enough to stop a runaway client or a stolen key from saturating the
+  host, not enough to shape ordinary use. The sign-in endpoints
+  (`/auth/login`, `/auth/register`, `/auth/forgot-password`,
+  `/auth/reset-password`, `/auth/verify-email`, `/auth/resend-verification`)
+  share 10 attempts a minute per client address, because they are the ones an
+  unauthenticated caller can hammer. A `429` carries a `Retry-After` header.
 - **SQLite writes are serialised per project.** This is a property of the engine,
   not something Moogo configures away. High write concurrency will queue.
 

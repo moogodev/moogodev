@@ -62,6 +62,8 @@ overrun the quota.
 | Statement length | **64 KB** | `sql_too_long` |
 | Statement duration | **15 seconds** | `statement_timeout` |
 | Storage credentials per project | **5** | `storage_credential_limit` |
+| Sign-in endpoints | **10 / minute / client address**, shared | `rate_limited` |
+| Data plane | **300 / minute** — queries per project, storage per address | `rate_limited` |
 
 The JSON and storage caps differ on purpose. They guard different things: a JSON
 body is a statement or a settings object where anything past a megabyte is a
@@ -86,8 +88,6 @@ out at the HTTP layer, so the connection is not held open.
 Worth knowing explicitly, because these are common assumptions:
 
 - **No idle timeout.** A project does not pause after inactivity. No cold start.
-- **No request rate limit at the application level.** Rate limiting is expected at
-  the edge or gateway in front of the deployment.
 - **No automatic backup schedule.** Download one from the project settings when
   you want it.
 
