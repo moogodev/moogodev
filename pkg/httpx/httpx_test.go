@@ -285,6 +285,56 @@ func TestAccessLogExcludesQueryString(t *testing.T) {
 	}
 }
 
+// A JSON endpoint must refuse a body declared as anything else. An HTML form
+// cannot set this header, so the check is what keeps a page on another origin
+// from driving the endpoint; see RequireJSON.
+func TestReadJSONRefusesNonJSONContentType(t *testing.T) {
+	for _, header := range []string{"", "text/plain", "application/x-www-form-urlencoded"} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(`{"a":1}`))
+		if header != "" {
+			request.Header.Set("Content-Type", header)
+		}
+
+		var target struct {
+			A int `json:"a"`
+		}
+		if ReadJSON(recorder, request, &target) {
+			t.Errorf("Content-Type %q: expected the body to be refused", header)
+			continue
+		}
+		if recorder.Code != http.StatusUnsupportedMediaType {
+			t.Errorf("Content-Type %q: status = %d, want 415", header, recorder.Code)
+			continue
+		}
+		var body ErrorBody
+		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+			t.Errorf("Content-Type %q: decode: %v", header, err)
+		} else if body.Error.Code != "unsupported_media_type" {
+			t.Errorf("Content-Type %q: code = %q, want unsupported_media_type", header, body.Error.Code)
+		}
+	}
+}
+
+// A charset parameter is legal on any media type and must not be mistaken for
+// a different one.
+func TestReadJSONAcceptsJSONContentTypeParameters(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(`{"a":42}`))
+	request.Header.Set("Content-Type", "application/json; charset=utf-8")
+
+	var target struct {
+		A int `json:"a"`
+	}
+	if !ReadJSON(recorder, request, &target) {
+		t.Fatalf("a charset parameter must still count as JSON, got %d: %s",
+			recorder.Code, recorder.Body.String())
+	}
+	if target.A != 42 {
+		t.Errorf("a = %d, want 42", target.A)
+	}
+}
+
 // captureWriter collects log output for assertions.
 type captureWriter struct {
 	store *string

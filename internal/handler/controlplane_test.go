@@ -501,6 +501,7 @@ func TestCreateProjectReturnsSecretOnce(t *testing.T) {
 	request.Method = http.MethodPost
 	request.Body = http.NoBody
 	request.Body = io.NopCloser(strings.NewReader(`{"name":"  my project  "}`))
+	request.Header.Set("Content-Type", "application/json")
 
 	recorder := httptest.NewRecorder()
 	handler.CreateProject(recorder, request)
@@ -580,6 +581,7 @@ func TestCreateProjectRejectsBlankName(t *testing.T) {
 	request := signedIn(t, testUserID, "/api/projects")
 	request.Method = http.MethodPost
 	request.Body = io.NopCloser(strings.NewReader(`{"name":"   "}`))
+	request.Header.Set("Content-Type", "application/json")
 
 	recorder := httptest.NewRecorder()
 	handler.CreateProject(recorder, request)
@@ -603,6 +605,7 @@ func TestCreateProjectMarksFailedWhenFileCannotBeCreated(t *testing.T) {
 	request := signedIn(t, testUserID, "/api/projects")
 	request.Method = http.MethodPost
 	request.Body = io.NopCloser(strings.NewReader(`{"name":"doomed"}`))
+	request.Header.Set("Content-Type", "application/json")
 
 	recorder := httptest.NewRecorder()
 	handler.CreateProject(recorder, request)
@@ -627,6 +630,7 @@ func TestCreateProjectSurfacesQuotaLimit(t *testing.T) {
 	request := signedIn(t, testUserID, "/api/projects")
 	request.Method = http.MethodPost
 	request.Body = io.NopCloser(strings.NewReader(`{"name":"sixth"}`))
+	request.Header.Set("Content-Type", "application/json")
 
 	recorder := httptest.NewRecorder()
 	handler.CreateProject(recorder, request)
@@ -777,6 +781,7 @@ func consoleRequest(t *testing.T, userID uuid.UUID, projectID uuid.UUID, path st
 	request := signedIn(t, userID, path)
 	request.Method = http.MethodPost
 	request.Body = io.NopCloser(strings.NewReader(`{"query":"SELECT 1","args":[]}`))
+	request.Header.Set("Content-Type", "application/json")
 	return withProjectID(request, projectID)
 }
 
@@ -881,6 +886,7 @@ func TestConsoleExecRejectsReadStatement(t *testing.T) {
 	request := signedIn(t, testUserID, "/api/projects/"+created.ID.String()+"/exec")
 	request.Method = http.MethodPost
 	request.Body = io.NopCloser(strings.NewReader(`{"query":"SELECT 1","args":[]}`))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	handler.Exec(recorder, withProjectID(request, created.ID))
 
@@ -904,6 +910,7 @@ func TestConsoleExecRunsWriteWithoutProjectKey(t *testing.T) {
 	request := signedIn(t, testUserID, "/api/projects/"+created.ID.String()+"/exec")
 	request.Method = http.MethodPost
 	request.Body = io.NopCloser(strings.NewReader(`{"query":"INSERT INTO t VALUES (?)","args":["x"]}`))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	handler.Exec(recorder, withProjectID(request, created.ID))
 
@@ -925,6 +932,7 @@ func TestConsoleRejectsUnsafeStatement(t *testing.T) {
 	request := signedIn(t, testUserID, "/api/projects/"+created.ID.String()+"/query")
 	request.Method = http.MethodPost
 	request.Body = io.NopCloser(strings.NewReader(`{"query":"SELECT load_extension('x')","args":[]}`))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	handler.Query(recorder, withProjectID(request, created.ID))
 
@@ -1012,6 +1020,7 @@ func createProject(t *testing.T, handler *ControlPlane, store *fakeStore, name s
 	request := signedIn(t, testUserID, "/api/projects")
 	request.Method = http.MethodPost
 	request.Body = io.NopCloser(strings.NewReader(`{"name":"` + name + `"}`))
+	request.Header.Set("Content-Type", "application/json")
 
 	recorder := httptest.NewRecorder()
 	handler.CreateProject(recorder, request)
@@ -1231,6 +1240,7 @@ func passwordRequest(t *testing.T, body string) *http.Request {
 	request := signedIn(t, testUserID, "/api/account/password")
 	request.Method = http.MethodPost
 	request.Body = io.NopCloser(strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
 	return request
 }
 

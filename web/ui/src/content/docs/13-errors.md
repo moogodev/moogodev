@@ -119,6 +119,7 @@ explanation lives. Log it.
 | `body_too_large` | 413 | Request body over 1 MB. |
 | `invalid_project_id` | 400 | The id in the URL is not a valid UUID. |
 | `invalid_body` | 400 | Body was not a JSON object with the expected fields. |
+| `unsupported_media_type` | 415 | `Content-Type` was not `application/json`. |
 | `not_found` | 404 | No such endpoint. Check the path. |
 | `rate_limited` | 429 | Too many requests from one client address. Comes with a `Retry-After` header. |
 

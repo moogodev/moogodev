@@ -220,11 +220,13 @@ func New(deps Deps) http.Handler {
 	//
 	// They are rate limited because they are the only unauthenticated endpoints
 	// that do real work on every call: login runs a bcrypt comparison against a
-	// live hash, and register and resend-verification send an email through a
-	// paid provider. Without a ceiling, /auth/login is a password guessing
-	// oracle and /auth/register is a way to spend somebody's Resend quota.
+	// live hash, reset-password hashes the new password the same way before the
+	// token is even looked up, and register and resend-verification send an
+	// email through a paid provider. Without a ceiling, /auth/login is a
+	// password guessing oracle and /auth/register is a way to spend somebody's
+	// Resend quota.
 	//
-	// The limiter is shared across all five so the allowance cannot be
+	// The limiter is shared across all six so the allowance cannot be
 	// multiplied by moving between endpoints, and the trusted-proxy list is the
 	// same one RealIP uses, so the count is per real client rather than per
 	// proxy hop.
@@ -255,7 +257,7 @@ func New(deps Deps) http.Handler {
 	root.With(limited).Post("/auth/register", deps.Credentials.Register)
 	root.With(limited).Post("/auth/login", deps.Credentials.Login)
 	root.With(limited).Post("/auth/forgot-password", deps.Credentials.ForgotPassword)
-	root.Post("/auth/reset-password", deps.Credentials.ResetPassword)
+	root.With(limited).Post("/auth/reset-password", deps.Credentials.ResetPassword)
 	// Address confirmation. POST rather than a GET on the token itself: a token
 	// in a query string is recorded in browser history and in the Referer of any
 	// link followed from the page, so the frontend reads it and posts it.

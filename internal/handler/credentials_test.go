@@ -217,6 +217,25 @@ func doJSON(t *testing.T, handle func(http.ResponseWriter, *http.Request), metho
 	return recorder
 }
 
+// A credential endpoint must refuse a body that is not declared as JSON: an
+// HTML form cannot set application/json, so the check is what stops one from
+// driving sign-in; see httpx.RequireJSON.
+func TestLoginRefusesBodyNotDeclaredAsJSON(t *testing.T) {
+	store := &credStore{byEmail: map[string]*dbcontrol.User{}}
+	mailer := &credMailer{}
+	handler := newCredHandler(t, store, mailer)
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/login",
+		strings.NewReader(`{"email":"a@example.com","password":"hunter2"}`))
+	request.Header.Set("Content-Type", "text/plain")
+	recorder := httptest.NewRecorder()
+	handler.Login(recorder, request)
+
+	if recorder.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415", recorder.Code)
+	}
+}
+
 func TestRegisterCreatesAccountAndSendsConfirmation(t *testing.T) {
 	store := &credStore{byEmail: map[string]*dbcontrol.User{}}
 	mailer := &credMailer{}

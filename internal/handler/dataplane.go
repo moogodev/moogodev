@@ -282,7 +282,12 @@ func classifyDataPlaneError(err error) (int, string, string) {
 //
 // A body that is too large is reported separately from a malformed one: the
 // first is a client mistake worth correcting, the second is usually a bug.
+// A body that is not declared as JSON is a third case, and is refused before
+// it is read: see httpx.RequireJSON for why the check exists.
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
+	if !httpx.RequireJSON(w, r) {
+		return errors.New("unsupported media type")
+	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 

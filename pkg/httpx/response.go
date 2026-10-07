@@ -9,6 +9,7 @@ package httpx
 import (
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
 )
 
@@ -69,6 +70,28 @@ func NoContent(w http.ResponseWriter) {
 // without that middleware would otherwise decode an unbounded body into memory.
 const maxJSONBody = 1 << 20
 
+// RequireJSON refuses a request whose body is not declared as JSON.
+//
+// This is the CSRF defence that sits behind the SameSite cookie. An HTML form
+// cannot set this header at all, and a cross-origin fetch carrying it would
+// have to survive a preflight first, so a page on another origin has no way to
+// drive a JSON endpoint that changes state. SameSite=Lax already withholds the
+// session cookie from cross-site POSTs in modern browsers; this is the second
+// line, covering the browsers that predate SameSite defaults and any sibling
+// subdomain, where the cookie is sent but the origin is not this one.
+//
+// A missing header fails the same way as a wrong one: no working client omits
+// it, and a form always sends one.
+func RequireJSON(w http.ResponseWriter, r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		WriteError(w, http.StatusUnsupportedMediaType, "unsupported_media_type",
+			"the Content-Type header must be application/json")
+		return false
+	}
+	return true
+}
+
 // ReadJSON decodes a JSON request body into target.
 //
 // It writes the 400 itself and returns false, so a handler reads as a single
@@ -79,6 +102,9 @@ const maxJSONBody = 1 << 20
 func ReadJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	if r.Body == nil {
 		WriteError(w, http.StatusBadRequest, "invalid_body", "a JSON body is required")
+		return false
+	}
+	if !RequireJSON(w, r) {
 		return false
 	}
 

@@ -69,6 +69,7 @@ func dataPlaneRequest(t *testing.T, projectID uuid.UUID, path string, body strin
 	t.Helper()
 
 	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
 	request = request.WithContext(context.WithValue(
 		request.Context(), auth.ContextKeyProjectID, projectID.String()))
 	return request

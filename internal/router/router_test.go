@@ -1071,6 +1071,13 @@ func TestRateLimitIsSharedAcrossCredentialRoutes(t *testing.T) {
 	if code := post("/auth/register"); code != http.StatusTooManyRequests {
 		t.Errorf("expected register to share the login limit, got %d", code)
 	}
+
+	// reset-password joins the same bucket. It was once mounted without the
+	// limiter, which left one credential route an unauthenticated caller could
+	// hammer for the bcrypt cost of every attempt.
+	if code := post("/auth/reset-password"); code != http.StatusTooManyRequests {
+		t.Errorf("expected reset-password to share the login limit, got %d", code)
+	}
 }
 
 // The limiter must not be defeatable by a header the caller sets.

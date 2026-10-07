@@ -580,6 +580,10 @@ func bucketRequest(
 	request := httptest.NewRequest(method, target, body).WithContext(
 		requestContext(projectID, ""))
 
+	// Every route behind this helper takes a JSON body, and the handlers refuse
+	// one that arrives declared as anything else (httpx.RequireJSON).
+	request.Header.Set("Content-Type", "application/json")
+
 	routeCtx := chi.NewRouteContext()
 	routeCtx.URLParams.Add("project_id", projectID.String())
 	routeCtx.URLParams.Add("bucket_id", bucketID.String())
@@ -1199,6 +1203,7 @@ func TestSetPublicTogglesTheObjectAndReportsTheURL(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPatch, "/bucket/x/logo.png", strings.NewReader(`{"is_public":true}`),
 	).WithContext(requestContext(store.projectID, "logo.png"))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	plane.Update(recorder, request)
 
@@ -1231,6 +1236,7 @@ func TestSetPublicRequiresTheField(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPatch, "/bucket/x/logo.png", strings.NewReader(`{}`),
 	).WithContext(requestContext(store.projectID, "logo.png"))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	plane.Update(recorder, request)
 
@@ -1249,6 +1255,7 @@ func TestSetPublicRefusesAnUnknownField(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPatch, "/bucket/x/logo.png", strings.NewReader(`{"is_pubic":true}`),
 	).WithContext(requestContext(store.projectID, "logo.png"))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	plane.Update(recorder, request)
 
@@ -1268,6 +1275,7 @@ func TestRenameMovesTheFileAndTheRow(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPatch, "/bucket/x/old.png", strings.NewReader(`{"new_key":"new.png"}`),
 	).WithContext(requestContext(store.projectID, "old.png"))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	plane.Update(recorder, request)
 
@@ -1299,6 +1307,7 @@ func TestRenameKeepsVisibility(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPatch, "/bucket/x/old.png", strings.NewReader(`{"new_key":"new.png"}`),
 	).WithContext(requestContext(store.projectID, "old.png"))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	plane.Update(recorder, request)
 
@@ -1328,6 +1337,7 @@ func TestRenameOntoATakenKeyReportsAConflict(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPatch, "/bucket/x/a.png", strings.NewReader(`{"new_key":"b.png"}`),
 	).WithContext(requestContext(store.projectID, "a.png"))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	plane.Update(recorder, request)
 
@@ -1456,6 +1466,7 @@ func TestCreateBucketRejectsABadName(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost, "/buckets/x", strings.NewReader(`{"name":"Not Valid"}`),
 	).WithContext(requestContext(store.projectID, ""))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	plane.CreateBucket(recorder, request)
 
@@ -1931,6 +1942,7 @@ func TestCreateBucketAppliesAPolicyFromTheRequest(t *testing.T) {
 		"/buckets/x",
 		strings.NewReader(`{"name":"images","allowed_types":["image"],"max_object_size_bytes":2048}`),
 	).WithContext(requestContext(store.projectID, ""))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	plane.CreateBucket(recorder, request)
 
@@ -1960,6 +1972,7 @@ func TestCreateBucketDefaultsToAcceptingAnything(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost, "/buckets/x", strings.NewReader(`{"name":"scratch"}`),
 	).WithContext(requestContext(store.projectID, ""))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	plane.CreateBucket(recorder, request)
 
