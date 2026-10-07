@@ -158,6 +158,10 @@ literal or a comment is not counted:
 That is fine. A trailing semicolon is also fine — it terminates the statement
 rather than starting another one.
 
+The dashboard's SQL console does this splitting for you: paste a script, and it
+runs each statement as its own request in order. This rule constrains a single
+HTTP request, not the console.
+
 ## What is rejected
 
 Every statement is tokenized and inspected **before** it runs. Rejections come
@@ -254,7 +258,7 @@ migrations/
 // migrate.js
 import fs from 'fs';
 import path from 'path';
-import { exec } from './lib/moogo';
+import { run } from './lib/moogo';
 
 const MIGRATIONS_DIR = './migrations';
 
@@ -265,10 +269,13 @@ async function runMigrations() {
 
   for (const file of files) {
     console.log(`Running migration: ${file}`);
-    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf-8');
-    const statements = sql.split(';').filter(s => s.trim());
+    const text = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf-8');
+    // Split on ';'. This is correct as long as no statement keeps a
+    // semicolon inside a string or comment — for those, split with a
+    // tokenizer instead of a plain String.split.
+    const statements = text.split(';').filter(s => s.trim());
     for (const stmt of statements) {
-      if (stmt.trim()) await exec(stmt);
+      await run(stmt);
     }
     console.log(`✓ ${file}`);
   }
@@ -302,7 +309,6 @@ Before running migrations in production:
 - [ ] Run during low-traffic window
 - [ ] Have rollback plan (backup before migrate)
 - [ ] Test rollback locally first
-- [ ] Run during low-traffic window
 
 ---
 
@@ -317,7 +323,7 @@ with Moogo's HTTP API.
 // ✅ Correct — parameterized
 await sql("SELECT * FROM users WHERE email = ?", [email]);
 
-// ❌ NEVER — string interpolation (rejected by Moogo)
+// ❌ NEVER — string interpolation (SQL injection: the value becomes syntax)
 await sql(`SELECT * FROM users WHERE email = '${email}'`);
 ```
 
@@ -343,7 +349,7 @@ LEFT JOIN posts p ON u.id = p.user_id
 GROUP BY u.id;
 ```
 
-### 3. Use `UPSERT` for Idempotent Writes
+### 4. Use `UPSERT` for Idempotent Writes
 
 ```sql
 INSERT INTO users (id, email, name)
@@ -353,7 +359,7 @@ ON CONFLICT(email) DO UPDATE SET
   updated_at = datetime('now');
 ```
 
-### 4. Use `RETURNING` for Created Records
+### 5. Use `RETURNING` for Created Records
 
 ```sql
 INSERT INTO users (id, email, name)
@@ -361,7 +367,7 @@ VALUES (?, ?, ?)
 RETURNING id, email, created_at;
 ```
 
-### 5. Schema Design Conventions
+### 6. Schema Design Conventions
 
 | Aspect | Convention | Why |
 |--------|------------|-----|
@@ -371,7 +377,7 @@ RETURNING id, email, created_at;
 | JSON | `TEXT DEFAULT '{}'` | Use `json_extract()` to query |
 | Foreign Keys | Always explicit with `ON DELETE` | Enables CASCADE, prevents orphans |
 
-### 6. Index Strategically
+### 7. Index Strategically
 
 ```sql
 -- Equality columns first, then range/order columns
@@ -382,37 +388,6 @@ CREATE INDEX idx_posts_published ON posts(published, created_at DESC);
 - Index columns used in `WHERE`, `JOIN`, `ORDER BY`
 - Equality columns first, then range/order columns
 - Don't over-index — each index slows writes
-
-### 7. Use `UPSERT` for Idempotent Writes
-
-```sql
-INSERT INTO users (id, email, name)
-VALUES (?, ?, ?)
-ON CONFLICT(email) DO UPDATE SET
-  name = excluded.name,
-  updated_at = datetime('now');
-```
-
-### 8. Use `RETURNING` for Created Records
-
-```sql
-INSERT INTO users (id, email, name)
-VALUES (?, ?, ?)
-RETURNING id, email, created_at;
-```
-
----
-
-## Migration Checklist
-
-Before running migrations in production:
-
-- [ ] Test migrations on staging with production-like data
-- [ ] Use `IF NOT EXISTS` / `IF EXISTS` for idempotency
-- [ ] Run during low-traffic window
-- [ ] Have rollback plan (backup before migrate)
-- [ ] Test rollback locally first
-- [ ] Run during low-traffic window
 
 ---
 
@@ -426,10 +401,7 @@ Moogo enforces safety limits that differ from embedded SQLite:
 | Triggers (`CREATE TRIGGER`) | ❌ Rejected | Write invariants in application code |
 | `ATTACH` / `DETACH` | ❌ Rejected | Not supported |
 | `VACUUM` / `REINDEX` / `ANALYZE` | ❌ Rejected | Not supported |
-| `ATTACH` / `DETACH` | ❌ Rejected | Not supported |
 | `load_extension` / `readfile` / `writefile` | ❌ Blocked | Security |
-| `CREATE TRIGGER` | ❌ Rejected | Use application code |
-| `BEGIN`/`COMMIT`/`ROLLBACK` | ❌ Rejected | One statement per request |
 | `ALTER TABLE ... DROP COLUMN` | ⚠️ SQLite 3.35+ | Requires table recreate in older versions |
 | `ALTER TABLE ... ADD FOREIGN KEY` | ❌ Not supported | Requires table recreate |
 | Transactions across requests | ❌ Not supported | Manage in application code |
@@ -445,11 +417,7 @@ See [What is rejected](#what-is-rejected) for the full list of rejected statemen
 - [Security](/docs/security) — Prepared statements, sanitizer, limits
 - [Limits](/docs/limits) — Quotas, request limits, retention
 
-## Next
-
-- [Concurrency](#concurrency) — How Moogo handles parallel reads and serialized writes
-- [Errors](/docs/errors) — Full error code reference
-- [Limits](/docs/limits) — Quotas, request limits, retention
+## Concurrency
 
 - **Reads run in parallel.** `WAL` mode means a reader never blocks the writer.
 - **Writes are serialised per project**, so two concurrent writes cannot hit

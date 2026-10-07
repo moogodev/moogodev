@@ -59,15 +59,15 @@ async function runMigrations() {
 
   for (const file of files) {
     console.log(`Running migration: ${file}`);
-    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf-8');
-    
-    // Split by semicolon (simple approach)
-    const statements = sql.split(';').filter(s => s.trim());
-    
+    const text = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf-8');
+
+    // Split on ';'. Correct as long as no statement keeps a semicolon
+    // inside a string or comment — for those, split with a tokenizer
+    // instead of a plain String.split.
+    const statements = text.split(';').filter(s => s.trim());
+
     for (const stmt of statements) {
-      if (stmt.trim()) {
-        await exec(stmt);
-      }
+      await sql(stmt);
     }
     console.log(`✓ ${file}`);
   }
@@ -171,7 +171,7 @@ CREATE INDEX idx_posts_published ON posts(published, created_at DESC); -- WHERE 
 // ✅ Correct - parameterized
 await sql("SELECT * FROM users WHERE email = ?", [email]);
 
-// ❌ NEVER - string interpolation (rejected by Moogo)
+// ❌ NEVER - string interpolation (SQL injection: the value becomes syntax)
 await sql(`SELECT * FROM users WHERE email = '${email}'`);
 ```
 
@@ -185,7 +185,7 @@ SELECT id, email, name FROM users WHERE id = ?
 SELECT * FROM users WHERE id = ?
 ```
 
-### 2. Use CTEs for Complex Queries
+### 3. Use CTEs for Complex Queries
 
 ```sql
 -- ✅ Readable, performant
@@ -198,7 +198,7 @@ LEFT JOIN posts p ON u.id = p.user_id
 GROUP BY u.id;
 ```
 
-### 3. Use `UPSERT` for Idempotent Writes
+### 4. Use `UPSERT` for Idempotent Writes
 
 ```sql
 -- SQLite UPSERT (ON CONFLICT)
@@ -209,7 +209,7 @@ ON CONFLICT(email) DO UPDATE SET
   updated_at = datetime('now');
 ```
 
-### 4. Use `RETURNING` for Created Records
+### 5. Use `RETURNING` for Created Records
 
 ```sql
 INSERT INTO users (id, email, name)

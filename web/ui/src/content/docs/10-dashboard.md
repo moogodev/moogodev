@@ -81,6 +81,13 @@ server-side duration.
 - Reads go to `/query`, writes to `/exec`, chosen automatically.
 - Rejections show the same error `code` and `detail` your application would get,
   which makes the console a good place to reproduce an error before fixing it.
+- **Paste a whole script.** Several statements separated by `;` run one after
+  another in order, each as its own request — the
+  [one-statement rule](/docs/sql-api#one-statement-per-request) still applies per
+  request. The batch stops at the first error; statements that already ran stay
+  applied, because no transaction spans the batch.
+- **Examples** below the editor load ready-made statements into the editor —
+  schema, reads, writes, inspection. Nothing runs until you press Run.
 
 ## The bucket tab
 
