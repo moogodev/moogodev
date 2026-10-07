@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
+import { DashboardLink } from "../components/DashboardLink";
 import {
   MONTHS_FREE_PER_YEAR,
   plans,
@@ -220,12 +221,18 @@ function PlanCard({
       </ul>
 
       {plan.available ? (
-        <Link
-          to={signedIn ? "/app" : "/register"}
-          className="inline-flex w-full items-center justify-center rounded-lg bg-accent-strong px-5 py-3 font-semibold text-accent-ink transition-colors hover:bg-accent"
-        >
-          {signedIn ? "Open dashboard" : "Create an account"}
-        </Link>
+        signedIn ? (
+          <DashboardLink className="inline-flex w-full items-center justify-center rounded-lg bg-accent-strong px-5 py-3 font-semibold text-accent-ink transition-colors hover:bg-accent">
+            Open dashboard
+          </DashboardLink>
+        ) : (
+          <Link
+            to="/register"
+            className="inline-flex w-full items-center justify-center rounded-lg bg-accent-strong px-5 py-3 font-semibold text-accent-ink transition-colors hover:bg-accent"
+          >
+            Create an account
+          </Link>
+        )
       ) : (
         // A real <button disabled> rather than a styled <span>. The element says
         // to the browser and to assistive technology that this cannot be

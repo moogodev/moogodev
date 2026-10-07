@@ -7,6 +7,7 @@ import {
   type NavigateFunction,
 } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
+import { appOrigin } from "../lib/origin";
 import {
   allDocs,
   docGroups,
@@ -289,6 +290,20 @@ function handleBodyClick(
   // an in-page anchor is handled by the browser's own scrolling.
   if (/^https?:/i.test(href) || link.target === "_blank") return;
   if (href.startsWith("#")) return;
+
+  // "/app" is the dashboard, which lives on its own host. Router navigation
+  // changes the path, never the origin, so from the apex navigate("/app") would
+  // render the dashboard on moogo.dev — the same SPA shell on the wrong domain.
+  // Rewrite the href to the dashboard origin and leave the click to the browser
+  // (a full load, straight to the right host). On the dashboard host itself —
+  // and in local development — there is nothing to cross, so the SPA navigation
+  // below still applies.
+  if (href === "/app" || href.startsWith("/app/")) {
+    if (appOrigin() !== window.location.origin) {
+      link.setAttribute("href", appOrigin() + href);
+      return;
+    }
+  }
 
   // Same-origin routes go through the router. preventDefault keeps the docs from
   // reloading, which would otherwise flash the whole page on every link and

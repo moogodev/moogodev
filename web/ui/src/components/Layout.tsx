@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Brand } from "./Brand";
+import { DashboardLink } from "./DashboardLink";
 import { homeHref } from "../lib/origin";
 import { ThemeToggle } from "./ThemeToggle";
 import { useSession } from "../lib/session";
@@ -161,12 +162,9 @@ function SiteHeader() {
           showed on a phone, crowded against the hamburger.
         */}
         {isAuthPage || session.status === "loading" || session.status === "unknown" ? null : signedIn ? (
-          <Link
-            to="/app"
-            className="hidden items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.88rem] font-semibold text-accent-ink transition-colors hover:bg-accent md:inline-flex"
-          >
+          <DashboardLink className="hidden items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.88rem] font-semibold text-accent-ink transition-colors hover:bg-accent md:inline-flex">
             Open dashboard
-          </Link>
+          </DashboardLink>
         ) : (
           <Link
             to="/login"
@@ -222,13 +220,12 @@ function SiteHeader() {
                   </Link>
                 </>
               ) : (
-                <Link
-                  to="/app"
+                <DashboardLink
                   className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-6 py-3 text-lg font-semibold text-accent-ink transition-colors hover:bg-accent w-64"
                   onClick={closeMobileMenu}
                 >
                   Open dashboard
-                </Link>
+                </DashboardLink>
               )}
             </nav>
           </div>
