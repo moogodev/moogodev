@@ -12,6 +12,7 @@ import {
 } from "../lib/api";
 import { acceptFor, describePolicy, policyAllows } from "../lib/media";
 import { describeSize } from "../lib/sizes";
+import ConfirmDialog from "./ConfirmDialog";
 import ObjectPreview from "./ObjectPreview";
 
 interface BucketViewProps {
@@ -95,6 +96,12 @@ export default function BucketView({
   const [preview, setPreview] = useState<BucketObject | null>(null);
   const [newBucket, setNewBucket] = useState("");
   const [dragging, setDragging] = useState(false);
+  // The destructive actions open a shared ConfirmDialog instead of
+  // window.confirm: the native dialog cannot be styled, cannot name the row
+  // that is about to disappear, and blocks the page. Each state holds the one
+  // target the dialog's confirm button will act on.
+  const [pendingRemove, setPendingRemove] = useState<BucketObject | null>(null);
+  const [pendingBucket, setPendingBucket] = useState<Bucket | null>(null);
 
   const fileInput = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -288,11 +295,12 @@ export default function BucketView({
     [announce, projectId, refreshAll],
   );
 
-  const remove = useCallback(
+  const remove = useCallback((object: BucketObject) => {
+    setPendingRemove(object);
+  }, []);
+
+  const performRemove = useCallback(
     async (object: BucketObject) => {
-      if (!window.confirm(`Delete "${object.key}"? This cannot be undone.`)) {
-        return;
-      }
       setBusy(object.id);
       try {
         await api.dashboardBucketDelete(projectId, object.key);
@@ -302,6 +310,7 @@ export default function BucketView({
         announce(messageOf(cause));
       } finally {
         setBusy(null);
+        setPendingRemove(null);
       }
     },
     [announce, projectId, refreshAll],
@@ -325,17 +334,12 @@ export default function BucketView({
     [announce, loadBuckets, projectId],
   );
 
-  const deleteBucket = useCallback(
+  const deleteBucket = useCallback((bucket: Bucket) => {
+    setPendingBucket(bucket);
+  }, []);
+
+  const performDeleteBucket = useCallback(
     async (bucket: Bucket) => {
-      const suffix =
-        bucket.object_count === 1 ? "1 object" : `${bucket.object_count} objects`;
-      const warning =
-        bucket.object_count > 0
-          ? `Delete "${bucket.name}" and its ${suffix}? This cannot be undone.`
-          : `Delete the empty bucket "${bucket.name}"?`;
-      if (!window.confirm(warning)) {
-        return;
-      }
       setBusy("bucket");
       try {
         await api.dashboardDeleteBucket(projectId, bucket.id);
@@ -345,6 +349,7 @@ export default function BucketView({
         announce(messageOf(cause));
       } finally {
         setBusy(null);
+        setPendingBucket(null);
       }
     },
     [announce, loadBuckets, projectId],
@@ -607,6 +612,41 @@ export default function BucketView({
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title="Delete this object?"
+        description="This cannot be undone."
+        detail={pendingRemove?.key}
+        confirmLabel="Delete"
+        busy={busy === pendingRemove?.id}
+        onConfirm={() => {
+          if (pendingRemove) void performRemove(pendingRemove);
+        }}
+        onCancel={() => setPendingRemove(null)}
+      />
+      <ConfirmDialog
+        open={pendingBucket !== null}
+        title="Delete this bucket?"
+        description={
+          !pendingBucket
+            ? ""
+            : pendingBucket.object_count > 0
+              ? `Delete this bucket and its ${
+                  pendingBucket.object_count === 1
+                    ? "1 object"
+                    : `${pendingBucket.object_count} objects`
+                }? This cannot be undone.`
+              : "Delete this empty bucket?"
+        }
+        detail={pendingBucket?.name}
+        confirmLabel="Delete bucket"
+        busy={busy === "bucket"}
+        onConfirm={() => {
+          if (pendingBucket) void performDeleteBucket(pendingBucket);
+        }}
+        onCancel={() => setPendingBucket(null)}
+      />
 
       {preview && (
         <ObjectPreview

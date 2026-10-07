@@ -9,6 +9,7 @@
 import { useCallback, useState } from "react";
 import { api, type Project } from "../lib/api";
 import { apiOrigin } from "../lib/origin";
+import ConfirmDialog from "./ConfirmDialog";
 import StorageCredentials from "./StorageCredentials";
 
 interface ProjectSettingsProps {
@@ -33,6 +34,11 @@ export default function ProjectSettings({
   // outlives the browser session that justified it.
   const [rotatedKey, setRotatedKey] = useState<string | null>(null);
   const [rotatedCopied, setRotatedCopied] = useState(false);
+  // Which shared ConfirmDialog is open, if any. The destructive actions ask
+  // through the modal rather than window.confirm: the native dialog cannot be
+  // styled, reads as a different application, and cannot show which project is
+  // about to be deleted — only that something would be.
+  const [confirming, setConfirming] = useState<"rotate-key" | "delete" | null>(null);
 
   const baseUrl = apiOrigin();
   // The URL the user's own application talks to. It carries the project id so a
@@ -144,14 +150,11 @@ What I want to do:`;
     }
   }, [project, onProjectUpdated]);
 
-  const handleRotateKey = useCallback(async () => {
-    if (
-      !window.confirm(
-        "Rotating the key invalidates the previous one immediately. Anything still using it will stop working. Continue?",
-      )
-    ) {
-      return;
-    }
+  const handleRotateKey = useCallback(() => {
+    setConfirming("rotate-key");
+  }, []);
+
+  const performRotateKey = useCallback(async () => {
     setIsRotating(true);
     setActionError(null);
     try {
@@ -163,17 +166,17 @@ What I want to do:`;
       setActionError(cause instanceof Error ? cause.message : "Could not rotate the key.");
     } finally {
       setIsRotating(false);
+      // Closed on failure as well as success: the page reports the error below,
+      // where it stays visible after the dialog is gone.
+      setConfirming(null);
     }
   }, [project, onProjectUpdated]);
 
-  const handleDelete = useCallback(async () => {
-    if (
-      !window.confirm(
-        `Delete "${project.name}"? Its database and every file in it are removed. This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
+  const handleDelete = useCallback(() => {
+    setConfirming("delete");
+  }, []);
+
+  const performDelete = useCallback(async () => {
     setIsDeleting(true);
     setActionError(null);
     try {
@@ -183,6 +186,7 @@ What I want to do:`;
       setActionError(cause instanceof Error ? cause.message : "Could not delete the project.");
     } finally {
       setIsDeleting(false);
+      setConfirming(null);
     }
   }, [project, onProjectDeleted]);
 
@@ -333,6 +337,26 @@ What I want to do:`;
           {actionError}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirming === "rotate-key"}
+        title="Rotate the secret key?"
+        description="The previous key is invalidated immediately. Anything still using it will stop working."
+        confirmLabel="Rotate key"
+        busy={isRotating}
+        onConfirm={performRotateKey}
+        onCancel={() => setConfirming(null)}
+      />
+      <ConfirmDialog
+        open={confirming === "delete"}
+        title="Delete this project?"
+        description="Its database and every file in it are removed. This cannot be undone."
+        detail={project.name}
+        confirmLabel="Delete project"
+        busy={isDeleting}
+        onConfirm={performDelete}
+        onCancel={() => setConfirming(null)}
+      />
     </div>
   );
 }

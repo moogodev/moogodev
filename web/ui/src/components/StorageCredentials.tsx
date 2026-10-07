@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type StorageCredential, type StorageCredentialSecret } from "../lib/api";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface StorageCredentialsProps {
   projectId: string;
@@ -26,6 +27,13 @@ export default function StorageCredentials({ projectId }: StorageCredentialsProp
   // as the tab stays open, for no benefit: the owner has already copied it.
   const [revealed, setRevealed] = useState<StorageCredentialSecret | null>(null);
   const [copied, setCopied] = useState(false);
+  // Which shared ConfirmDialog is open and on which credential. Rotating and
+  // revoking both go through the modal instead of window.confirm: the native
+  // dialog cannot be styled and cannot show which access key id is about to
+  // stop working — only that something would be.
+  const [confirming, setConfirming] = useState<
+    { action: "rotate" | "revoke"; credential: StorageCredential } | null
+  >(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,15 +66,12 @@ export default function StorageCredentials({ projectId }: StorageCredentialsProp
     }
   }, [projectId, load]);
 
-  const handleRotate = useCallback(
+  const handleRotate = useCallback((credential: StorageCredential) => {
+    setConfirming({ action: "rotate", credential });
+  }, []);
+
+  const performRotate = useCallback(
     async (credential: StorageCredential) => {
-      if (
-        !window.confirm(
-          `Rotate the secret for ${credential.access_key_id}? The access key id stays the same, but the current secret stops working immediately.`,
-        )
-      ) {
-        return;
-      }
       setBusyId(credential.id);
       setError(null);
       try {
@@ -76,20 +81,20 @@ export default function StorageCredentials({ projectId }: StorageCredentialsProp
         setError(cause instanceof ApiError ? cause.message : "Could not rotate the secret.");
       } finally {
         setBusyId(null);
+        // Closed on failure as well as success: the error stays visible below,
+        // where it outlives the dialog.
+        setConfirming(null);
       }
     },
     [projectId, load],
   );
 
-  const handleRevoke = useCallback(
+  const handleRevoke = useCallback((credential: StorageCredential) => {
+    setConfirming({ action: "revoke", credential });
+  }, []);
+
+  const performRevoke = useCallback(
     async (credential: StorageCredential) => {
-      if (
-        !window.confirm(
-          `Revoke ${credential.access_key_id}? Anything still using it will lose storage access immediately. Your SQL key is not affected.`,
-        )
-      ) {
-        return;
-      }
       setBusyId(credential.id);
       setError(null);
       try {
@@ -99,6 +104,7 @@ export default function StorageCredentials({ projectId }: StorageCredentialsProp
         setError(cause instanceof ApiError ? cause.message : "Could not revoke the credential.");
       } finally {
         setBusyId(null);
+        setConfirming(null);
       }
     },
     [projectId, load],
@@ -250,6 +256,31 @@ export default function StorageCredentials({ projectId }: StorageCredentialsProp
           {error}
         </p>
       )}
+
+      <ConfirmDialog
+        open={confirming?.action === "rotate"}
+        title="Rotate the secret?"
+        description="The access key id stays the same, but the current secret stops working immediately."
+        detail={confirming?.credential.access_key_id}
+        confirmLabel="Rotate secret"
+        busy={busyId !== null && busyId === confirming?.credential.id}
+        onConfirm={() => {
+          if (confirming) void performRotate(confirming.credential);
+        }}
+        onCancel={() => setConfirming(null)}
+      />
+      <ConfirmDialog
+        open={confirming?.action === "revoke"}
+        title="Revoke this credential?"
+        description="Anything still using it will lose storage access immediately. Your SQL key is not affected."
+        detail={confirming?.credential.access_key_id}
+        confirmLabel="Revoke"
+        busy={busyId !== null && busyId === confirming?.credential.id}
+        onConfirm={() => {
+          if (confirming) void performRevoke(confirming.credential);
+        }}
+        onCancel={() => setConfirming(null)}
+      />
     </div>
   );
 }
