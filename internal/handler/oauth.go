@@ -6,10 +6,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/internal/auth"
-	"github.com/moogo/moogo/internal/config"
-	"github.com/moogo/moogo/pkg/httpx"
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/config"
+	"github.com/moogodev/moogodev/pkg/httpx"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // OAuth serves the sign-in endpoints.

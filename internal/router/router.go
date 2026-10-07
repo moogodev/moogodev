@@ -17,11 +17,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/internal/auth"
-	"github.com/moogo/moogo/internal/dbcontrol"
-	"github.com/moogo/moogo/internal/ratelimit"
-	"github.com/moogo/moogo/pkg/httpx"
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/internal/ratelimit"
+	"github.com/moogodev/moogodev/pkg/httpx"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // OAuthHandlers are the sign-in endpoints.

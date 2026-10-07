@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/moogo/moogo/internal/docs"
-	"github.com/moogo/moogo/pkg/httpx"
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/internal/docs"
+	"github.com/moogodev/moogodev/pkg/httpx"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // DocsFS is the embedded documentation filesystem.

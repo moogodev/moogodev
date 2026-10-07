@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 func newBackupManager(t *testing.T) *Manager {

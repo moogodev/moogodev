@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // lockReleaseTimeout bounds the advisory lock release, which runs after the

@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/internal/metrics"
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/internal/metrics"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // defaultMaxRows caps a single query result.

@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // Errors returned by this package.

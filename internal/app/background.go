@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/moogo/moogo/internal/dbcontrol"
-	"github.com/moogo/moogo/internal/dbplane"
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/internal/dbplane"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // Reconciler repairs projects whose Postgres row and SQLite file disagree.

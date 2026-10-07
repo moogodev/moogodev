@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/pkg/session"
+	"github.com/moogodev/moogodev/pkg/session"
 )
 
 // ContextKey is the type for values this package stores in a request context.

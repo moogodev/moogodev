@@ -21,7 +21,7 @@ import (
 	// documented way to use a driver that registers itself in init.
 	_ "modernc.org/sqlite"
 
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // Errors returned by this package.

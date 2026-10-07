@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/internal/metrics"
+	"github.com/moogodev/moogodev/internal/metrics"
 )
 
 // ErrBusy means the project already had as many statements running as the

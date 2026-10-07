@@ -10,10 +10,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/internal/config"
-	"github.com/moogo/moogo/pkg/bucketkey"
-	"github.com/moogo/moogo/pkg/logger"
-	"github.com/moogo/moogo/pkg/secretkey"
+	"github.com/moogodev/moogodev/internal/config"
+	"github.com/moogodev/moogodev/pkg/bucketkey"
+	"github.com/moogodev/moogodev/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/secretkey"
 )
 
 // mustStorageKey generates a storage credential key or fails the test.

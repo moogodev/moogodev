@@ -12,8 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/moogo/moogo/internal/config"
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/internal/config"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // A fresh database must migrate from the first file to the last with nobody

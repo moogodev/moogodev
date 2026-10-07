@@ -1,4 +1,4 @@
-module github.com/moogo/moogo
+module github.com/moogodev/moogodev
 
 go 1.27.1
 

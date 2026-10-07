@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/internal/auth"
+	"github.com/moogodev/moogodev/internal/auth"
 )
 
 // TestObjectKeyDerivedFromEveryMountShape pins the object key extraction across

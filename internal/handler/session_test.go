@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/moogo/moogo/internal/auth"
-	"github.com/moogo/moogo/internal/config"
-	"github.com/moogo/moogo/pkg/logger"
-	"github.com/moogo/moogo/pkg/session"
+	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/config"
+	"github.com/moogodev/moogodev/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/session"
 )
 
 // newSessionProbe builds an OAuth handler wired to a real session manager but

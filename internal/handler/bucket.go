@@ -17,11 +17,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/internal/auth"
-	"github.com/moogo/moogo/internal/dbcontrol"
-	"github.com/moogo/moogo/internal/dbplane"
-	"github.com/moogo/moogo/pkg/httpx"
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/internal/dbplane"
+	"github.com/moogodev/moogodev/pkg/httpx"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // BucketStore is the control plane operations for buckets.

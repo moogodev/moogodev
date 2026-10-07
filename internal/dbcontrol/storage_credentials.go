@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/pkg/bucketkey"
+	"github.com/moogodev/moogodev/pkg/bucketkey"
 )
 
 // ErrStorageCredentialLimit means the project already holds as many storage

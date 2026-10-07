@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/moogo/moogo/internal/config"
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/internal/config"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // Store is the handle to the control plane.

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/pkg/secretkey"
+	"github.com/moogodev/moogodev/pkg/secretkey"
 )
 
 // selectProjectColumns is the shared projection for project reads.

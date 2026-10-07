@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // stubPinger reports a fixed error.

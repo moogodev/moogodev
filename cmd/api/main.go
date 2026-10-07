@@ -17,10 +17,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/moogo/moogo/internal/app"
-	"github.com/moogo/moogo/internal/config"
-	"github.com/moogo/moogo/pkg/logger"
-	"github.com/moogo/moogo/web"
+	"github.com/moogodev/moogodev/internal/app"
+	"github.com/moogodev/moogodev/internal/config"
+	"github.com/moogodev/moogodev/pkg/logger"
+	"github.com/moogodev/moogodev/web"
 )
 
 // checkConfigFlag validates the configuration and exits without opening a

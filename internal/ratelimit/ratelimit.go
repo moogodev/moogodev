@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/moogo/moogo/internal/metrics"
-	"github.com/moogo/moogo/pkg/httpx"
+	"github.com/moogodev/moogodev/internal/metrics"
+	"github.com/moogodev/moogodev/pkg/httpx"
 )
 
 // Config is one limiter's shape.

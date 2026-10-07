@@ -12,11 +12,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/internal/auth"
-	"github.com/moogo/moogo/internal/config"
-	"github.com/moogo/moogo/internal/dbcontrol"
-	"github.com/moogo/moogo/pkg/logger"
-	"github.com/moogo/moogo/pkg/session"
+	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/config"
+	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/session"
 )
 
 // credStore is a scripted credential store.

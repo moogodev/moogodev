@@ -9,10 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/internal/auth"
-	"github.com/moogo/moogo/internal/dbcontrol"
-	"github.com/moogo/moogo/internal/handler"
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/internal/handler"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // docsRouter builds the router with the real docs handler over the real

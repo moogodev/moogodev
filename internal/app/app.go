@@ -12,16 +12,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/moogo/moogo/internal/auth"
-	"github.com/moogo/moogo/internal/config"
-	"github.com/moogo/moogo/internal/dbcontrol"
-	"github.com/moogo/moogo/internal/dbplane"
-	"github.com/moogo/moogo/internal/handler"
-	"github.com/moogo/moogo/internal/mail"
-	"github.com/moogo/moogo/internal/metrics"
-	"github.com/moogo/moogo/internal/router"
-	"github.com/moogo/moogo/pkg/logger"
-	"github.com/moogo/moogo/pkg/session"
+	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/config"
+	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/internal/dbplane"
+	"github.com/moogodev/moogodev/internal/handler"
+	"github.com/moogodev/moogodev/internal/mail"
+	"github.com/moogodev/moogodev/internal/metrics"
+	"github.com/moogodev/moogodev/internal/router"
+	"github.com/moogodev/moogodev/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/session"
 )
 
 // App holds the constructed service.

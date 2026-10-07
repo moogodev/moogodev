@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/moogo/moogo/internal/dbcontrol"
-	"github.com/moogo/moogo/pkg/secretkey"
+	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/pkg/secretkey"
 )
 
 // ProjectResolver looks up a project by ID.

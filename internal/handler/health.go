@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/moogo/moogo/pkg/httpx"
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/httpx"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // ControlPlanePinger reports whether Postgres is reachable.

@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/moogo/moogo/internal/dbcontrol"
-	"github.com/moogo/moogo/pkg/bucketkey"
-	"github.com/moogo/moogo/pkg/httpx"
+	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/pkg/bucketkey"
+	"github.com/moogodev/moogodev/pkg/httpx"
 )
 
 // StorageCredentialResolver loads a credential by its access key id.

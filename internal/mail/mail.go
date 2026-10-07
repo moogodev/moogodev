@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/moogo/moogo/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // resendAPI is the Resend email endpoint.
