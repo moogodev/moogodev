@@ -11,9 +11,37 @@ import { useState } from "react";
 export function SiteLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
+      <AnnouncementBar />
       <SiteHeader />
       <main className="flex-1">{children}</main>
       <SiteFooter />
+    </div>
+  );
+}
+
+// The development notice sits above the header rather than inside it: the
+// header tells a visitor where to go, and this tells them how much weight
+// whatever they find there can carry. It has to be read first. The amber is
+// the same token the auth pages use for notices, so the bar reads as a notice
+// in both themes instead of inventing a colour of its own.
+function AnnouncementBar() {
+  return (
+    <div className="border-b border-amber/30 bg-amber/10">
+      <div className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-center gap-x-2 gap-y-1 px-6 py-2 text-center text-[0.84rem] text-muted">
+        <span>
+          moogo.dev is still in development — usable for testing,{" "}
+          <span className="font-medium text-foreground">
+            not ready for production
+          </span>
+          .
+        </span>
+        <Link
+          to="/announcement"
+          className="font-medium text-amber underline-offset-4 hover:underline"
+        >
+          Read more
+        </Link>
+      </div>
     </div>
   );
 }
@@ -248,7 +276,7 @@ const footerGroups: { title: string; links: { label: string; to: string }[] }[] 
       { label: "Errors", to: "/docs/errors" },
       { label: "Troubleshooting", to: "/docs/errors#common-problems" },
       { label: "Feedback", to: "/docs/feedback" },
-      { label: "GitHub", to: "https://github.com/moogo/moogo" },
+      { label: "GitHub", to: "https://github.com/moogodev/moogodev" },
     ],
   },
 ];

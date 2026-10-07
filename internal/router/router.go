@@ -732,6 +732,8 @@ func registerPages(root chi.Router, deps Deps) {
 	root.Get("/reset-password", index)
 	root.Get("/verify-email", index)
 	root.Get("/plan", index)
+	root.Get("/announcement", index)
+	root.Get("/annoucement", index)
 	root.Get("/app", index)
 	root.Get("/app/*", index)
 

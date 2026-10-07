@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { createRoot } from "react-dom/client";
 import { StrictMode } from "react";
 import { AppShell } from "./components/AppShell";
+import Announcement from "./routes/Announcement";
 import Dashboard from "./routes/Dashboard";
 import Docs from "./routes/Docs";
 import ForgotPassword from "./routes/ForgotPassword";
@@ -35,6 +36,9 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/auth/setup" element={<OAuthSetup />} />
         <Route path="/plan" element={<Plan />} />
+        <Route path="/announcement" element={<Announcement />} />
+        {/* Both spellings land on the page so neither URL 404s. */}
+        <Route path="/annoucement" element={<Announcement />} />
         <Route path="/docs" element={<Docs />} />
         <Route path="/docs/:slug" element={<Docs />} />
         {/* Guides are linked from the corpus as /docs/guides/<slug> but the page

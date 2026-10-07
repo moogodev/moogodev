@@ -864,7 +864,7 @@ func TestPagesAreServed(t *testing.T) {
 	// app shell for them so a hard refresh matches in-app navigation. The
 	// split with the /api/docs document endpoints is asserted in the docs
 	// tests instead.
-	for _, path := range []string{"/", "/app", "/login", "/register", "/plan", "/app/settings/profile", "/docs", "/docs/quickstart"} {
+	for _, path := range []string{"/", "/app", "/login", "/register", "/plan", "/announcement", "/annoucement", "/app/settings/profile", "/docs", "/docs/quickstart"} {
 		t.Run(path, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
@@ -1111,6 +1111,8 @@ func TestEveryPageRouteServesTheApp(t *testing.T) {
 		"/reset-password",
 		"/verify-email",
 		"/plan",
+		"/announcement",
+		"/annoucement",
 		"/app",
 		"/docs",
 		"/docs/quickstart",
