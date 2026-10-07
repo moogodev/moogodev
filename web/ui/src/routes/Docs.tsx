@@ -11,6 +11,7 @@ import {
   allDocs,
   docGroups,
   findDoc,
+  rawDoc,
   renderDoc,
   type DocPage,
 } from "../lib/docs";
@@ -27,6 +28,11 @@ const DEFAULT_SLUG = "quickstart";
 // after every navigation, and this runs once per scroll frame instead, which is
 // cheaper and behaves the same for a page this size.
 const ACTIVE_SECTION_MARGIN = 96;
+
+// The one page that is also a downloadable document. Its whole point is to be
+// lifted out of the site — into a project as moogo.md, or into an agent's
+// context — so it carries the buttons that do that, at the top of the article.
+const ADOPTION_PROMPT_SLUG = "ai-adoption-prompt";
 
 export default function Docs() {
   const { slug } = useParams();
@@ -152,6 +158,7 @@ export default function Docs() {
 
           <main className="min-w-0">
             <article>
+              {page.slug === ADOPTION_PROMPT_SLUG && <MoogoMdActions slug={page.slug} />}
               <header className="mb-8">
                 <p className="mb-2 text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-accent-strong">
                   {page.group}
@@ -183,6 +190,69 @@ export default function Docs() {
         </div>
       </div>
     </SiteLayout>
+  );
+}
+
+/**
+ * Copy and download this page as moogo.md.
+ *
+ * The text is the raw Markdown from the bundle, not the rendered HTML: what an
+ * agent is fed should be the source document, headings and all. The download is
+ * built in the browser from a Blob — there is no server route for a file that
+ * is already compiled into the page.
+ */
+function MoogoMdActions({ slug }: { slug: string }) {
+  const [copied, setCopied] = useState(false);
+  const raw = rawDoc(slug);
+
+  if (raw === undefined) return null;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(raw);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be denied or unavailable on an insecure origin.
+      // The download button is the standing fallback, so this stays silent.
+    }
+  };
+
+  const handleDownload = () => {
+    const url = URL.createObjectURL(new Blob([raw], { type: "text/markdown" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "moogo.md";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-edge bg-background-alt px-4 py-3">
+      <p className="text-[0.88rem] font-medium text-muted">
+        Take this page with you — as{" "}
+        <code className="rounded bg-panel px-1.5 py-0.5 font-mono text-[0.82rem] text-foreground">
+          moogo.md
+        </code>{" "}
+        in your project, for your agent to read.
+      </p>
+      <div className="flex shrink-0 gap-2">
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="cursor-pointer rounded-lg bg-accent-strong px-4 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent"
+        >
+          {copied ? "✓ Copied" : "Copy moogo.md"}
+        </button>
+        <button
+          type="button"
+          onClick={handleDownload}
+          className="cursor-pointer rounded-lg border border-edge-strong px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
+        >
+          Download
+        </button>
+      </div>
+    </div>
   );
 }
 

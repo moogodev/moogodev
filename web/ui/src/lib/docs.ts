@@ -57,7 +57,14 @@ const sources = import.meta.glob("/src/content/docs/**/*.md", {
 const layout: { group: string; slugs: string[] }[] = [
   {
     group: "Getting started",
-    slugs: ["quickstart", "what-is-moogo", "why-moogo", "comparison", "register"],
+    slugs: [
+      "quickstart",
+      "what-is-moogo",
+      "why-moogo",
+      "comparison",
+      "register",
+      "ai-adoption-prompt",
+    ],
   },
   {
     group: "Using Moogo",
@@ -455,4 +462,9 @@ export function findDoc(slug: string | undefined): DocPage | undefined {
 /** Render one document's body to sanitized HTML. */
 export function renderDoc(slug: string): string {
   return loadDoc(slug)?.html ?? "";
+}
+
+/** The raw Markdown of one page, before rendering. */
+export function rawDoc(slug: string): string | undefined {
+  return sourceFor(slug);
 }
