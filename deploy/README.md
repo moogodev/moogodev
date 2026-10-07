@@ -84,16 +84,16 @@ lock, and **a failure aborts the boot**.
 
 That is the right behaviour and it has one sharp edge: migrations are not
 idempotent, so never point a new binary at a database that was migrated by
-hand. `0011_add_plan_column.sql` runs `ALTER TABLE users ADD COLUMN
-billing_plan`, which fails outright if the column is already there, and the
-service will then refuse to start with:
+hand. `0001_init.sql` runs `CREATE TABLE users`, which fails outright if the
+table is already there, and the service will then refuse to start with:
 
 ```
-control plane: migrate: run migration 0011_add_plan_column: ERROR: column "billing_plan" already exists
+moogo: control plane: migrate: run migration 0001_init: ERROR: relation "users" already exists (SQLSTATE 42701)
 ```
 
-Against an empty database every migration applies cleanly. Upgrading an existing
-deployment is fine — the runner records what it applied.
+Against an empty database every migration applies cleanly; a fresh deployment
+needs no manual steps. Upgrading an existing deployment is fine — the runner
+records what it applied.
 
 ## Backups
 

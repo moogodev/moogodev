@@ -267,26 +267,22 @@ sudo systemctl status postgresql
 PGPASSWORD= psql "$MOOGO_DATABASE_URL" -c 'select 1'
 ```
 
-### `moogo: control plane: migrate: run migration 0011_add_plan_column: ERROR: column "billing_plan" of relation "users" already exists (SQLSTATE 42701)`
+### `moogo: control plane: migrate: migration NNNN_name was already applied with a different checksum; add a new migration instead of editing an applied one`
 
-**The single most likely first-deploy failure.** A migration is not idempotent:
-`0011` runs `ALTER TABLE users ADD COLUMN billing_plan`, which fails if the
-column already exists. The runner treats that as fatal and the service will not
-boot.
+The runner records every migration it applies together with the SHA-256 of the
+file as it was in the binary, and refuses to start when the same file now
+hashes differently. The database and the source tree have diverged, and
+continuing would apply later migrations on top of a schema nobody can reason
+about.
 
-It happens when the database was migrated by hand, or by an earlier build with a
-different migration set.
+**Never edit a migration that has run anywhere.** Add a new numbered file
+instead; that is what numbering is for.
 
-**Pick one of these. Do not improvise.**
+First confirm what the database claims:
 
-**Option 1 — a fresh database (preferred).** Point `MOOGO_DATABASE_URL` at an
-empty database and let the runner apply all twelve. This is the right answer for
-a new deployment and the only one with no risk of a schema and a migration log
-disagreeing.
-
-**Option 2 — record the migration as applied.** Only when the existing schema is
-already correct and you have confirmed the column exists with the right type and
-default.
+```sql
+SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version;
+```
 
 The bookkeeping table is:
 
@@ -299,40 +295,26 @@ CREATE TABLE schema_migrations (
 )
 ```
 
-`checksum` is `NOT NULL`, and the runner **compares it against the SHA-256 of the
-file as it is in the binary**. A wrong or missing checksum does not get you past
-the error above; it produces a different one:
-
-```
-migration 0011_add_plan_column was already applied with a different checksum;
-add a new migration instead of editing an applied one
-```
-
-So compute it from the same file:
+`checksum` is `NOT NULL` and is compared against the SHA-256 of the file as it
+is in the binary, so the value has to come from that same file:
 
 ```bash
 cd /opt/moogo   # or wherever the repo is checked out
-sha256sum internal/dbcontrol/migrations/postgres/0011_add_plan_column.sql
+sha256sum internal/dbcontrol/migrations/postgres/0012_set_plan_default_free.sql
 ```
 
-then insert that hex digest with the filename as the name (the runner stores the
-entry name, e.g. `add_plan_column`, which it derives from the file):
+If — and only if — you have verified the schema really matches what the
+migration log claims (the digest was recorded with a typo, say), correct the
+recorded value:
 
 ```sql
-INSERT INTO schema_migrations (version, name, checksum)
-VALUES (11, 'add_plan_column', '<the hex digest from sha256sum>');
+UPDATE schema_migrations
+SET checksum = '<the hex digest from sha256sum>'
+WHERE version = 12;
 ```
 
-Verify what is actually recorded before assuming:
-
-```sql
-SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version;
-```
-
-**Never "fix" this by editing the migration file to add `IF NOT EXISTS`.** The
-checksum of every already-applied migration is verified at startup, so editing
-one that has been applied anywhere turns this failure into a different one. Add a
-new numbered migration instead.
+If the schema and the log disagree about the shape of the data, restore from
+backup and let the runner apply the files itself instead of rewriting rows.
 
 ### `MOOGO_SESSION_SECRET must be at least 32 characters`
 
