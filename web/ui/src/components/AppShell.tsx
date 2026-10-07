@@ -86,10 +86,23 @@ export function AppShell() {
               </p>
               <NavItem
                 to={`/app/projects/${projectId}/database`}
-                active={location.pathname.includes("/database")}
+                active={
+                  location.pathname.includes("/database") &&
+                  !location.search.includes("tab=visual")
+                }
                 icon={<DatabaseIcon />}
               >
                 Database
+              </NavItem>
+              <NavItem
+                to={`/app/projects/${projectId}/database?tab=visual`}
+                active={
+                  location.pathname.includes("/database") &&
+                  location.search.includes("tab=visual")
+                }
+                icon={<SchemaIcon />}
+              >
+                Visual
               </NavItem>
               <NavItem
                 to={`/app/projects/${projectId}/bucket`}
@@ -97,6 +110,13 @@ export function AppShell() {
                 icon={<BucketIcon />}
               >
                 Bucket
+              </NavItem>
+              <NavItem
+                to={`/app/projects/${projectId}/settings`}
+                active={location.pathname === `/app/projects/${projectId}/settings`}
+                icon={<SettingsIcon />}
+              >
+                Settings
               </NavItem>
             </div>
           )}
@@ -242,6 +262,17 @@ function DatabaseIcon() {
       <ellipse cx="12" cy="5" rx="9" ry="3" />
       <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
       <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" />
+    </svg>
+  );
+}
+
+function SchemaIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="5.5" cy="6" r="2.5" />
+      <circle cx="18.5" cy="6" r="2.5" />
+      <circle cx="12" cy="18" r="2.5" />
+      <path d="M8 6h8M7 8l3.5 8M17 8l-3.5 8" />
     </svg>
   );
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams, useLocation, Navigate, useNavigate } from "react-router-dom";
+import { Link, useParams, useLocation, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
   ApiError,
@@ -7,12 +7,22 @@ import {
 } from "../lib/api";
 import SQLConsole from "../components/SQLConsole";
 import TableBrowser from "../components/TableBrowser";
+import SchemaVisualizer from "../components/SchemaVisualizer";
 import BucketView from "../components/BucketView";
 import BucketSettingsPage from "../components/BucketSettingsPage";
 import ProjectSettings from "../components/ProjectSettings";
 
 type Tab = "database" | "bucket" | "settings";
-type DatabaseTab = "sql" | "tables";
+type DatabaseTab = "sql" | "tables" | "visual";
+
+// readDatabaseTab turns the query string into the sub-tab to open. The visual
+// canvas is deep-linkable from the sidebar, so "?tab=visual" has to survive a
+// reload, and anything unrecognised falls back to the editor rather than a
+// blank panel.
+function readDatabaseTab(params: URLSearchParams): DatabaseTab {
+  const tab = params.get("tab");
+  return tab === "visual" ? "visual" : tab === "tables" ? "tables" : "sql";
+}
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -20,9 +30,25 @@ export default function ProjectDetail() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [databaseTab, setDatabaseTab] = useState<DatabaseTab>("sql");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [databaseTab, setDatabaseTab] = useState<DatabaseTab>(() => readDatabaseTab(searchParams));
   const [refreshKey, setRefreshKey] = useState(0);
   const navigate = useNavigate();
+
+  // The query string stays authoritative for the sub-tab too: a sidebar link
+  // to ?tab=visual must land on the canvas even when this component is already
+  // mounted on /database with the editor open.
+  useEffect(() => {
+    setDatabaseTab(readDatabaseTab(searchParams));
+  }, [searchParams]);
+
+  const selectDatabaseTab = useCallback(
+    (tab: DatabaseTab) => {
+      setDatabaseTab(tab);
+      setSearchParams(tab === "sql" ? {} : { tab }, { replace: true });
+    },
+    [setSearchParams],
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -214,15 +240,20 @@ export default function ProjectDetail() {
                     directly on top of the console's own input border and read
                     as one more box in a stack of them. */}
                 <div className="mb-5 inline-flex rounded-lg bg-panel-raised p-1">
-                  <SubTab active={databaseTab === "sql"} onClick={() => setDatabaseTab("sql")}>
+                  <SubTab active={databaseTab === "sql"} onClick={() => selectDatabaseTab("sql")}>
                     SQL Editor
                   </SubTab>
-                  <SubTab active={databaseTab === "tables"} onClick={() => setDatabaseTab("tables")}>
+                  <SubTab active={databaseTab === "tables"} onClick={() => selectDatabaseTab("tables")}>
                     Tables
+                  </SubTab>
+                  <SubTab active={databaseTab === "visual"} onClick={() => selectDatabaseTab("visual")}>
+                    Visual
                   </SubTab>
                 </div>
 
-                {databaseTab === "sql" ? (
+                {databaseTab === "visual" ? (
+                  <SchemaVisualizer projectId={project.id} refreshKey={refreshKey} />
+                ) : databaseTab === "sql" ? (
                   <SQLConsole
                     projectId={project.id}
                     onExecuted={() => setRefreshKey((current) => current + 1)}
