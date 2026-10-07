@@ -72,6 +72,11 @@ type Config struct {
 	SessionSecret      string
 	SessionTTL         time.Duration
 	CookieSecure       bool
+	// CookieDomain scopes the session cookie to a domain instead of a single
+	// host, so the landing page on the apex and the dashboard on a subdomain
+	// share one session. Empty keeps the cookie host-only. A split deployment
+	// sets it to the registrable domain, for example ".moogo.dev".
+	CookieDomain string
 
 	// Password reset. TTL bounds how long a reset link stays valid; the token
 	// itself is single-use regardless of this window.
@@ -218,6 +223,7 @@ func Load() (Config, error) {
 		SessionSecret:      reader.requiredString("MOOGO_SESSION_SECRET"),
 		SessionTTL:         reader.duration("MOOGO_SESSION_TTL", 7*24*time.Hour),
 		CookieSecure:       reader.bool("MOOGO_COOKIE_SECURE", true),
+		CookieDomain:       reader.string("MOOGO_COOKIE_DOMAIN", ""),
 
 		PasswordResetTTL: reader.duration("MOOGO_PASSWORD_RESET_TTL", time.Hour),
 		VerificationTTL:  reader.duration("MOOGO_VERIFICATION_TTL", 24*time.Hour),
@@ -269,6 +275,21 @@ func (cfg Config) IsProduction() bool {
 
 func (cfg Config) validate() error {
 	var problems []string
+
+	// A cookie domain reaches the browser verbatim, and the browser silently
+	// drops a cookie whose Domain attribute it rejects — which would look like
+	// sessions randomly not working on a split deployment rather than like a
+	// configuration mistake. Reject the shapes that get rejected.
+	if cfg.CookieDomain != "" {
+		switch {
+		case strings.ContainsAny(cfg.CookieDomain, ":/ "):
+			problems = append(problems, "MOOGO_COOKIE_DOMAIN must be a bare domain like .moogo.dev, without scheme, port, or path")
+		case strings.Trim(cfg.CookieDomain, ".") == "":
+			problems = append(problems, "MOOGO_COOKIE_DOMAIN must name a domain, not just dots")
+		case !strings.HasPrefix(cfg.CookieDomain, "."):
+			problems = append(problems, "MOOGO_COOKIE_DOMAIN must start with a dot, for example .moogo.dev")
+		}
+	}
 
 	if cfg.DBMaxConns < 1 {
 		problems = append(problems, "MOOGO_DB_MAX_CONNS must be at least 1")

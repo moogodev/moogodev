@@ -228,3 +228,70 @@ func TestDevelopmentStartsWithNoSignInPath(t *testing.T) {
 		t.Error("default environment was not development")
 	}
 }
+
+// A split deployment sets the cookie domain so the apex and the dashboard
+// subdomain share one session; the value is taken as given, dot included.
+func TestCookieDomainIsAcceptedWithALeadingDot(t *testing.T) {
+	cfg, err := loadWith(t, map[string]string{"MOOGO_COOKIE_DOMAIN": ".moogo.dev"})
+	if err != nil {
+		t.Fatalf("a leading-dot domain should be accepted: %v", err)
+	}
+	if cfg.CookieDomain != ".moogo.dev" {
+		t.Errorf("CookieDomain = %q, want .moogo.dev", cfg.CookieDomain)
+	}
+}
+
+// Without a leading dot the browser still accepts the attribute, but the
+// spelling that is meant is unambiguous, and an operator typing moogo.dev may
+// have meant a host rather than a domain. Refusing costs one edit.
+func TestCookieDomainWithoutLeadingDotIsRejected(t *testing.T) {
+	_, err := loadWith(t, map[string]string{"MOOGO_COOKIE_DOMAIN": "moogo.dev"})
+	if err == nil {
+		t.Fatal("a domain without a leading dot should be rejected")
+	}
+	if !strings.Contains(err.Error(), "MOOGO_COOKIE_DOMAIN must start with a dot") {
+		t.Errorf("error does not name the problem: %v", err)
+	}
+}
+
+// A scheme, port, or path in the value is a URL pasted where a domain
+// belongs. The browser rejects such a Domain attribute silently, so the cost
+// would be a session that never becomes shared — no error anywhere.
+func TestCookieDomainRejectsSchemePortAndPath(t *testing.T) {
+	testCases := []string{
+		"https://moogo.dev",
+		".moogo.dev:8443",
+		".moogo.dev/",
+		".moogo.dev/app",
+	}
+	for _, value := range testCases {
+		t.Run(value, func(t *testing.T) {
+			_, err := loadWith(t, map[string]string{"MOOGO_COOKIE_DOMAIN": value})
+			if err == nil {
+				t.Fatalf("%q should be rejected", value)
+			}
+			if !strings.Contains(err.Error(), "MOOGO_COOKIE_DOMAIN") {
+				t.Errorf("error does not name the variable: %v", err)
+			}
+		})
+	}
+}
+
+// Dots alone name no domain at all.
+func TestCookieDomainRejectsBareDots(t *testing.T) {
+	_, err := loadWith(t, map[string]string{"MOOGO_COOKIE_DOMAIN": "."})
+	if err == nil {
+		t.Fatal("a bare dot should be rejected")
+	}
+}
+
+// Single-host deployments must not have to think about this variable.
+func TestCookieDomainDefaultsToEmpty(t *testing.T) {
+	cfg, err := loadWith(t, nil)
+	if err != nil {
+		t.Fatalf("defaults should be valid: %v", err)
+	}
+	if cfg.CookieDomain != "" {
+		t.Errorf("CookieDomain = %q, want empty (host-only cookie)", cfg.CookieDomain)
+	}
+}

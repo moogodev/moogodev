@@ -490,6 +490,105 @@ func TestClearCookieExpiresSession(t *testing.T) {
 	}
 }
 
+// The default has to stay host-only: a cookie carrying a Domain attribute on a
+// single-host deployment hands the session to every sibling domain, which is
+// a wider blast radius than anyone asked for.
+func TestSetCookieIsHostOnlyByDefault(t *testing.T) {
+	signer, err := session.NewSigner("a-test-secret-that-is-definitely-long-enough", time.Hour)
+	if err != nil {
+		t.Fatalf("create signer: %v", err)
+	}
+	sessions := NewSessionManager(signer, false)
+
+	recorder := httptest.NewRecorder()
+	sessions.SetCookie(recorder, "token")
+
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+	if cookies[0].Domain != "" {
+		t.Errorf("default cookie must be host-only, got Domain=%q", cookies[0].Domain)
+	}
+}
+
+// With a domain configured the response both expires the host-only leftover
+// and writes the domain-scoped cookie, in that order. Without the expire, a
+// browser that still holds the old host-only cookie keeps sending it and the
+// stale token wins the lookup on the issuing host while every other host
+// appears signed out.
+func TestSetCookieWithDomainRetiresHostOnlyAndScopes(t *testing.T) {
+	signer, err := session.NewSigner("a-test-secret-that-is-definitely-long-enough", time.Hour)
+	if err != nil {
+		t.Fatalf("create signer: %v", err)
+	}
+	sessions := NewSessionManager(signer, true)
+	sessions.SetCookieDomain(".moogo.dev")
+
+	recorder := httptest.NewRecorder()
+	sessions.SetCookie(recorder, "the-token")
+
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 2 {
+		t.Fatalf("expected 2 cookies (expire host-only, then domain cookie), got %d", len(cookies))
+	}
+
+	retired := cookies[0]
+	if retired.Domain != "" {
+		t.Errorf("first cookie must retire the host-only variant, got Domain=%q", retired.Domain)
+	}
+	if retired.MaxAge >= 0 {
+		t.Errorf("first cookie must expire the host-only variant, got MaxAge=%d", retired.MaxAge)
+	}
+
+	scoped := cookies[1]
+	// Go strips the leading dot when writing Domain, so ".moogo.dev" and
+	// "moogo.dev" are the same attribute on the wire.
+	if strings.TrimPrefix(scoped.Domain, ".") != "moogo.dev" {
+		t.Errorf("second cookie must be scoped to moogo.dev, got Domain=%q", scoped.Domain)
+	}
+	if scoped.MaxAge <= 0 {
+		t.Errorf("second cookie must be live, got MaxAge=%d", scoped.MaxAge)
+	}
+	if scoped.Value != "the-token" {
+		t.Errorf("second cookie must carry the token, got %q", scoped.Value)
+	}
+	if !scoped.HttpOnly || !scoped.Secure || scoped.SameSite != http.SameSiteLaxMode {
+		t.Error("domain cookie must keep the security flags of the host-only one")
+	}
+}
+
+// Signing out must drop both variants. Expiring only the domain cookie would
+// leave a host-only one behind that the issuing host keeps sending, so the
+// user appears signed in again on the very host they signed out from.
+func TestClearCookieWithDomainExpiresBothVariants(t *testing.T) {
+	signer, err := session.NewSigner("a-test-secret-that-is-definitely-long-enough", time.Hour)
+	if err != nil {
+		t.Fatalf("create signer: %v", err)
+	}
+	sessions := NewSessionManager(signer, false)
+	sessions.SetCookieDomain(".moogo.dev")
+
+	recorder := httptest.NewRecorder()
+	sessions.ClearCookie(recorder)
+
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 2 {
+		t.Fatalf("expected 2 cookies (domain + host-only), got %d", len(cookies))
+	}
+	for i, cookie := range cookies {
+		if cookie.MaxAge >= 0 {
+			t.Errorf("cookie %d must be expired, got MaxAge=%d", i, cookie.MaxAge)
+		}
+	}
+	if got := strings.TrimPrefix(cookies[0].Domain, "."); got != "moogo.dev" {
+		t.Errorf("first cleared cookie must be the domain variant, got Domain=%q", got)
+	}
+	if cookies[1].Domain != "" {
+		t.Errorf("second cleared cookie must be the host-only variant, got Domain=%q", cookies[1].Domain)
+	}
+}
+
 func TestSanitizeRedirectRejectsAbsoluteURLs(t *testing.T) {
 	manager := NewManager(GoogleConfig{}, nil, nil)
 

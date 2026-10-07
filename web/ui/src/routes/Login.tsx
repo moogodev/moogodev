@@ -6,6 +6,7 @@ import { GoogleSignInButton } from "../components/GoogleSignInButton";
 import { SiteLayout } from "../components/Layout";
 import { PasswordInput } from "../components/PasswordInput";
 import { api, ApiError } from "../lib/api";
+import { appOrigin } from "../lib/origin";
 import { useSession } from "../lib/session";
 
 // Only known reasons are shown. Echoing an arbitrary query parameter back into
@@ -50,10 +51,13 @@ export default function Login() {
   // Someone who is already signed in has no business on this page. The redirect
   // is a full page load rather than client-side navigation so that the header,
   // which read the session before the sign-in, cannot keep showing the signed
-  // out version.
+  // out version. It names the dashboard host explicitly: the landing page and
+  // the auth pages are served from the apex too, and a relative "/app" from
+  // there would render the dashboard somewhere the deployment does not serve
+  // it from.
   useEffect(() => {
     if (session.status === "authenticated") {
-      window.location.assign("/app");
+      window.location.assign(appOrigin() + "/app");
     }
   }, [session.status]);
 
@@ -67,7 +71,7 @@ export default function Login() {
     setError(null);
     try {
       await api.login(email.trim(), password);
-      window.location.assign("/app");
+      window.location.assign(appOrigin() + "/app");
     } catch (cause) {
       // The password was accepted; only the address is unconfirmed. This is a
       // state to recover from, not a credentials failure, so it gets its own

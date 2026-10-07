@@ -76,6 +76,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 	}
 
 	sessions := auth.NewSessionManager(signer, cfg.CookieSecure)
+	sessions.SetCookieDomain(cfg.CookieDomain)
 
 	google := auth.NewManager(auth.GoogleConfig{
 		ClientID:     cfg.GoogleClientID,

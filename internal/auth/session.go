@@ -39,7 +39,11 @@ type SessionManager struct {
 	// secure sets the Secure cookie flag. It follows the environment: a cookie
 	// without Secure leaks over plain HTTP, so it must be on in production.
 	secure bool
-	ttl    time.Duration
+	// cookieDomain, when set, scopes the cookie to a domain instead of a
+	// single host, so a deployment split across subdomains shares one session.
+	// Empty keeps the default host-only cookie.
+	cookieDomain string
+	ttl          time.Duration
 }
 
 // NewSessionManager creates a SessionManager.
@@ -49,6 +53,13 @@ func NewSessionManager(signer *session.Signer, secure bool) *SessionManager {
 		secure: secure,
 		ttl:    signer.TTL(),
 	}
+}
+
+// SetCookieDomain sets the domain the session cookie is scoped to, for
+// example ".moogo.dev". Empty keeps the cookie host-only, which is what a
+// single-host deployment wants. Call it before any cookie is written.
+func (manager *SessionManager) SetCookieDomain(domain string) {
+	manager.cookieDomain = domain
 }
 
 // Issue creates a session token for a user.
@@ -62,31 +73,44 @@ func (manager *SessionManager) Verify(token string) (*session.Claims, error) {
 }
 
 // SetCookie writes the session cookie.
+//
+// When a cookie domain is configured, the host-only variant is expired in the
+// same response first: the browser keeps the two apart by domain, so a
+// leftover host-only cookie from before the domain was set would otherwise
+// sit next to the new one and be preferred on the host that issued it.
 func (manager *SessionManager) SetCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     SessionCookieName,
-		Value:    token,
-		Path:     "/",
-		MaxAge:   int(manager.ttl.Seconds()),
-		HttpOnly: true,
-		Secure:   manager.secure,
-		SameSite: http.SameSiteLaxMode,
-	})
+	if manager.cookieDomain != "" {
+		manager.writeCookie(w, "", "", -1)
+	}
+	manager.writeCookie(w, manager.cookieDomain, token, int(manager.ttl.Seconds()))
 }
 
 // ClearCookie expires the session cookie.
 //
 // The attributes must match those used when setting it, or the browser keeps
-// the original cookie and the user stays signed in.
+// the original cookie and the user stays signed in. With a cookie domain
+// configured, both the domain and the host-only variant are expired, since
+// either may be the one actually stored.
 func (manager *SessionManager) ClearCookie(w http.ResponseWriter) {
+	manager.writeCookie(w, manager.cookieDomain, "", -1)
+	if manager.cookieDomain != "" {
+		manager.writeCookie(w, "", "", -1)
+	}
+}
+
+// writeCookie writes one variant of the session cookie. An empty domain
+// produces the host-only form, because http.SetCookie omits the attribute
+// entirely then.
+func (manager *SessionManager) writeCookie(w http.ResponseWriter, domain, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
-		Value:    "",
+		Value:    value,
 		Path:     "/",
-		MaxAge:   -1,
+		MaxAge:   maxAge,
 		HttpOnly: true,
 		Secure:   manager.secure,
 		SameSite: http.SameSiteLaxMode,
+		Domain:   domain,
 	})
 }
 

@@ -6,6 +6,7 @@ import { GoogleSignInButton } from "../components/GoogleSignInButton";
 import { SiteLayout } from "../components/Layout";
 import { PasswordInput } from "../components/PasswordInput";
 import { api, ApiError } from "../lib/api";
+import { appOrigin } from "../lib/origin";
 import { useSession } from "../lib/session";
 
 export default function Register() {
@@ -34,7 +35,7 @@ export default function Register() {
   // keeping its signed-out button after the redirect.
   useEffect(() => {
     if (session.status === "authenticated") {
-      window.location.assign("/app");
+      window.location.assign(appOrigin() + "/app");
     }
   }, [session.status]);
 
