@@ -18,8 +18,10 @@ SERVICE_USER=moogo
 DATA_DIR=/var/lib/moogo
 BACKUP_DIR=/var/backups/moogo
 BIN_PATH=/usr/local/bin/moogo
+NEWS_BIN_PATH=/usr/local/bin/moogo-news
 INSTALL_DIR=/opt/moogo
 ENV_FILE=/etc/moogo/moogo.env
+NEWS_ENV_FILE=/etc/moogo/news.env
 
 if [[ $EUID -ne 0 ]]; then
 	echo "run as root: sudo $0 <domain>" >&2
@@ -44,7 +46,7 @@ echo "==> service user and directories"
 if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
 	useradd --system --home-dir "$INSTALL_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
-install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$INSTALL_DIR" "$DATA_DIR"
+install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$INSTALL_DIR" "$DATA_DIR" "$DATA_DIR/news"
 install -d -m 0700 -o root -g "$SERVICE_USER" "$BACKUP_DIR"
 install -d -m 0750 -o root -g "$SERVICE_USER" /etc/moogo
 
@@ -57,8 +59,19 @@ fi
 (cd "$REPO_ROOT" && go test ./... && go build -trimpath -o "$BIN_PATH" ./cmd/api)
 echo "    built $BIN_PATH"
 
+# The What's-new service (news.moogo.dev) is a second binary with its own
+# embedded frontend and its own SQLite. Building and installing it is
+# unconditional so an update never leaves a stale binary behind; whether it
+# runs still depends on NEWS_ENV_FILE, checked below.
+if [[ -d "$REPO_ROOT/news/dist" ]]; then
+	(cd "$REPO_ROOT/news" && npm install --no-audit --no-fund && npm run build)
+fi
+(cd "$REPO_ROOT" && go build -trimpath -o "$NEWS_BIN_PATH" ./cmd/news)
+echo "    built $NEWS_BIN_PATH"
+
 echo "==> installing unit and proxy config"
 install -m 0644 "$REPO_ROOT/deploy/moogo.service" /etc/systemd/system/moogo.service
+install -m 0644 "$REPO_ROOT/deploy/news.service" /etc/systemd/system/moogo-news.service
 install -m 0644 "$REPO_ROOT/deploy/backup.sh" /usr/local/bin/moogo-backup
 install -m 0644 "$REPO_ROOT/deploy/verify-backup.sh" /usr/local/bin/moogo-verify-backup
 install -m 0644 "$REPO_ROOT/deploy/healthcheck.sh" /usr/local/bin/moogo-healthcheck
@@ -80,6 +93,18 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 chown root:"$SERVICE_USER" "$ENV_FILE"
 chmod 0640 "$ENV_FILE"
+
+# The What's-new service has its own environment file with its own admin
+# account. Missing is allowed here — the main service runs without news, and
+# the unit is only enabled when this file exists. Nothing is ever written to
+# it for the same reason as moogo.env above.
+if [[ -f "$NEWS_ENV_FILE" ]]; then
+	chown root:"$SERVICE_USER" "$NEWS_ENV_FILE"
+	chmod 0640 "$NEWS_ENV_FILE"
+else
+	echo "    note: $NEWS_ENV_FILE does not exist — news.moogo.dev stays disabled."
+	echo "    note: see deploy/README.md (What's new) to create it, then re-run."
+fi
 
 # The domain is the one argument, so the proxy config cannot drift from the
 # certificate Caddy will actually request.
@@ -159,6 +184,12 @@ NOTE
 
 echo "==> starting"
 systemctl enable --now moogo
+if [[ -f "$NEWS_ENV_FILE" ]]; then
+	systemctl enable --now moogo-news
+	echo "    news: enabled — https://news.$DOMAIN (the DNS record must already point here)"
+else
+	echo "    news: skipped — create $NEWS_ENV_FILE and re-run to enable it"
+fi
 systemctl reload caddy || systemctl restart caddy
 
 echo

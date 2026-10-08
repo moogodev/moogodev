@@ -59,11 +59,14 @@ everybody out.
 | Piece | Where |
 |---|---|
 | Binary | `/usr/local/bin/moogo`, plain HTTP on `127.0.0.1:8080` |
+| What's-new binary (optional) | `/usr/local/bin/moogo-news`, plain HTTP on `127.0.0.1:8081` |
 | TLS, certificates | Caddy in front, renewing on its own |
 | Secrets | `/etc/moogo/moogo.env`, `root:moogo`, mode 640 |
+| What's-new secrets (optional) | `/etc/moogo/news.env`, `root:moogo`, mode 640 |
 | Control plane | PostgreSQL |
 | Project databases | `$MOOGO_DATA_DIR/dbs/<uuid>.db` |
 | Object storage | `$MOOGO_DATA_DIR/buckets/` |
+| What's-new database | `$MOOGO_DATA_DIR/news/news.db` (SQLite) |
 | Nightly backup | `/etc/cron.d/moogo-backup` at 03:17 |
 | Restore check | the same file, 04:23, into a throwaway database |
 | Health check | `/etc/cron.d/moogo-healthcheck`, every minute, public URL |
@@ -76,6 +79,61 @@ that are easy to miss:
 - **`MOOGO_TRUSTED_PROXIES` must contain `127.0.0.1`.** Without it every request
   looks like it came from the proxy, and the rate limit on `/auth/login`
   becomes a limit on your entire user base.
+
+## What's new (news.moogo.dev), optional
+
+The changelog site is a **second binary**: `moogo-news`, its own port
+(`127.0.0.1:8081`), its own SQLite file, its own single-admin login. It shares
+nothing with the control plane — not the database, not the session secret, not
+the admin account — so a compromise on either side does not travel to the
+other. The main service runs fine without it, and `deploy.sh` builds and
+installs it either way while only *enabling* it when configured.
+
+To turn it on, three things are needed once:
+
+**1. DNS.** An A record for `news.YOUR-DOMAIN` pointing at this VPS. The
+Caddyfile already contains the block; with no record it simply receives no
+traffic. Until it exists, the dashboard's "What's new" links do not resolve.
+
+**2. The environment file** — the script never writes it, for the same reason
+as `moogo.env`:
+
+```bash
+sudo install -m 0640 -o root -g moogo /dev/null /etc/moogo/news.env
+sudo editor /etc/moogo/news.env
+```
+
+| Variable | Value |
+|---|---|
+| `NEWS_ENV` | `production` |
+| `NEWS_ADDR` | `127.0.0.1:8081` |
+| `NEWS_DB` | `/var/lib/moogo/news/news.db` (a relative `news.db` works too) |
+| `NEWS_SESSION_SECRET` | ≥32 random characters, **different** from `MOOGO_SESSION_SECRET` |
+| `NEWS_ADMIN_EMAIL` | the single editor account |
+| `NEWS_ADMIN_PASSWORD_HASH` | bcrypt hash, generated below |
+| `NEWS_COOKIE_SECURE` | `true` (the default) |
+| `NEWS_TRUSTED_PROXIES` | `127.0.0.1` (the default) — without it every client collapses into the proxy address and login rate limiting counts them as one |
+
+Generate the hash on the server, where the binary is:
+
+```bash
+sudo -u moogo /usr/local/bin/moogo-news -hash-password 'choose-a-strong-password'
+```
+
+There is no sign-up and no password reset. Rotating the account means
+replacing the two values and `systemctl restart moogo-news`.
+
+**3. Re-run the deploy** so the unit is enabled:
+
+```bash
+sudo ./deploy/deploy.sh YOUR-DOMAIN
+systemctl status moogo-news
+curl -fsS http://127.0.0.1:8081/healthz     # {"status":"ok"}
+journalctl -u moogo-news -f
+```
+
+The database seeds its first three posts on first start, so a fresh
+deployment has a changelog to link to rather than an empty page.
 
 ## Migrations
 

@@ -1,0 +1,68 @@
+[Unit]
+Description=Moogo What's-new service (news.moogo.dev)
+Documentation=https://github.com/moogodev/moogodev
+# The service answers /healthz from its own SQLite; it only needs the network
+# up to bind its loopback address.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=moogo
+Group=moogo
+
+# Secrets live here, not in the unit and not in the working directory.
+# chmod 600, owned by root:moogo. Generate the password hash with:
+#   /usr/local/bin/moogo-news -hash-password '...'
+EnvironmentFile=/etc/moogo/news.env
+
+# The SQLite file is this service's only storage. WorkingDirectory keeps a
+# relative NEWS_DB inside the path ProtectSystem=strict leaves writable, and
+# the sandbox below allows writes to exactly that tree.
+WorkingDirectory=/var/lib/moogo/news
+ExecStart=/usr/local/bin/moogo-news
+
+# The process drains in-flight requests for up to 15s; systemd has to outlive
+# that or SIGKILL lands mid-write on the database.
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+Restart=always
+RestartSec=5s
+StartLimitIntervalSec=0
+
+# --- Sandboxing ---
+# Same profile as moogo.service: everything the service writes is under
+# /var/lib/moogo, and the rest of the filesystem is read-only.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# The one path that must stay writable: the news database lives here.
+ReadWritePaths=/var/lib/moogo
+
+# Logs go to journald; the access log is structured JSON on stdout.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=moogo-news
+
+[Install]
+WantedBy=multi-user.target

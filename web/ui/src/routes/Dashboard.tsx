@@ -2,12 +2,25 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, formatBytes, type Me, type Project } from "../lib/api";
 
-// Product updates shown on the dashboard. Kept as a constant until there is a
-// real changelog endpoint to read from.
-const UPDATES: { date: string; title: string }[] = [
-  { date: "Oct 2026", title: "Spreadsheet-style table editor with inline editing" },
-  { date: "Oct 2026", title: "Per-project buckets with a 256 MB quota" },
-  { date: "Sep 2026", title: "Email and password sign-in with password reset" },
+// Product updates, each an anchor into the changelog at news.moogo.dev.
+// Cross-origin on purpose: a plain <a> is the honest way to leave the
+// dashboard for another site, where SPA routing does not apply.
+const UPDATES: { date: string; title: string; href: string }[] = [
+  {
+    date: "Oct 2026",
+    title: "Spreadsheet-style table editor with inline editing",
+    href: "https://news.moogo.dev/#spreadsheet-table-editor",
+  },
+  {
+    date: "Oct 2026",
+    title: "Per-project buckets with a 256 MB quota",
+    href: "https://news.moogo.dev/#per-project-buckets",
+  },
+  {
+    date: "Sep 2026",
+    title: "Email and password sign-in with password reset",
+    href: "https://news.moogo.dev/#email-password-signin",
+  },
 ];
 
 export default function Dashboard() {
@@ -119,12 +132,25 @@ export default function Dashboard() {
         </section>
 
         <section>
-          <h2 className="mb-3 text-[0.9rem] font-semibold">What&apos;s new</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-[0.9rem] font-semibold">What&apos;s new</h2>
+            <a
+              href="https://news.moogo.dev"
+              className="text-[0.8rem] text-accent hover:underline"
+            >
+              See all
+            </a>
+          </div>
           <ul className="border-t border-edge">
             {UPDATES.map((update) => (
-              <li key={update.title} className="border-b border-edge py-2.5">
-                <span className="text-[0.86rem]">{update.title}</span>
-                <span className="ml-2 text-[0.75rem] text-faint">{update.date}</span>
+              <li key={update.title} className="border-b border-edge">
+                <a
+                  href={update.href}
+                  className="flex items-baseline justify-between gap-3 py-2.5 transition-colors hover:text-accent"
+                >
+                  <span className="min-w-0 truncate text-[0.86rem]">{update.title}</span>
+                  <span className="flex-shrink-0 text-[0.75rem] text-faint">{update.date}</span>
+                </a>
               </li>
             ))}
           </ul>

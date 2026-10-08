@@ -39,3 +39,32 @@ moogo.example.com {
 http://moogo.example.com {
 	redir https://{host}{uri} permanent
 }
+
+# --- What's new (news.moogo.dev) ---
+# A second binary with its own admin login and its own SQLite, deliberately
+# separate from the control plane. Needs a DNS A record for
+# news.<your-domain> pointing at this VPS; without it this block simply
+# receives no traffic.
+news.moogo.example.com {
+	encode zstd gzip
+
+	reverse_proxy 127.0.0.1:8081
+
+	# HSTS again: same reason as the main block, and news.moogo.example.com
+	# is its own origin so it needs its own header.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	log {
+		output file /var/log/caddy/news.log {
+			roll_size 20MiB
+			roll_keep 10
+		}
+		format json
+	}
+}
+
+http://news.moogo.example.com {
+	redir https://{host}{uri} permanent
+}
