@@ -204,7 +204,7 @@ func Load() (Config, error) {
 	reader := &envReader{}
 
 	cfg := Config{
-		Addr:            reader.string("MOOGO_ADDR", ":8080"),
+		Addr:            reader.string("MOOGO_ADDR", "127.0.0.1:8080"),
 		PublicURL:       strings.TrimRight(reader.string("MOOGO_PUBLIC_URL", "http://localhost:8080"), "/"),
 		APIURL:          strings.TrimRight(reader.string("MOOGO_API_URL", ""), "/"),
 		NewsURL:         strings.TrimRight(reader.string("MOOGO_NEWS_URL", "http://127.0.0.1:8081"), "/"),

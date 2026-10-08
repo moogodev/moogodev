@@ -246,7 +246,7 @@ func New(deps Deps) http.Handler {
 	// multiplied by moving between endpoints, and the trusted-proxy list is the
 	// same one RealIP uses, so the count is per real client rather than per
 	// proxy hop.
-	credentials := ratelimit.New(ratelimit.DefaultCredentialLimit, deps.TrustedProxies)
+	credentials := ratelimit.New(ratelimit.DefaultCredentialLimit)
 	limited := credentials.Middleware
 
 	// The data plane gets two ceilings of its own, both deliberately
@@ -265,8 +265,8 @@ func New(deps Deps) http.Handler {
 	// routes are hammered by a browser fetching many small files at once,
 	// which is a per-client pattern. It covers the catalog, both object
 	// prefixes, and the public downloads.
-	dataQuery := ratelimit.New(ratelimit.Config{Limit: 300, Window: time.Minute}, deps.TrustedProxies).Plane("query")
-	dataBucket := ratelimit.New(ratelimit.Config{Limit: 300, Window: time.Minute}, deps.TrustedProxies).Plane("bucket")
+	dataQuery := ratelimit.New(ratelimit.Config{Limit: 300, Window: time.Minute}).Plane("query")
+	dataBucket := ratelimit.New(ratelimit.Config{Limit: 300, Window: time.Minute}).Plane("bucket")
 	queryLimited := dataQuery.MiddlewareKey(projectRateKey)
 	bucketLimited := dataBucket.Middleware
 
@@ -283,7 +283,7 @@ func New(deps Deps) http.Handler {
 	// a human returning to the dashboard even from one office NAT, while
 	// still capping how fast one address can reopen fetches after the
 	// handler's minute-long cache expires.
-	updatesLimited := ratelimit.New(ratelimit.Config{Limit: 60, Window: time.Minute}, deps.TrustedProxies).Plane("updates").Middleware
+	updatesLimited := ratelimit.New(ratelimit.Config{Limit: 60, Window: time.Minute}).Plane("updates").Middleware
 
 	root.With(limited).Post("/auth/register", deps.Credentials.Register)
 	root.With(limited).Post("/auth/login", deps.Credentials.Login)

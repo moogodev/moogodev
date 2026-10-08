@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/netip"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -171,29 +172,117 @@ func MaxBodyBytes(limit int64) func(http.Handler) http.Handler {
 // is the proxy's address and any rate limiting keyed on it would treat every
 // user as one caller.
 //
-// The forwarded headers are believed only when the deployment named its proxies.
-// Empty means they are ignored, which is the safe direction: a caller that can
-// set X-Forwarded-For to any address can otherwise give itself a fresh identity
-// per request and walk straight through a per-client rate limit, and the access
-// log records whatever they chose.
+// The forwarded header is believed only when two things hold: the deployment
+// named its proxies in trustedProxies, and the request actually arrived from
+// one of them. Empty means the header is ignored, which is the safe
+// direction: a caller that can set X-Forwarded-For to any address can
+// otherwise give itself a fresh identity per request and walk straight
+// through a per-client rate limit, and the access log records whatever they
+// chose.
 //
-// chi's middleware.RealIP does the opposite -- it trusts those headers from
-// anybody -- which is why this exists and why the router mounts this one.
+// Inside the chain the walk goes right to left: every entry that is one of
+// the declared proxies was appended by a hop we run, so the first entry that
+// is not ours is the caller. Believing the leftmost entry instead lets a
+// caller pre-fill the header with a chosen address and have the proxy append
+// the real one after it -- the spoof then sits exactly where the old code
+// looked.
+//
+// chi's middleware.RealIP trusts those headers from anybody -- which is why
+// this exists and why the router mounts this one.
 func RealIP(trustedProxies []string) func(http.Handler) http.Handler {
+	trusted := parseTrustedProxies(trustedProxies)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			forwarded := r.Header.Get("X-Forwarded-For")
-			if forwarded != "" && len(trustedProxies) > 0 {
-				// The leftmost entry is the original client; the rest were
-				// appended by each proxy in the chain.
-				first := strings.TrimSpace(strings.Split(forwarded, ",")[0])
-				if first != "" {
-					r.RemoteAddr = first + ":0"
+			if forwarded != "" && len(trusted) > 0 {
+				if peer, ok := parseAddrField(r.RemoteAddr); ok && trustedContains(trusted, peer) {
+					if client := forwardedClient(forwarded, trusted); client != "" {
+						// Port 0: the client port is meaningless across a
+						// proxy hop, and JoinHostPort keeps an IPv6 client
+						// parseable for everything keyed on ClientIP.
+						r.RemoteAddr = net.JoinHostPort(client, "0")
+					}
 				}
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// parseTrustedProxies turns the configured entries into prefixes. Entries are
+// a plain address (matched exactly) or a CIDR (matched by range); anything
+// unparseable is dropped, so a typo can never widen the trust.
+func parseTrustedProxies(entries []string) []netip.Prefix {
+	prefixes := make([]netip.Prefix, 0, len(entries))
+	for _, entry := range entries {
+		if strings.Contains(entry, "/") {
+			prefix, err := netip.ParsePrefix(entry)
+			if err != nil {
+				continue
+			}
+			prefixes = append(prefixes, netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()))
+			continue
+		}
+		addr, err := netip.ParseAddr(entry)
+		if err != nil {
+			continue
+		}
+		addr = addr.Unmap()
+		prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return prefixes
+}
+
+// trustedContains reports whether addr is one of the declared proxies.
+func trustedContains(trusted []netip.Prefix, addr netip.Addr) bool {
+	addr = addr.Unmap()
+	for _, prefix := range trusted {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseAddrField reads an address that may carry a port, as RemoteAddr and
+// some proxy dialects spell it.
+func parseAddrField(value string) (netip.Addr, bool) {
+	if addrPort, err := netip.ParseAddrPort(value); err == nil {
+		return addrPort.Addr().Unmap(), true
+	}
+	if addr, err := netip.ParseAddr(value); err == nil {
+		return addr.Unmap(), true
+	}
+	return netip.Addr{}, false
+}
+
+// forwardedClient picks the client from an X-Forwarded-For chain, walking
+// right to left past the declared proxies. The rightmost entry was appended
+// by the proxy closest to us; the first entry it did not append belongs to
+// the caller.
+func forwardedClient(forwarded string, trusted []netip.Prefix) string {
+	entries := strings.Split(forwarded, ",")
+	for index := len(entries) - 1; index >= 0; index-- {
+		entry := strings.TrimSpace(entries[index])
+		if entry == "" {
+			continue
+		}
+		addr, ok := parseAddrField(entry)
+		if !ok {
+			// Not an address, sitting where the caller sits: it is the
+			// identity the chain vouches for, so it is taken verbatim.
+			return entry
+		}
+		if !trustedContains(trusted, addr) {
+			return addr.String()
+		}
+	}
+	// Every hop in the chain is a declared proxy, so the far end is the
+	// client.
+	if len(entries) > 0 {
+		return strings.TrimSpace(entries[0])
+	}
+	return ""
 }
 
 // ClientIP extracts the client address without the port.

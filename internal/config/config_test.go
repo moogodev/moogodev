@@ -38,6 +38,21 @@ func TestDefaultsPutAProjectAt256MB(t *testing.T) {
 	}
 }
 
+// TestDefaultAddrBindsLoopback pins MG-04: without an explicit MOOGO_ADDR
+// the API listens on every interface, which turns a deployment that forgot
+// the variable into one serving its admin routes to the network. Loopback
+// is the safe default; a host that means to expose the port says so.
+func TestDefaultAddrBindsLoopback(t *testing.T) {
+	cfg, err := loadWith(t, nil)
+	if err != nil {
+		t.Fatalf("defaults should be valid: %v", err)
+	}
+
+	if cfg.Addr != "127.0.0.1:8080" {
+		t.Errorf("Addr = %q, want the loopback default 127.0.0.1:8080", cfg.Addr)
+	}
+}
+
 func TestObjectCapIsSeparateFromTheJSONBodyCap(t *testing.T) {
 	cfg, err := loadWith(t, nil)
 	if err != nil {

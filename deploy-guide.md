@@ -32,7 +32,7 @@ writes the site config and obtains the certificate. This is not optional.
 
 | | |
 |---|---|
-| Listen address | `:8080`, must be reachable by nginx on `127.0.0.1` |
+| Listen address | `127.0.0.1:8080` (the loopback default), reachable by nginx on the same host |
 | systemd unit | `moogo.service`, user `moogo`, no login shell |
 | Binary | `/usr/local/bin/moogo` |
 | Secrets | `/etc/moogo/moogo.env`, `root:moogo`, mode `0640` |
@@ -154,7 +154,7 @@ Expected output:
 ```
 configuration is valid
   environment:   production
-  addr:          :8080
+  addr:          127.0.0.1:8080
   public url:    https://moogo.example.com
   data dir:      /var/lib/moogo
   cookie secure: true
@@ -221,7 +221,7 @@ limit on your whole user base.
 
 | Variable | Default |
 |---|---|
-| `MOOGO_ADDR` | `:8080` |
+| `MOOGO_ADDR` | `127.0.0.1:8080` (loopback; set it explicitly to listen wider) |
 | `MOOGO_DATA_DIR` | `/data` |
 | `MOOGO_PUBLIC_URL` | `http://localhost:8080` |
 | `MOOGO_NEWS_URL` | `http://127.0.0.1:8081` (the news service; when it is down the dashboard's What's-new list is empty) |
@@ -360,7 +360,7 @@ login with nothing able to unblock it.
 Set it. Do not work around it: without `Secure`, session cookies travel in
 clear.
 
-### `moogo: serve: listen tcp :8080: bind: address already in use`
+### `moogo: serve: listen tcp 127.0.0.1:8080: bind: address already in use`
 
 A previous instance is still running.
 

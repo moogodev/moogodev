@@ -10,7 +10,7 @@ import (
 
 // newTestLimiter builds a limiter whose clock the test controls.
 func newTestLimiter(config Config) (*Limiter, *time.Time) {
-	limiter := New(config, nil)
+	limiter := New(config)
 	now := time.Now()
 	limiter.now = func() time.Time { return now }
 	return limiter, &now
@@ -132,7 +132,7 @@ func itoa(value int) string {
 // The limiter is shared across concurrent requests, so its bookkeeping has to
 // be safe under -race.
 func TestConcurrentUseIsRaceFree(t *testing.T) {
-	limiter := New(Config{Limit: 1000, Window: time.Minute}, nil)
+	limiter := New(Config{Limit: 1000, Window: time.Minute})
 
 	var group sync.WaitGroup
 	for worker := 0; worker < 20; worker++ {
@@ -151,7 +151,7 @@ func TestConcurrentUseIsRaceFree(t *testing.T) {
 // Over the limit, the response is a 429 carrying Retry-After, so a client can
 // back off on its own.
 func TestMiddlewareAnswers429WithRetryAfter(t *testing.T) {
-	limiter := New(Config{Limit: 1, Window: time.Minute}, nil)
+	limiter := New(Config{Limit: 1, Window: time.Minute})
 
 	handler := limiter.Middleware(http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
@@ -184,9 +184,11 @@ func TestMiddlewareAnswers429WithRetryAfter(t *testing.T) {
 
 // The limiter must not be defeatable by a header the client controls. This is
 // the bypass that matters: without it, one extra argument per request gives an
-// attacker an unlimited supply of attempts.
-func TestForwardedForIsIgnoredWithoutTrustedProxies(t *testing.T) {
-	limiter := New(Config{Limit: 2, Window: time.Minute}, nil)
+// attacker an unlimited supply of attempts. The header never changes the key
+// -- httpx.RealIP is the one place it is interpreted, ahead of this middleware
+// and only from a declared proxy.
+func TestForwardedForIsIgnored(t *testing.T) {
+	limiter := New(Config{Limit: 2, Window: time.Minute})
 
 	handler := limiter.Middleware(http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
@@ -218,15 +220,15 @@ func TestForwardedForIsIgnoredWithoutTrustedProxies(t *testing.T) {
 	}
 }
 
-// Behind a declared proxy the header is the real client address, so two
-// different forwarded addresses are genuinely two different callers.
-func TestForwardedForIsUsedWithTrustedProxies(t *testing.T) {
-	limiter := New(Config{Limit: 1, Window: time.Minute}, []string{"10.0.0.1"})
+// Two peer addresses are two callers, which is the property RealIP's rewrite
+// feeds this middleware: behind a declared proxy every real client arrives
+// with its own address in RemoteAddr, and each gets its own allowance.
+func TestDifferentPeerAddressesGetSeparateAllowances(t *testing.T) {
+	limiter := New(Config{Limit: 1, Window: time.Minute})
 
-	send := func(forwarded string) int {
+	send := func(peer string) int {
 		request := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
-		request.RemoteAddr = "10.0.0.1:5555"
-		request.Header.Set("X-Forwarded-For", forwarded)
+		request.RemoteAddr = peer
 		recorder := httptest.NewRecorder()
 		limiter.Middleware(http.HandlerFunc(
 			func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) },
@@ -234,14 +236,14 @@ func TestForwardedForIsUsedWithTrustedProxies(t *testing.T) {
 		return recorder.Code
 	}
 
-	if code := send("203.0.113.1"); code != http.StatusOK {
+	if code := send("203.0.113.1:5555"); code != http.StatusOK {
 		t.Fatalf("first caller: expected 200, got %d", code)
 	}
-	if code := send("203.0.113.1"); code != http.StatusTooManyRequests {
+	if code := send("203.0.113.1:5555"); code != http.StatusTooManyRequests {
 		t.Errorf("expected the same caller to be limited, got %d", code)
 	}
-	if code := send("203.0.113.2"); code != http.StatusOK {
-		t.Errorf("a different forwarded caller should have its own allowance, got %d", code)
+	if code := send("203.0.113.2:5555"); code != http.StatusOK {
+		t.Errorf("a different peer should have its own allowance, got %d", code)
 	}
 }
 
@@ -250,7 +252,7 @@ func TestForwardedForIsUsedWithTrustedProxies(t *testing.T) {
 // addresses would be. The data plane leans on this: one project's budget is
 // never another project's, wherever the requests arrive from.
 func TestMiddlewareKeySeparatesIdentities(t *testing.T) {
-	limiter := New(Config{Limit: 1, Window: time.Minute}, nil)
+	limiter := New(Config{Limit: 1, Window: time.Minute})
 
 	handler := limiter.MiddlewareKey(func(r *http.Request) string {
 		return "project:" + r.Header.Get("X-Project")
@@ -282,7 +284,7 @@ func TestMiddlewareKeySeparatesIdentities(t *testing.T) {
 // Middleware delegates to MiddlewareKey on the address, so the two stay
 // behaviourally identical: the same 429 contract from both entry points.
 func TestMiddlewareIsKeyedByAddress(t *testing.T) {
-	limiter := New(Config{Limit: 1, Window: time.Minute}, nil)
+	limiter := New(Config{Limit: 1, Window: time.Minute})
 
 	handler := limiter.Middleware(http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))

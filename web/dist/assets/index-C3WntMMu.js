@@ -2635,11 +2635,14 @@ Without it, every request looks like it came from the proxy, so a per-client
 limit would treat all visitors as one caller and a shared bucket would lock
 everyone out at once.
 
-It is a list of addresses, and it is trusted exactly as written. Moogo believes
-\`X-Forwarded-For\`, \`X-Real-IP\` and \`True-Client-IP\` only from a proxy named
-here; from anybody else those headers are ignored, so a client cannot pick its
-own identity to slip past a limit or poison the access log. Do not list \`0.0.0.0\`
-or \`::\` — that is the same as trusting everybody.
+It is a list of addresses or CIDR ranges — \`127.0.0.1\` and \`10.0.0.0/24\` are
+both valid entries. Moogo believes \`X-Forwarded-For\` only when the request
+itself arrives from one of them; from anybody else the header is ignored, so a
+client cannot pick its own identity to slip past a limit or poison the access
+log. When the header is believed, the chain inside it is read right to left
+past the listed proxies, so an entry the client sent itself cannot outweigh
+the address a proxy appended. Do not list \`0.0.0.0\` or \`::\` — that is the
+same as trusting everybody.
 
 ## Reporting a vulnerability
 

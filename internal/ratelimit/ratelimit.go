@@ -18,7 +18,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -60,9 +59,6 @@ type entry struct {
 // Limiter is a set of token buckets keyed by client address.
 type Limiter struct {
 	config Config
-	// trustedProxies gates whether X-Forwarded-For is believed. Empty means it
-	// is ignored, which is the safe default and matches the router.
-	trustedProxies []string
 	// now is injectable so tests can advance time without sleeping.
 	now func() time.Time
 	// plane names this limiter in moogo_rate_limited_total, so a refusal can
@@ -80,20 +76,21 @@ type Limiter struct {
 
 // New creates a Limiter.
 //
-// trustedProxies is the same list the router's RealIP middleware is given.
-// Passing it here is what lets the limiter see the real client address behind
-// a proxy while still refusing to believe X-Forwarded-For from anybody else.
-func New(config Config, trustedProxies []string) *Limiter {
+// The identity comes from RemoteAddr and nothing else: the router mounts
+// httpx.RealIP first, which is the one place X-Forwarded-For is interpreted,
+// and only when the deployment declared its proxies. Reading the header here
+// as well would make the limiter believe it from anybody the moment the two
+// disagreed about what trusted means.
+func New(config Config) *Limiter {
 	if config.Limit <= 0 || config.Window <= 0 {
 		config = DefaultCredentialLimit
 	}
 	return &Limiter{
-		config:         config,
-		trustedProxies: trustedProxies,
-		now:            time.Now,
-		plane:          "auth",
-		buckets:        make(map[string]*entry),
-		lastSweep:      time.Now(),
+		config:    config,
+		now:       time.Now,
+		plane:     "auth",
+		buckets:   make(map[string]*entry),
+		lastSweep: time.Now(),
 	}
 }
 
@@ -193,7 +190,7 @@ func (limiter *Limiter) Size() int {
 // too fast, and the distinction matters to every client that retries.
 func (limiter *Limiter) Middleware(next http.Handler) http.Handler {
 	return limiter.MiddlewareKey(func(r *http.Request) string {
-		return clientKey(r, limiter.trustedProxies)
+		return clientKey(r)
 	})(next)
 }
 
@@ -224,29 +221,24 @@ func (limiter *Limiter) MiddlewareKey(keyFn func(*http.Request) string) func(htt
 	}
 }
 
-// clientKey identifies the caller.
+// clientKey identifies the caller from RemoteAddr alone.
 //
 // The address is normalized so that "::1" and "127.0.0.1" are not two buckets
 // for the same machine on a host that has both, and so an IPv6 address in one
 // of its textual forms does not get a fresh allowance.
 //
-// X-Forwarded-For is read only when the deployment declared trusted proxies,
-// which is what the RealIP middleware does. Trusting it unconditionally would
-// let anyone bypass the limit by sending a different X-Forwarded-For on every
-// request, which is the first thing anyone would try: it costs one curl
-// argument and defeats a limiter that is otherwise correct.
-func clientKey(r *http.Request, trustedProxies []string) string {
-	address := r.RemoteAddr
-	if len(trustedProxies) > 0 {
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			address = strings.TrimSpace(strings.Split(forwarded, ",")[0])
-		}
-	}
-
-	host, _, err := net.SplitHostPort(address)
+// X-Forwarded-For is deliberately not read here. The router mounts
+// httpx.RealIP ahead of every limiter, so RemoteAddr already carries the
+// resolved client address when this runs, and the header was believed only
+// if the request came from a declared proxy. Re-reading it would be a second
+// interpretation of the same header -- believed from anybody the moment the
+// two copies of the trusted list disagreed, which is a limiter one header
+// away from unlimited.
+func clientKey(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		// Already a bare host.
-		host = address
+		host = r.RemoteAddr
 	}
 
 	if host == "" {

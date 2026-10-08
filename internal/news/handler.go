@@ -54,7 +54,6 @@ func NewServer(cfg Config, store *Store, static fs.FS) http.Handler {
 	// guessing loop wants.
 	loginLimiter := ratelimit.New(
 		ratelimit.Config{Limit: 10, Window: time.Minute},
-		cfg.TrustedProxies,
 	)
 
 	mux := chi.NewRouter()
