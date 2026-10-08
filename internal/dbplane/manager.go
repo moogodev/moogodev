@@ -193,7 +193,7 @@ func (manager *Manager) bucketProjectPath(projectID uuid.UUID) string {
 func (manager *Manager) InitializeProject(ctx context.Context, projectID uuid.UUID) error {
 	path := manager.databasePath(projectID)
 
-	connection, err := openProjectDatabase(path, manager.queryTimeout)
+	connection, err := openProjectDatabase(path, manager.queryTimeout, manager.maxDBBytes)
 	if err != nil {
 		return err
 	}
@@ -258,7 +258,7 @@ func (manager *Manager) acquire(projectID uuid.UUID) (*projectConnection, func()
 			return nil, noop, fmt.Errorf("stat database file: %w", err)
 		}
 
-		opened, err := openProjectDatabase(path, manager.queryTimeout)
+		opened, err := openProjectDatabase(path, manager.queryTimeout, manager.maxDBBytes)
 		if err != nil {
 			manager.mu.Unlock()
 			return nil, noop, err
@@ -345,8 +345,13 @@ func (manager *Manager) evictLocked() {
 // connection-scoped and a pooled or reopened connection would otherwise lose
 // them. foreign_keys in particular defaults to OFF in SQLite, which silently
 // means referential integrity is not enforced.
-func openProjectDatabase(path string, queryTimeout time.Duration) (*sql.DB, error) {
-	return openProjectPool(path, queryTimeout, false)
+//
+// max_page_count is the hard size cap: the size check runs before the
+// statement, so a single large statement could otherwise grow the file past
+// the limit and only be refused afterwards. SQLite refuses the page instead,
+// the statement rolls back, and the file never exceeds the limit.
+func openProjectDatabase(path string, queryTimeout time.Duration, maxDBBytes int64) (*sql.DB, error) {
+	return openProjectPool(path, queryTimeout, maxDBBytes, false)
 }
 
 // openProjectReadDatabase opens the query_only pool that Query runs on.
@@ -356,10 +361,10 @@ func openProjectDatabase(path string, queryTimeout time.Duration) (*sql.DB, erro
 // this pool is what guarantees a statement on the read path cannot change
 // data even when the classifier is wrong.
 func openProjectReadDatabase(path string, queryTimeout time.Duration) (*sql.DB, error) {
-	return openProjectPool(path, queryTimeout, true)
+	return openProjectPool(path, queryTimeout, 0, true)
 }
 
-func openProjectPool(path string, queryTimeout time.Duration, readOnly bool) (*sql.DB, error) {
+func openProjectPool(path string, queryTimeout time.Duration, maxDBBytes int64, readOnly bool) (*sql.DB, error) {
 	// _txlock=immediate asks for a write lock at BEGIN rather than on first
 	// write, which turns a late SQLITE_BUSY into an immediate one. The write
 	// mutex makes that rare, but a checkpoint or another process can still
@@ -380,6 +385,12 @@ func openProjectPool(path string, queryTimeout time.Duration, readOnly bool) (*s
 		// journal_mode(WAL) above is a no-op, and query_only only blocks SQL
 		// statements -- the connection still opens the file normally.
 		dsn += "&_pragma=query_only(1)"
+	} else if maxDBBytes > 0 {
+		maxPages := maxDBBytes / defaultPageSize
+		if maxPages < 1 {
+			maxPages = 1
+		}
+		dsn += fmt.Sprintf("&_pragma=max_page_count(%d)", maxPages)
 	}
 
 	database, err := sql.Open("sqlite", dsn)
@@ -504,9 +515,9 @@ func (manager *Manager) OpenConnections() map[string]int {
 
 // DatabaseSize returns a project's database size in bytes.
 //
-// SQLite reports the main database size only, so the WAL sidecar is added in.
+// SQLite reports data pages only, so the WAL sidecar is added in.
 // A project with an unflushed WAL can be over its limit in total bytes on disk
-// while page_count says otherwise.
+// while the data-page count says otherwise.
 func (manager *Manager) DatabaseSize(ctx context.Context, projectID uuid.UUID) (int64, error) {
 	connection, release, err := manager.acquire(projectID)
 	if err != nil {

@@ -168,9 +168,11 @@ func (manager *Manager) Exec(
 
 	// Check the size before writing, under the lock. Checking only afterwards
 	// would be too late: the disk space would already be committed. This is
-	// the one size check per statement; it both refuses writes to a database
-	// that is already at its limit and, because it is serialized, catches a
-	// write that jointly pushed past the limit with an earlier one.
+	// the fair pre-check, counting data pages only, and it serializes with
+	// the write lock so every writer sees the size the previous writer
+	// committed. The statement-level backstop is max_page_count: a statement
+	// that would cross the limit fails inside SQLite with SQLITE_FULL and is
+	// mapped to ErrSizeExceeded by classifyError.
 	if err := manager.checkSize(ctx, connection.db); err != nil {
 		return nil, err
 	}
@@ -187,10 +189,10 @@ func (manager *Manager) Exec(
 	}
 
 	// The size for the response is read from the files on disk instead of
-	// through a second PRAGMA while the write lock is held. A statement that
-	// crosses the limit still succeeds here (rolling back would discard a
-	// successful write); the next one is refused by the check above with
-	// ErrSizeExceeded, which tells the caller the database needs attention.
+	// through a second PRAGMA while the write lock is held. A successful
+	// statement stayed within the limit -- max_page_count refused anything
+	// that would not -- so the number is the truth on disk, WAL sidecar
+	// included.
 	path := manager.databasePath(projectID)
 	size, err := DatabaseSizeBytes(path)
 	if err != nil {
@@ -241,21 +243,33 @@ func (manager *Manager) logSlowStatement(
 	})
 }
 
-// databaseSize reports the main database size via page_count times page_size.
+// defaultPageSize is SQLite's compile-time page size, the size every moogo
+// database is created with. It backs both the max_page_count cap (bytes
+// divided by the page size) and the size accounting.
+const defaultPageSize = 4096
+
+// databaseSize reports the pages that hold data: allocated pages minus the
+// freelist pages SQLite can reuse without growing the file.
 //
-// Using SQLite's own accounting rather than stat() means the number reflects
-// allocated pages, which is what the limit is about.
+// Counting allocated pages instead meant a database that had grown past its
+// limit stayed over it even after rows were deleted, because the freed pages
+// still counted -- the DELETE that would have made room was refused by the
+// same check, and nothing could recover without an operator. Data pages
+// reflect what the limit protects against, and freed pages stop counting the
+// moment they are freed.
 func databaseSize(ctx context.Context, database *sql.DB) (int64, error) {
 	var (
-		pageCount int64
-		pageSize  int64
+		pageCount    int64
+		freelistSize int64
+		pageSize     int64
 	)
-	const query = `SELECT page_count, page_size FROM pragma_page_count(), pragma_page_size()`
+	const query = `SELECT page_count, freelist_count, page_size ` +
+		`FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size()`
 
-	if err := database.QueryRowContext(ctx, query).Scan(&pageCount, &pageSize); err != nil {
+	if err := database.QueryRowContext(ctx, query).Scan(&pageCount, &freelistSize, &pageSize); err != nil {
 		return 0, fmt.Errorf("compute database size: %w", err)
 	}
-	return pageCount * pageSize, nil
+	return (pageCount - freelistSize) * pageSize, nil
 }
 
 // copyRow duplicates a scanned row.
@@ -287,6 +301,14 @@ func classifyError(err error, statementCtx context.Context) error {
 		strings.Contains(message, "SQLITE_BUSY") ||
 		strings.Contains(message, "database table is locked") {
 		return fmt.Errorf("database is busy: %w", err)
+	}
+	// max_page_count refuses a statement that would grow the database past
+	// its limit with SQLITE_FULL. The caller's pre-check cannot see it coming
+	// -- the statement itself is what crosses -- so this is the size limit
+	// speaking, not a broken statement.
+	if strings.Contains(message, "database or disk is full") ||
+		strings.Contains(message, "SQLITE_FULL") {
+		return fmt.Errorf("%w: %v", ErrSizeExceeded, err)
 	}
 	return fmt.Errorf("execute statement: %w", err)
 }
