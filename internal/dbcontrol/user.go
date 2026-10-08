@@ -84,25 +84,60 @@ func (store *Store) UpsertUserByEmail(
 	// Quota columns are set on insert only. An existing user's quotas are never
 	// reset from config, because billing may have raised them in the meantime.
 	//
-	// email_verified_at is set to now() on insert and never cleared on
-	// conflict. Google returns the address with email_verified already true --
-	// the provider is the authority on that point -- so a first Google sign-in
-	// is verified from birth. Preserving it on conflict means a Google sign-in
-	// by somebody who had earlier registered by password cannot walk an
-	// already-verified account back to unverified.
+	// On conflict the sign-in proves control of the address, so:
+	//
+	//   - email_verified_at is promoted with COALESCE: a Google sign-in by
+	//     somebody who had earlier registered by password verifies the address
+	//     Google just vouched for, without ever walking an already-verified
+	//     account back to unverified.
+	//   - password_hash is cleared when the address was previously
+	//     unverified. That password was set by whoever registered the address,
+	//     and an unverified registration proves nothing about who holds the
+	//     inbox -- leaving it would let a later confirmation click hand the
+	//     account to whoever chose it. The owner can set a password again
+	//     through a reset link, which goes to the address itself.
+	//   - pending email tokens are voided: the sign-in supersedes the email
+	//     round-trip they were waiting on.
 	const query = `
 		INSERT INTO users (email, name, avatar_url, email_verified_at,
 		                   quota_max_projects, quota_max_db_bytes, quota_max_storage_bytes)
 		VALUES ($1, $2, $3, now(), $4, $5, $6)
 		ON CONFLICT (email) DO UPDATE
-		   SET name       = CASE WHEN EXCLUDED.name       <> '' THEN EXCLUDED.name       ELSE users.name       END,
-		       avatar_url = CASE WHEN EXCLUDED.avatar_url <> '' THEN EXCLUDED.avatar_url ELSE users.avatar_url END` + returningUserColumns
+		   SET name            = CASE WHEN EXCLUDED.name       <> '' THEN EXCLUDED.name       ELSE users.name       END,
+		       avatar_url      = CASE WHEN EXCLUDED.avatar_url <> '' THEN EXCLUDED.avatar_url ELSE users.avatar_url END,
+		       email_verified_at = COALESCE(users.email_verified_at, now()),
+		       password_hash   = CASE WHEN users.email_verified_at IS NULL THEN NULL ELSE users.password_hash END` + returningUserColumns
 
-	user, err := scanUser(store.pool.QueryRow(ctx, query,
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin upsert user: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	user, err := scanUser(transaction.QueryRow(ctx, query,
 		normalizedEmail, name, avatarURL, maxProjects, maxDBBytes, maxStorageBytes,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("upsert user: %w", err)
+	}
+
+	if _, err := transaction.Exec(ctx, `
+		UPDATE email_verification_tokens
+		SET used_at = now()
+		WHERE user_id = $1 AND used_at IS NULL`, user.ID,
+	); err != nil {
+		return nil, fmt.Errorf("void verification tokens: %w", err)
+	}
+	if _, err := transaction.Exec(ctx, `
+		UPDATE password_reset_tokens
+		SET used_at = now()
+		WHERE user_id = $1 AND used_at IS NULL`, user.ID,
+	); err != nil {
+		return nil, fmt.Errorf("void reset tokens: %w", err)
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit upsert user: %w", err)
 	}
 	return user, nil
 }
