@@ -25,6 +25,9 @@ export default function Editor() {
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  // The two tabs of the editor: the form on one, the list on the other, so
+  // the page never shows a wall of fields above a wall of rows.
+  const [tab, setTab] = useState<"create" | "posts">("create");
 
   async function refresh() {
     try {
@@ -79,6 +82,7 @@ export default function Editor() {
     setFlash(null);
     setConfirmDelete(null);
     setForm({ title: post.title, slug: post.slug, body: post.body, published: post.published });
+    setTab("create");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -108,6 +112,9 @@ export default function Editor() {
       }
       resetForm();
       await refresh();
+      // Save lands you where the result is visible: the fresh row in
+      // All Posts, not an emptied form.
+      setTab("posts");
     } catch (cause) {
       setFlash({
         kind: "bad",
@@ -169,9 +176,7 @@ export default function Editor() {
     <main className="mx-auto w-full max-w-[720px] px-6 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-[1.3rem] font-semibold tracking-tight">
-            {editingID === null ? "New post" : "Edit post"}
-          </h1>
+          <h1 className="text-[1.3rem] font-semibold tracking-tight">Editor</h1>
           <p className="text-[0.8rem] text-faint">{me}</p>
         </div>
         <div className="flex items-center gap-3 text-[0.82rem]">
@@ -188,6 +193,22 @@ export default function Editor() {
         </div>
       </div>
 
+      <div
+        className="mt-4 flex gap-1 border-b border-line"
+        role="tablist"
+        aria-label="Editor sections"
+      >
+        <TabButton active={tab === "create"} onSelect={() => setTab("create")}>
+          Create Post
+        </TabButton>
+        <TabButton active={tab === "posts"} onSelect={() => setTab("posts")}>
+          All Posts
+          {posts !== null && posts.length > 0 && (
+            <span className="ml-1.5 font-normal text-faint">({posts.length})</span>
+          )}
+        </TabButton>
+      </div>
+
       {flash && (
         <div
           role={flash.kind === "bad" ? "alert" : "status"}
@@ -199,7 +220,13 @@ export default function Editor() {
         </div>
       )}
 
-      <form onSubmit={(event) => void save(event)} className="mt-5 rounded-xl border border-line bg-card p-5">
+      {tab === "create" && (
+        <form
+          role="tabpanel"
+          aria-label="Create Post"
+          onSubmit={(event) => void save(event)}
+          className="mt-5 rounded-xl border border-line bg-card p-5"
+        >
         <div className="grid gap-4">
           <label className="block">
             <FieldLabel>Title</FieldLabel>
@@ -225,7 +252,7 @@ export default function Editor() {
               className={`${inputClass} font-mono text-[0.85rem]`}
             />
             <span className="mt-1 block text-[0.74rem] text-faint">
-              The URL becomes news.moogo.dev/#{form.slug || "slug"}
+              The URL becomes news.moogo.dev/{form.slug || "slug"}
             </span>
           </label>
 
@@ -268,12 +295,13 @@ export default function Editor() {
               </button>
             )}
           </div>
-        </div>
-      </form>
+          </div>
+        </form>
+      )}
 
-      <h2 className="mt-8 text-[0.8rem] font-bold uppercase tracking-wider text-faint">All posts</h2>
-
-      {listError && (
+      {tab === "posts" && (
+        <div role="tabpanel" aria-label="All Posts" className="mt-5">
+          {listError && (
         <div role="alert" className="mt-3 rounded-lg border border-line bg-card px-4 py-3 text-[0.86rem] text-warn">
           {listError}{" "}
           <button type="button" onClick={() => void refresh()} className="underline">
@@ -285,7 +313,9 @@ export default function Editor() {
       {posts === null && !listError ? (
         <p className="mt-3 text-[0.88rem] text-faint">Loading…</p>
       ) : posts && posts.length === 0 ? (
-        <p className="mt-3 text-[0.88rem] text-muted">No posts yet. Create the first one above.</p>
+        <p className="mt-3 text-[0.88rem] text-muted">
+          No posts yet. Write the first one in the Create Post tab.
+        </p>
       ) : (
         <ul className="mt-2 border-t border-line">
           {(posts ?? []).map((post) => (
@@ -326,6 +356,8 @@ export default function Editor() {
           ))}
         </ul>
       )}
+        </div>
+      )}
     </main>
   );
 }
@@ -335,6 +367,32 @@ const inputClass =
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <span className="text-[0.78rem] font-semibold uppercase tracking-wider text-faint">{children}</span>;
+}
+
+// One tab of the editor's tab bar: an underline that sticks to the border
+// beneath the whole bar, so the two tabs read as one control.
+function TabButton({
+  active,
+  onSelect,
+  children,
+}: {
+  active: boolean;
+  onSelect: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onSelect}
+      className={`-mb-px cursor-pointer border-b-2 px-3 py-2 text-[0.88rem] transition-colors ${
+        active ? "border-accent font-semibold text-ink" : "border-transparent text-muted hover:text-ink"
+      }`}
+    >
+      {children}
+    </button>
+  );
 }
 
 function slugify(value: string): string {

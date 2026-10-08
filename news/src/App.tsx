@@ -14,7 +14,11 @@ const LOGO_DARK = "https://raw.githubusercontent.com/moogodev/moogo-img/refs/hea
 export default function App() {
   return (
     <div className="min-h-screen">
-      <header className="border-b border-line">
+      {/* Sticky, not in flow after scroll: the logo, the moogo.dev link and
+          the theme toggle stay reachable no matter how far the page runs.
+          bg-page is solid on purpose — content must not show through the
+          bar as it slides underneath. */}
+      <header className="sticky top-0 z-50 border-b border-line bg-page">
         <div className="mx-auto flex w-full max-w-[960px] items-center justify-between gap-4 px-6 py-4">
           <Link to="/" className="flex min-w-0 items-center gap-3">
             <span className="brand-logo-light">
