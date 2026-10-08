@@ -64,7 +64,7 @@ overrun the quota.
 | Storage credentials per project | **5** | `storage_credential_limit` |
 | Sign-in endpoints | **10 / minute / client address**, shared | `rate_limited` |
 | Data plane | **300 / minute** — queries per project, storage per address | `rate_limited` |
-| Dashboard update list (`GET /api/updates`) | **120 / minute / client address** | `rate_limited` |
+| Dashboard update list (`GET /api/updates`) | **60 / minute / client address** | `rate_limited` |
 
 The JSON and storage caps differ on purpose. They guard different things: a JSON
 body is a statement or a settings object where anything past a megabyte is a

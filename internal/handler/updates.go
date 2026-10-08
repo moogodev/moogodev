@@ -24,11 +24,13 @@ import (
 // goes stale the moment the news database changes and hands readers links to
 // posts that no longer exist.
 //
-// Every failure answers an empty list rather than an error. The widget is
-// decoration on top of a working dashboard: a news outage, or a deployment
-// that runs no news service at all, must not surface as a dashboard failure.
-// The answer is also kept for updatesCacheTTL, so a busy dashboard spends one
-// outbound fetch a minute rather than one per visit.
+// A failure never surfaces as an error: with a previous answer in hand the
+// widget keeps showing it, stale by at most a window, and with nothing cached
+// it gets an empty list. The widget is decoration on top of a working
+// dashboard: a news outage, or a deployment that runs no news service at all,
+// must not surface as a dashboard failure. The answer is also kept for
+// updatesCacheTTL, so a busy dashboard spends one outbound fetch a minute
+// rather than one per visit.
 type UpdatesHandler struct {
 	newsURL string
 	client  *http.Client
@@ -91,13 +93,14 @@ func (handler *UpdatesHandler) Updates(w http.ResponseWriter, r *http.Request) {
 }
 
 // list returns the cached answer while it is still fresh, and otherwise
-// fetches a new one and remembers it. Every outcome is cached -- the empty
-// answer after a failed fetch included -- so a news outage costs one outbound
-// attempt per minute rather than one per visitor, and a request that arrives
-// while the refresh is in flight waits for it instead of starting a second.
-// The fetch runs on a context detached from the caller: a visitor who
-// navigates away mid-fetch must not abort the work the others are waiting
-// on, nor poison the cache with the cancellation that would report.
+// fetches a new one and remembers it. A failed refresh keeps the previous
+// answer -- stale-on-error -- when there is one, and caches the empty list
+// when there is not, so a news outage costs one outbound attempt per minute
+// rather than one per visitor and never blanks a widget that was working. A
+// request that arrives while the refresh is in flight waits for it instead of
+// starting a second. The fetch runs on a context detached from the caller: a
+// visitor who navigates away mid-fetch must not abort the work the others are
+// waiting on, nor poison the cache with the cancellation that would report.
 func (handler *UpdatesHandler) list(ctx context.Context) []updateItem {
 	handler.mu.Lock()
 	defer handler.mu.Unlock()
@@ -105,37 +108,50 @@ func (handler *UpdatesHandler) list(ctx context.Context) []updateItem {
 	if handler.cached != nil && time.Since(handler.cachedAt) < updatesCacheTTL {
 		return handler.cached
 	}
-	handler.cached = handler.fetch(context.WithoutCancel(ctx))
+
+	updates, ok := handler.fetch(context.WithoutCancel(ctx))
 	handler.cachedAt = time.Now()
+	if !ok && handler.cached != nil {
+		// Stale beats empty: a list from a minute ago still links to real
+		// posts, while an empty one blinks the widget away. cachedAt moves
+		// anyway, so the retry is a minute out instead of every visitor
+		// paying for another failed fetch.
+		return handler.cached
+	}
+	handler.cached = updates
 	return handler.cached
 }
 
 // fetch reads the published posts from the news service. It returns a
-// non-nil, possibly short slice in every case, including every failure.
-func (handler *UpdatesHandler) fetch(ctx context.Context) []updateItem {
-	updates := make([]updateItem, 0, maxUpdates)
+// non-nil, possibly short slice in every case, including every failure; ok
+// reports whether what it holds is the news service's actual answer, so a
+// caller with a previous answer can prefer it over an empty refresh.
+func (handler *UpdatesHandler) fetch(ctx context.Context) (updates []updateItem, ok bool) {
+	updates = make([]updateItem, 0, maxUpdates)
 	if handler.newsURL == "" {
-		return updates
+		// Nothing configured to ask: an empty list is the real answer,
+		// not a failure to cache around.
+		return updates, true
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, handler.newsURL+"/api/posts", nil)
 	if err != nil {
 		handler.log.Warn("updates: news request could not be built",
 			logger.Fields{"error": err.Error()})
-		return updates
+		return updates, false
 	}
 	resp, err := handler.client.Do(req)
 	if err != nil {
 		handler.log.Warn("updates: news service unreachable",
 			logger.Fields{"error": err.Error()})
-		return updates
+		return updates, false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		handler.log.Warn("updates: news service answered an error",
 			logger.Fields{"status": resp.Status})
-		return updates
+		return updates, false
 	}
 
 	var payload struct {
@@ -149,7 +165,7 @@ func (handler *UpdatesHandler) fetch(ctx context.Context) []updateItem {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxNewsBody)).Decode(&payload); err != nil {
 		handler.log.Warn("updates: news response not understood",
 			logger.Fields{"error": err.Error()})
-		return updates
+		return updates, false
 	}
 
 	for _, post := range payload.Posts {
@@ -168,5 +184,5 @@ func (handler *UpdatesHandler) fetch(ctx context.Context) []updateItem {
 			break
 		}
 	}
-	return updates
+	return updates, true
 }

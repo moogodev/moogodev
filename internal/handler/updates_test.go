@@ -248,3 +248,47 @@ func TestUpdatesRefetchesAfterTheCacheExpires(t *testing.T) {
 		t.Errorf("expected a second fetch once the cache expired, got %d fetches", got)
 	}
 }
+
+// TestUpdatesServesStaleWhenRefreshFails: once there has been a good answer,
+// a failed refresh keeps showing it instead of blinking the widget empty --
+// and the retry is still a minute out, so an outage costs one fetch per
+// window, not one per visitor.
+func TestUpdatesServesStaleWhenRefreshFails(t *testing.T) {
+	var calls atomic.Int32
+	var failing atomic.Bool
+	news := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if failing.Load() {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte(newsPayload(post("s1", "Shipped", true, "2026-10-01T00:00:00Z"))))
+	}))
+	defer news.Close()
+
+	handler := NewUpdatesHandler(news.URL, logger.Nop())
+	fresh := callUpdates(t, handler)
+	if len(fresh) != 1 {
+		t.Fatalf("expected the fresh list to have one post, got %v", fresh)
+	}
+
+	failing.Store(true)
+	handler.mu.Lock()
+	handler.cachedAt = time.Now().Add(-updatesCacheTTL - time.Second)
+	handler.mu.Unlock()
+
+	stale := callUpdates(t, handler)
+	if len(stale) != 1 || stale[0] != fresh[0] {
+		t.Errorf("expected the stale list to survive a failed refresh, got %v after %v", stale, fresh)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("expected the failed refresh to reach the news service, got %d fetches", got)
+	}
+
+	// cachedAt moved with the stale serve: the next visitor reads the cache
+	// instead of paying for another failed fetch.
+	callUpdates(t, handler)
+	if got := calls.Load(); got != 2 {
+		t.Errorf("expected no fetch after a stale serve, got %d fetches", got)
+	}
+}

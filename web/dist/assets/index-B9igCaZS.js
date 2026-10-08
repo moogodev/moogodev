@@ -2367,7 +2367,7 @@ overrun the quota.
 | Storage credentials per project | **5** | \`storage_credential_limit\` |
 | Sign-in endpoints | **10 / minute / client address**, shared | \`rate_limited\` |
 | Data plane | **300 / minute** — queries per project, storage per address | \`rate_limited\` |
-| Dashboard update list (\`GET /api/updates\`) | **120 / minute / client address** | \`rate_limited\` |
+| Dashboard update list (\`GET /api/updates\`) | **60 / minute / client address** | \`rate_limited\` |
 
 The JSON and storage caps differ on purpose. They guard different things: a JSON
 body is a statement or a settings object where anything past a megabyte is a
@@ -2615,7 +2615,7 @@ Being clear about this is more useful than a reassuring summary.
   \`/auth/reset-password\`, \`/auth/verify-email\`, \`/auth/resend-verification\`)
   share 10 attempts a minute per client address, because they are the ones an
   unauthenticated caller can hammer. The public update list the dashboard
-  reads, \`GET /api/updates\`, gets 120 a minute per address instead — public,
+  reads, \`GET /api/updates\`, gets 60 a minute per address instead — public,
   but every call can spend up to three seconds waiting on the news service —
   and serves a minute-old cached answer, so the news service sees at most one
   fetch a minute. A \`429\` carries a \`Retry-After\` header.
