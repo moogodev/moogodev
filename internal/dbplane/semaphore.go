@@ -98,6 +98,36 @@ func takeSlot(ctx context.Context, ch chan struct{}) error {
 	}
 }
 
+// lockWrite takes a project's write lock for the duration of one statement,
+// or gives up when ctx ends.
+//
+// The lock is a channel with room for one, not a mutex: waiting for the
+// previous writer is a queue position, and a caller whose request was
+// cancelled or timed out while queued has to be able to walk away -- a
+// mutex would keep them waiting for a response nobody will read.
+//
+// On a nil error the lock is held; the caller releases it by receiving from
+// the channel, normally with defer. On an error it is not held.
+func lockWrite(ctx context.Context, lock chan struct{}) error {
+	// Already-done contexts must not win the select below by chance: with
+	// the lock free, Go picks between the two ready cases uniformly, so a
+	// finished request would silently become the writer.
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	select {
+	case lock <- struct{}{}:
+		if ctx.Err() != nil {
+			<-lock
+			return ctx.Err()
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // projectGate returns the per-project slot channel, creating it on first
 // use. Gates live as long as the project entry, like the write locks, so a
 // handle eviction never hands out a second gate and doubles the budget.

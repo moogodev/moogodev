@@ -90,9 +90,12 @@ type Manager struct {
 	used map[uuid.UUID]time.Time
 	// writeLocks outlive the cached handles on purpose. A handle may be
 	// evicted while a write is still running on it; the next request opens
-	// a fresh handle, and both must serialize against the same mutex or
+	// a fresh handle, and both must serialize against the same lock or
 	// SQLite would see two writers at once.
-	writeLocks map[uuid.UUID]*sync.Mutex
+	//
+	// Each lock is a channel with room for one: a waiting writer must be
+	// able to give up when its request ends, which a mutex cannot do.
+	writeLocks map[uuid.UUID]chan struct{}
 	// gates carries the per-project statement budget, on the same lifetime
 	// as the write locks for the same reason: two gates for one project
 	// would double its budget across an eviction.
@@ -133,10 +136,12 @@ type projectConnection struct {
 	// readDB is the query_only pool, used by Query.
 	readDB *sql.DB
 	// writeLock serializes writes. SQLite answers a second concurrent writer
-	// with SQLITE_BUSY, and a mutex in Go keeps that error away from users.
+	// with SQLITE_BUSY, and a lock in Go keeps that error away from users.
 	//
-	// Held by a pointer because sync.Mutex must not be copied.
-	writeLock *sync.Mutex
+	// A channel with room for one rather than a mutex, so waiting honours
+	// the caller's context (see lockWrite). Taken by pointer so it is not
+	// copied with the connection.
+	writeLock chan struct{}
 }
 
 // NewManager creates a Manager rooted at dataDir.
@@ -168,7 +173,7 @@ func NewManager(dataDir string, maxDBBytes int64, queryTimeout time.Duration, ma
 		dbs:               make(map[uuid.UUID]*projectHandle),
 		refs:              make(map[uuid.UUID]int),
 		used:              make(map[uuid.UUID]time.Time),
-		writeLocks:        make(map[uuid.UUID]*sync.Mutex),
+		writeLocks:        make(map[uuid.UUID]chan struct{}),
 		gates:             make(map[uuid.UUID]chan struct{}),
 		slots:             newSlotChannel(),
 	}, nil
@@ -283,7 +288,7 @@ func (manager *Manager) acquire(projectID uuid.UUID) (*projectConnection, func()
 	}
 
 	if manager.writeLocks[projectID] == nil {
-		manager.writeLocks[projectID] = &sync.Mutex{}
+		manager.writeLocks[projectID] = make(chan struct{}, 1)
 	}
 	connection := &projectConnection{
 		db:        handle.db,
@@ -436,7 +441,7 @@ func (manager *Manager) Close() error {
 	manager.dbs = make(map[uuid.UUID]*projectHandle)
 	manager.refs = make(map[uuid.UUID]int)
 	manager.used = make(map[uuid.UUID]time.Time)
-	manager.writeLocks = make(map[uuid.UUID]*sync.Mutex)
+	manager.writeLocks = make(map[uuid.UUID]chan struct{})
 	manager.gates = make(map[uuid.UUID]chan struct{})
 	manager.mu.Unlock()
 
@@ -570,12 +575,16 @@ func (manager *Manager) BackupDatabase(ctx context.Context, projectID uuid.UUID)
 	}
 	target := filepath.Join(dir, "database.sqlite")
 
-	// The write mutex is held because the pool may have several connections
+	// The write lock is held because the pool may have several connections
 	// now: a concurrent Exec could be holding SQLite's writer role and the
-	// vacuum would fail with SQLITE_BUSY instead of waiting for it.
-	connection.writeLock.Lock()
+	// vacuum would fail with SQLITE_BUSY instead of waiting for it. The wait
+	// honors ctx: a backup cancelled while queued gives up instead of
+	// holding the handle for a snapshot nobody will download.
+	if err := lockWrite(ctx, connection.writeLock); err != nil {
+		return "", err
+	}
 	_, vacuumErr := connection.db.ExecContext(ctx, `VACUUM INTO ?`, target)
-	connection.writeLock.Unlock()
+	<-connection.writeLock
 	if vacuumErr != nil {
 		_ = os.RemoveAll(dir)
 		return "", fmt.Errorf("snapshot database: %w", vacuumErr)

@@ -185,8 +185,19 @@ func (manager *Manager) Exec(
 	}
 	defer releaseSlots()
 
+	// The write lock comes before anything charged to this statement. It is
+	// a queue position, not the statement: a caller whose request ends while
+	// queued gets ErrBusy instead of waiting for a response nobody will
+	// read, and the 15 second budget below starts only once this writer
+	// holds the lock -- a writer that queued for 14 seconds still gets the
+	// full budget for its statement.
+	if err := lockWrite(ctx, connection.writeLock); err != nil {
+		return nil, ErrBusy
+	}
+	defer func() { <-connection.writeLock }()
+
 	// Same basis as Query: the statement itself, with the wait for a slot
-	// left to the queue-depth gauge.
+	// left to the queue-depth gauge and the wait for the lock to ErrBusy.
 	started := time.Now()
 	var rowsAffected int64
 	defer func() {
@@ -197,9 +208,6 @@ func (manager *Manager) Exec(
 
 	statementCtx, cancel := context.WithTimeout(ctx, manager.queryTimeout)
 	defer cancel()
-
-	connection.writeLock.Lock()
-	defer connection.writeLock.Unlock()
 
 	// Check the size before writing, under the lock. Checking only afterwards
 	// would be too late: the disk space would already be committed. This is

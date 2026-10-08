@@ -116,6 +116,7 @@ Worth knowing explicitly, because these are common assumptions:
 | `quota_exceeded` on project creation | Delete an unused project, or [pause](/docs/create-project#pausing) it if you only need to stop using it. Pausing does not free the slot — it is still a project. |
 | `database_too_large` | Delete rows you no longer need. Freed pages stop counting toward the ceiling, but the file itself will not shrink. If you genuinely need more, this is the ceiling to design around. |
 | `result_too_large` | Narrow the query: add a `WHERE`, select fewer columns, or page the result. The row cap of 1000 does not bound bytes. |
+| `database_busy` | Retry after the second in `Retry-After`. The project ran out of statement slots or is waiting for the previous writer — your statement was not wrong. |
 | `statement_timeout` | Look at the query. Add an index, narrow the `WHERE`, or page the result. |
 | `sql_too_long` | Generate fewer statements per request. One statement per request is the rule. |
 | `body_too_large` | Send less in one call. Page a listing instead of requesting everything. |

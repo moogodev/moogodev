@@ -96,6 +96,7 @@ for (let index = 0; index < rows.length; index += batch) {
 | `statement_timeout` | 504 | Passed 15 seconds and was cancelled. |
 | `database_too_large` | 413 | The database is at its 100 MB ceiling. |
 | `result_too_large` | 413 | The result set passed the 16 MB response cap. |
+| `database_busy` | 503 | The project hit its concurrency limit — waiting on a slot or the previous writer. Comes with `Retry-After: 1`. |
 
 ### `sql_error` — read `detail`
 

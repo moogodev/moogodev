@@ -314,6 +314,29 @@ func TestResultTooLargeIsAClientError(t *testing.T) {
 	}
 }
 
+// TestBusyIsServiceUnavailableWithRetryAfter: a project at its concurrency
+// limit (statement slots or the write lock) is the one failure worth
+// retrying as-is, and the header has to say how soon.
+func TestBusyIsServiceUnavailableWithRetryAfter(t *testing.T) {
+	handler, engine := testDataPlane(t)
+	engine.err = dbplane.ErrBusy
+
+	body := `{"query":"SELECT 1"}`
+
+	recorder := httptest.NewRecorder()
+	handler.Query(recorder, dataPlaneRequest(t, uuid.New(), "/db/x/query", body))
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", recorder.Code)
+	}
+	if code := errorCode(t, recorder); code != "database_busy" {
+		t.Errorf("expected database_busy, got %q", code)
+	}
+	if retry := recorder.Header().Get("Retry-After"); retry != "1" {
+		t.Errorf("expected Retry-After 1, got %q", retry)
+	}
+}
+
 func TestTimeoutIsReportedAsGatewayTimeout(t *testing.T) {
 	handler, engine := testDataPlane(t)
 	engine.err = dbplane.ErrTimeout
