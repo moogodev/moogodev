@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -143,6 +144,108 @@ func TestPublicPosts(t *testing.T) {
 	if newest["slug"] != "spreadsheet-table-editor" {
 		t.Errorf("newest slug = %v, want spreadsheet-table-editor", newest["slug"])
 	}
+}
+
+func TestSameOrigin(t *testing.T) {
+	server := newTestServer(t, nil)
+	client := jarClient(t)
+	if res := login(t, client, server.URL, testPassword); res.StatusCode != http.StatusOK {
+		t.Fatalf("login = %d, want 200", res.StatusCode)
+	}
+
+	// A write that names another host in Origin is refused before it reaches
+	// the handler — this is what a CSRF attempt looks like on arrival.
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/admin/posts", strings.NewReader(
+		`{"slug":"forged","title":"Forged","body":"","published":false}`))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://evil.example")
+	for _, cookie := range client.Jar.Cookies(mustURL(t, server.URL)) {
+		req.AddCookie(cookie)
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("forged post: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-origin write = %d, want 403", res.StatusCode)
+	}
+
+	// The same write with this server's own Origin succeeds: the guard
+	// discriminates on the host, not on the presence of the header.
+	req2, err := http.NewRequest(http.MethodPost, server.URL+"/api/admin/posts", strings.NewReader(
+		`{"slug":"own-origin","title":"Fine","body":"","published":false}`))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Origin", server.URL)
+	for _, cookie := range client.Jar.Cookies(mustURL(t, server.URL)) {
+		req2.AddCookie(cookie)
+	}
+	res2, err := client.Do(req2)
+	if err != nil {
+		t.Fatalf("own-origin post: %v", err)
+	}
+	res2.Body.Close()
+	if res2.StatusCode != http.StatusCreated {
+		t.Errorf("same-origin write = %d, want 201", res2.StatusCode)
+	}
+
+	// Login is a write too: a cross-site form of any kind must not be able
+	// to drive it, even before a session exists.
+	req3, err := http.NewRequest(http.MethodPost, server.URL+"/api/login", strings.NewReader(
+		`{"email":"`+testEmail+`","password":"`+testPassword+`"}`))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req3.Header.Set("Content-Type", "application/json")
+	req3.Header.Set("Origin", "https://evil.example")
+	res3, err := server.Client().Do(req3)
+	if err != nil {
+		t.Fatalf("forged login: %v", err)
+	}
+	res3.Body.Close()
+	if res3.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-origin login = %d, want 403", res3.StatusCode)
+	}
+
+	// Reads are not guarded: a cross-origin GET needs no CORS answer to be
+	// blocked from reading the response, and the public changelog is public.
+	req4, err := http.NewRequest(http.MethodGet, server.URL+"/api/posts", nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req4.Header.Set("Origin", "https://evil.example")
+	res4, err := server.Client().Do(req4)
+	if err != nil {
+		t.Fatalf("cross-origin read: %v", err)
+	}
+	res4.Body.Close()
+	if res4.StatusCode != http.StatusOK {
+		t.Errorf("cross-origin read = %d, want 200 (the data is public)", res4.StatusCode)
+	}
+
+	// No CORS preflight answer either: OPTIONS is a method error, which is
+	// what makes a cross-origin fetch with Content-Type application/json
+	// fail in the browser before the request is ever sent.
+	res5, _ := call(t, server.Client(), http.MethodOptions, server.URL+"/api/posts", nil)
+	if res5.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("OPTIONS = %d, want 405 (no preflight support)", res5.StatusCode)
+	}
+}
+
+// mustURL parses server.URL once for cookie-jar lookups.
+func mustURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse %q: %v", raw, err)
+	}
+	return parsed
 }
 
 func TestGetPostBySlug(t *testing.T) {
@@ -281,8 +384,13 @@ func TestAdminCRUD(t *testing.T) {
 		t.Fatalf("login = %d, want 200", res.StatusCode)
 	}
 
-	// Invalid slugs are rejected before they reach the database.
-	for _, slug := range []string{"Bad Slug", "-leading", "double--dash", strings.Repeat("a", 81)} {
+	// Invalid slugs are rejected before they reach the database — including
+	// one shaped as a SQL injection attempt, which the pattern refuses on
+	// characters rather than on intent.
+	for _, slug := range []string{
+		"Bad Slug", "-leading", "double--dash", strings.Repeat("a", 81),
+		"'; DROP TABLE posts; --", "x' OR '1'='1",
+	} {
 		res, body := call(t, client, http.MethodPost, server.URL+"/api/admin/posts", map[string]any{
 			"slug": slug, "title": "T", "body": "", "published": false,
 		})

@@ -114,3 +114,33 @@ func TestCreateUpdateDelete(t *testing.T) {
 		t.Errorf("get deleted = (%+v, %v), want ErrNotFound", got, err)
 	}
 }
+
+// TestSQLInjectionShape proves the queries are parameterised: an input built
+// to escape a string literal is stored as data, never executed, and a lookup
+// with the same shape finds nothing while the table stays intact.
+func TestSQLInjectionShape(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	const evilTitle = "Robert'); DROP TABLE posts;--"
+	if _, err := store.Create(ctx, "bobby-tables", evilTitle, `1'; "2"; --`, false); err != nil {
+		t.Fatalf("create with injection-shaped title: %v", err)
+	}
+
+	// The classic tautology as a lookup key must miss, not return everything.
+	if _, err := store.GetBySlug(ctx, "' OR '1'='1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("tautology lookup = %v, want ErrNotFound", err)
+	}
+
+	// The table is still there and still holds exactly the posts it should.
+	posts, err := store.ListAll(ctx)
+	if err != nil {
+		t.Fatalf("list after injection attempt: %v", err)
+	}
+	if len(posts) != 1 {
+		t.Fatalf("got %d posts, want 1 — the table should be untouched", len(posts))
+	}
+	if posts[0].Title != evilTitle {
+		t.Errorf("title round-tripped as %q, want it stored verbatim", posts[0].Title)
+	}
+}

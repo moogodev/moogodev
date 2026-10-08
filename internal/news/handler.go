@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -69,6 +70,7 @@ func NewServer(cfg Config, store *Store, static fs.FS) http.Handler {
 
 	mux.Route("/api", func(api chi.Router) {
 		api.Use(httpx.MaxBodyBytes(1 << 20))
+		api.Use(sameOrigin)
 
 		api.Get("/posts", server.listPublished)
 		api.Get("/posts/{slug}", server.getPost)
@@ -128,6 +130,34 @@ func (server *Server) listAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"posts": posts})
+}
+
+// sameOrigin rejects state-changing requests whose Origin header names a
+// different host. Browsers attach Origin to every cross-origin POST, PUT and
+// DELETE, so a mismatch is what a CSRF attempt looks like as it arrives.
+//
+// This is the third layer, not the first: the session cookie is SameSite=Lax
+// (not sent on cross-site writes at all), and every mutating handler decodes
+// application/json, which HTML forms cannot send and a cross-origin fetch can
+// only obtain behind a CORS preflight this server never answers. The check
+// exists so that changing any of those two — an older cookie policy, a future
+// CORS route — cannot silently open the hole again. Requests with no Origin
+// header (curl, tests, non-browser clients) pass: those are not browser CSRF,
+// and they would need the session cookie to do anything anyway.
+func sameOrigin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			if origin := r.Header.Get("Origin"); origin != "" {
+				parsed, err := url.Parse(origin)
+				if err != nil || !strings.EqualFold(parsed.Host, r.Host) {
+					httpx.WriteError(w, http.StatusForbidden, "forbidden", "cross-origin request rejected")
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 type loginRequest struct {
