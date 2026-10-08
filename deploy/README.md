@@ -29,10 +29,19 @@ cd moogodev
 sudo ./deploy/deploy.sh moogo.example.com
 ```
 
-The script builds the binary, creates the `moogo` service user, installs a
-hardened unit and the nginx site configuration, schedules the nightly backup and
-starts everything. It stops before enabling anything if `/etc/moogo/moogo.env`
-is missing — the script will tell you to create it and exit.
+The script refuses first and changes second: a missing `/etc/moogo/moogo.env`,
+a duplicate nginx `server_name`, a `web/dist` or `news/dist` that differs from
+git, or a failing `go vet` / `go test -race` gate all stop it before anything
+is installed. After that it builds, creates the `moogo` service user, installs
+a hardened unit and the nginx site configuration, schedules the nightly
+backup, restarts both services onto the new binary and verifies the restart
+took (MainPID changed, `NRestarts` 0), then runs a short list of local HTTP
+checks.
+
+Behind a Cloudflare Tunnel — detected by `/etc/cloudflared/config.yml` — the
+nginx, certificate and certbot sections are skipped entirely: that machine
+terminates TLS at Cloudflare with loopback-only, reload-only nginx and owns
+its own configuration. The script never touches `/etc/cloudflared`.
 
 Then fill in the environment file:
 
@@ -50,15 +59,27 @@ sudo -u moogo env $(grep -v '^#' /etc/moogo/moogo.env | xargs) \
 sudo systemctl restart moogo
 ```
 
-Re-run `deploy.sh` with the same domain to deploy an update. It never rewrites
-the environment file, because doing so would change the session secret and sign
-everybody out.
+Re-run `deploy.sh` with the same domain to deploy an update. A re-run backs up
+both current binaries into `/var/backups/moogo-binaries` (the newest ten of
+each are kept), installs, restarts and verifies — a running process never picks
+up a replaced file by itself, so without the restart an update would not happen
+at all. It never rewrites the environment file, because doing so would change
+the session secret and sign everybody out.
+
+Any failure after the install rolls the binaries back automatically. To roll
+back later by hand:
+
+```bash
+sudo install -m 0755 /var/backups/moogo-binaries/<file> /usr/local/bin/moogo
+sudo systemctl restart moogo
+```
 
 ## What is running
 
 | Piece | Where |
 |---|---|
 | Binary | `/usr/local/bin/moogo`, plain HTTP on `127.0.0.1:8080` |
+| Previous binaries | `/var/backups/moogo-binaries`, newest ten of each, for rollback |
 | What's-new binary (optional) | `/usr/local/bin/moogo-news`, plain HTTP on `127.0.0.1:8081` |
 | TLS, certificates | nginx in front; certbot obtains and renews |
 | Secrets | `/etc/moogo/moogo.env`, `root:moogo`, mode 640 |
@@ -79,6 +100,10 @@ that are easy to miss:
 - **`MOOGO_TRUSTED_PROXIES` must contain `127.0.0.1`.** Without it every request
   looks like it came from the proxy, and the rate limit on `/auth/login`
   becomes a limit on your entire user base.
+- **`deploy.sh` leaves nginx alone behind a Cloudflare Tunnel**
+  (`/etc/cloudflared/config.yml` present): no site file, no certificates, no
+  reloads. That machine owns a loopback-only, reload-only nginx, and reload-only
+  rules belong to it, not to this script.
 
 ## What's new (news.moogo.dev), optional
 
@@ -203,7 +228,10 @@ sudo systemctl start moogo
 
 `moogo-healthcheck` probes the **public** URL, `/healthz` and `/readyz`, and
 alerts on the transition rather than on every failed run. `deploy.sh` installs it
-into cron every minute against `https://$DOMAIN`.
+into cron every minute against `https://$DOMAIN` by default; set
+`MOOGO_HEALTHCHECK_URL` when running `deploy.sh` to pin a different origin (an
+`app.` subdomain, say) instead of having the entry rewritten to the argument on
+every re-run.
 
 Liveness and readiness are checked separately because they mean different
 things. With Postgres stopped:

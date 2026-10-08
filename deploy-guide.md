@@ -55,7 +55,8 @@ until you know why.
 
 ```bash
 # all must be present or deploy.sh exits before changing anything
-command -v go nginx systemctl
+# (nginx only when the machine is not behind a Cloudflare Tunnel)
+command -v go nginx systemctl curl gcc
 
 # needed for trustworthy backups, see §9
 command -v sqlite3 pg_dump pg_restore
@@ -64,15 +65,20 @@ command -v sqlite3 pg_dump pg_restore
 | Package | Why it is not optional |
 |---|---|
 | `sqlite3` | Without it, backups fall back to `cp`, which can capture a torn SQLite file. The script warns and exits non-zero. |
-| `nginx` | TLS terminator; `deploy.sh` writes the site config, tests it and reloads |
+| `nginx` | TLS terminator; `deploy.sh` writes the site config, tests it and reloads. Skipped on a machine behind a Cloudflare Tunnel |
 | `postgresql-client` | `pg_dump`/`pg_restore` for backup and restore |
+| `gcc` | `go test -race`, one of the deploy gates, needs a C compiler |
+| `curl` | the readiness loop and the post-deploy HTTP checks |
 
 `certbot` is needed only while the domain has no certificate yet: `deploy.sh`
 asks for one over HTTP-01, then certbot's timer renews it and reloads nginx
 through a hook the script installs. When it prompts for an expiry-notice email,
 or set `MOOGO_CERTBOT_EMAIL` to skip the prompt. An existing certificate at
 `/etc/letsencrypt/live/YOUR-DOMAIN/`, or a path given through `MOOGO_SSL_CERT`
-and `MOOGO_SSL_KEY`, means certbot is not invoked at all.
+and `MOOGO_SSL_KEY`, means certbot is not invoked at all. Behind a Cloudflare
+Tunnel (`/etc/cloudflared/config.yml` present) none of this runs at all:
+`deploy.sh` skips the nginx site, certificates and certbot entirely and leaves
+that machine's own loopback-only configuration alone.
 
 PostgreSQL must already exist and be reachable. `deploy.sh` does not install or
 configure a database.
@@ -114,9 +120,15 @@ cd moogodev
 sudo ./deploy/deploy.sh moogo.example.com
 ```
 
-The script builds, creates the `moogo` user and directories, installs the unit,
-the nginx site (with your domain substituted), the backup and healthcheck
-scripts, the cron entries, then validates the environment and starts.
+The script refuses first (missing env file, duplicate `server_name`, a
+`web/dist` or `news/dist` that differs from git, a failing `go vet` /
+`go test -race` gate) and changes second: it builds, creates the `moogo` user
+and directories, installs the unit, the nginx site (with your domain
+substituted), the backup and healthcheck scripts and the cron entries, backs
+up and installs the binaries, validates the environment, then restarts both
+services and verifies the restart took (MainPID changed, `NRestarts` 0)
+before running local HTTP checks. On a machine behind a Cloudflare Tunnel the
+nginx and certificate sections are skipped.
 
 **It stops before enabling anything if `/etc/moogo/moogo.env` is missing.** That
 is intentional: it will print the commands to create it and exit 0 having
@@ -483,6 +495,11 @@ cannot open them.
 ```bash
 MOOGO_HEALTHCHECK_URL=https://moogo.example.com /usr/local/bin/moogo-healthcheck
 ```
+
+The cron entry `deploy.sh` writes uses `https://YOUR-DOMAIN`; set
+`MOOGO_HEALTHCHECK_URL` when running `deploy.sh` to keep a different origin
+(an `app.` subdomain, say) instead of having the entry rewritten to the
+argument on every re-run.
 
 | Exit | Meaning |
 |---|---|
