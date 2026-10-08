@@ -103,7 +103,7 @@ you find out immediately instead of after it has written something.
 - [Quickstart](quickstart.md) — an account to a working query in two minutes
 - [Architecture decisions](DECISIONS.md) — what is locked in, and why
 - [`prd_moogo.md`](prd_moogo.md) — the product requirements this was built from
-- [`deploy/README.md`](deploy/README.md) — systemd unit, Caddyfile, backup and
+- [`deploy/README.md`](deploy/README.md) — systemd unit, nginx site, backup and
   healthcheck scripts
 - [Contributing](CONTRIBUTING.md) — what makes a good change, and the gates to run
 - [Security policy](SECURITY.md) — how to report a vulnerability

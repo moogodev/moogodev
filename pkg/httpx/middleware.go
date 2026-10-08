@@ -167,8 +167,9 @@ func MaxBodyBytes(limit int64) func(http.Handler) http.Handler {
 
 // RealIP makes RemoteAddr and ClientIP report the real client address.
 //
-// The service sits behind Caddy, so RemoteAddr is the proxy's address and any
-// rate limiting keyed on it would treat every user as one caller.
+// The service sits behind a reverse proxy (nginx in deployment), so RemoteAddr
+// is the proxy's address and any rate limiting keyed on it would treat every
+// user as one caller.
 //
 // The forwarded headers are believed only when the deployment named its proxies.
 // Empty means they are ignored, which is the safe direction: a caller that can

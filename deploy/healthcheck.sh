@@ -4,7 +4,7 @@
 #
 # systemd already restarts the process when it dies, so a probe from localhost
 # proves nothing about whether the site is reachable. Nothing inside the box can
-# tell you the VPS is gone, the disk is full, the certificate expired or Caddy
+# tell you the VPS is gone, the disk is full, the certificate expired or nginx
 # stopped -- from in here those all look like "no answer", indistinguishable
 # from the network being down. This has to run somewhere else, and this is what
 # you point at Healthchecks.io, Uptime Kuma, or your own cron.
@@ -134,7 +134,7 @@ or proxy may be at fault. Check:
 
   systemctl status moogo
   journalctl -u moogo -n 50
-  systemctl status caddy
+  systemctl status nginx
   df -h ${MOOGO_DATA_DIR:-/var/lib/moogo}"
 echo "failing" >"$STATE_FILE"
 exit 1

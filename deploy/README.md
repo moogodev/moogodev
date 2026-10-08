@@ -30,7 +30,7 @@ sudo ./deploy/deploy.sh moogo.example.com
 ```
 
 The script builds the binary, creates the `moogo` service user, installs a
-hardened unit and the Caddy configuration, schedules the nightly backup and
+hardened unit and the nginx site configuration, schedules the nightly backup and
 starts everything. It stops before enabling anything if `/etc/moogo/moogo.env`
 is missing — the script will tell you to create it and exit.
 
@@ -60,7 +60,7 @@ everybody out.
 |---|---|
 | Binary | `/usr/local/bin/moogo`, plain HTTP on `127.0.0.1:8080` |
 | What's-new binary (optional) | `/usr/local/bin/moogo-news`, plain HTTP on `127.0.0.1:8081` |
-| TLS, certificates | Caddy in front, renewing on its own |
+| TLS, certificates | nginx in front; certbot obtains and renews |
 | Secrets | `/etc/moogo/moogo.env`, `root:moogo`, mode 640 |
 | What's-new secrets (optional) | `/etc/moogo/news.env`, `root:moogo`, mode 640 |
 | Control plane | PostgreSQL |
@@ -71,10 +71,10 @@ everybody out.
 | Restore check | the same file, 04:23, into a throwaway database |
 | Health check | `/etc/cron.d/moogo-healthcheck`, every minute, public URL |
 
-The binary does not terminate TLS, so Caddy is not optional. Two things follow
+The binary does not terminate TLS, so nginx is not optional. Two things follow
 that are easy to miss:
 
-- **HSTS is set in the Caddyfile**, not by the app. The app only sends it when
+- **HSTS is set in the nginx site config**, not by the app. The app only sends it when
   `r.TLS != nil`, and behind a terminating proxy that is always nil.
 - **`MOOGO_TRUSTED_PROXIES` must contain `127.0.0.1`.** Without it every request
   looks like it came from the proxy, and the rate limit on `/auth/login`
@@ -91,9 +91,10 @@ installs it either way while only *enabling* it when configured.
 
 To turn it on, three things are needed once:
 
-**1. DNS.** An A record for `news.YOUR-DOMAIN` pointing at this VPS. The
-Caddyfile already contains the block; with no record it simply receives no
-traffic. Until it exists, the dashboard's "What's new" links do not resolve.
+**1. DNS.** An A record for `news.YOUR-DOMAIN` pointing at this VPS. `deploy.sh`
+writes the site block as soon as `news.env` exists; with no record it simply
+receives no traffic. Until it exists, the dashboard's "What's new" links do not
+resolve.
 
 **2. The environment file** — the script never writes it, for the same reason
 as `moogo.env`:

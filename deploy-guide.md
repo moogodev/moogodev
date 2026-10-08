@@ -23,8 +23,8 @@ committed, because `web/web.go` embeds it and an embed directive with no
 matching files is a compile error.
 
 The binary serves **plain HTTP only**. `cmd/api/main.go` calls
-`ListenAndServe()` and nothing else. TLS terminates in Caddy. This is not
-optional.
+`ListenAndServe()` and nothing else. TLS terminates in nginx — `deploy.sh`
+writes the site config and obtains the certificate. This is not optional.
 
 ---
 
@@ -32,7 +32,7 @@ optional.
 
 | | |
 |---|---|
-| Listen address | `:8080`, must be reachable by Caddy on `127.0.0.1` |
+| Listen address | `:8080`, must be reachable by nginx on `127.0.0.1` |
 | systemd unit | `moogo.service`, user `moogo`, no login shell |
 | Binary | `/usr/local/bin/moogo` |
 | Secrets | `/etc/moogo/moogo.env`, `root:moogo`, mode `0640` |
@@ -55,7 +55,7 @@ until you know why.
 
 ```bash
 # all must be present or deploy.sh exits before changing anything
-command -v go caddy systemctl
+command -v go nginx systemctl
 
 # needed for trustworthy backups, see §9
 command -v sqlite3 pg_dump pg_restore
@@ -64,8 +64,15 @@ command -v sqlite3 pg_dump pg_restore
 | Package | Why it is not optional |
 |---|---|
 | `sqlite3` | Without it, backups fall back to `cp`, which can capture a torn SQLite file. The script warns and exits non-zero. |
-| `caddy` | TLS terminator |
+| `nginx` | TLS terminator; `deploy.sh` writes the site config, tests it and reloads |
 | `postgresql-client` | `pg_dump`/`pg_restore` for backup and restore |
+
+`certbot` is needed only while the domain has no certificate yet: `deploy.sh`
+asks for one over HTTP-01, then certbot's timer renews it and reloads nginx
+through a hook the script installs. When it prompts for an expiry-notice email,
+or set `MOOGO_CERTBOT_EMAIL` to skip the prompt. An existing certificate at
+`/etc/letsencrypt/live/YOUR-DOMAIN/`, or a path given through `MOOGO_SSL_CERT`
+and `MOOGO_SSL_KEY`, means certbot is not invoked at all.
 
 PostgreSQL must already exist and be reachable. `deploy.sh` does not install or
 configure a database.
@@ -108,7 +115,7 @@ sudo ./deploy/deploy.sh moogo.example.com
 ```
 
 The script builds, creates the `moogo` user and directories, installs the unit,
-the Caddyfile (with your domain substituted), the backup and healthcheck
+the nginx site (with your domain substituted), the backup and healthcheck
 scripts, the cron entries, then validates the environment and starts.
 
 **It stops before enabling anything if `/etc/moogo/moogo.env` is missing.** That
@@ -150,7 +157,7 @@ port. Use it freely; it has no side effects.
 
 ```bash
 sudo systemctl start moogo
-sudo systemctl reload caddy
+sudo systemctl reload nginx
 sleep 5
 curl -fsS http://127.0.0.1:8080/readyz   # {"status":"ready"}
 ```
@@ -246,11 +253,15 @@ Unquoted, the shell splits it into three words and the value is silently wrong.
 
 **HSTS is not sent.** The app sets `Strict-Transport-Security` only when
 `r.TLS != nil`. Behind a terminating proxy `r.TLS` is always `nil`, so no header
-is emitted. `deploy/Caddyfile` sets it. Do not remove that block expecting the
-app to take over.
+is emitted. The nginx site config written by `deploy.sh` sets it with
+`add_header ... always`. Do not remove that line expecting the app to take over.
 
-**Certificates are Caddy's job.** It obtains and renews them. If TLS stops
-working, check `systemctl status caddy` before touching Moogo.
+**Certificates are certbot's job.** `deploy.sh` obtains the first one and
+installs a deploy hook so `certbot renew` reloads nginx after each renewal. If
+TLS stops working, check `systemctl status nginx`, `certbot certificates` and
+`journalctl -u certbot.timer` before touching Moogo. A config mistake is caught
+before it loads: `deploy.sh` runs `nginx -t` and restores the previous file on
+failure.
 
 ---
 
