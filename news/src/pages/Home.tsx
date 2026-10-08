@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, ApiError, type Post } from "../lib/api";
 import { renderMarkdown } from "../lib/markdown";
 
-// The public changelog. Deep links from the dashboard point at #slug, so each
-// article carries its slug as an id and the browser does the scrolling.
+const EXCERPT_LIMIT = 240;
+
+// The public changelog, listed like a mini-blog: each entry shows its title,
+// date, and the first blocks of the body with a Read more link into the
+// detail page at /<slug>.
 export default function Home() {
   const [posts, setPosts] = useState<Post[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,25 +66,71 @@ export default function Home() {
         <p className="mt-10 text-[0.9rem] text-faint">Nothing published yet.</p>
       ) : (
         <div className="mt-8 space-y-8">
-          {posts.map((post) => (
-            <article key={post.id} id={post.slug} className="post-anchor border-t border-line pt-6">
-              <div className="flex items-baseline gap-3">
-                <h2 className="text-[1.05rem] font-semibold tracking-tight">{post.title}</h2>
-                <time className="shrink-0 text-[0.76rem] text-faint" dateTime={post.created_at}>
-                  {formatMonth(post.created_at)}
-                </time>
-              </div>
-              <div
-                className="markdown mt-2"
-                // Sanitized in lib/markdown.ts before it ever reaches the DOM.
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(post.body) }}
-              />
-            </article>
-          ))}
+          {posts.map((post) => {
+            const excerpt = excerptMarkdown(post.body, EXCERPT_LIMIT);
+            return (
+              // The slug as the id keeps old #slug deep links working: they
+              // land on the matching entry in this list.
+              <article key={post.id} id={post.slug} className="post-anchor border-t border-line pt-6">
+                <div className="flex items-baseline gap-3">
+                  <h2 className="min-w-0 text-[1.05rem] font-semibold tracking-tight">
+                    <Link to={`/${post.slug}`} className="hover:text-accent">
+                      {post.title}
+                    </Link>
+                  </h2>
+                  <time className="shrink-0 text-[0.76rem] text-faint" dateTime={post.created_at}>
+                    {formatMonth(post.created_at)}
+                  </time>
+                </div>
+                <div
+                  className="markdown mt-2"
+                  // Sanitized in lib/markdown.ts before it ever reaches the DOM.
+                  dangerouslySetInnerHTML={{ __html: excerpt.html }}
+                />
+                {excerpt.truncated && (
+                  <Link
+                    to={`/${post.slug}`}
+                    className="mt-2 inline-block text-[0.85rem] font-medium text-accent hover:underline"
+                  >
+                    Read more →
+                  </Link>
+                )}
+              </article>
+            );
+          })}
         </div>
       )}
     </main>
   );
+}
+
+// excerptMarkdown renders the first complete markdown blocks of a body, so a
+// long post becomes a teaser instead of the whole article. Blocks stay whole
+// (a heading is never sliced from its text) and only a single oversized block
+// gets cut, at a word boundary, so the rendered teaser never breaks.
+function excerptMarkdown(body: string, limit: number): { html: string; truncated: boolean } {
+  if (body.length <= limit) {
+    return { html: renderMarkdown(body), truncated: false };
+  }
+
+  const blocks = body.split(/\n{2,}/);
+  const kept: string[] = [];
+  let total = 0;
+  for (const block of blocks) {
+    if (kept.length > 0 && total + block.length + 2 > limit) break;
+    kept.push(block);
+    total += block.length + 2;
+    if (total >= limit) break;
+  }
+
+  let source = kept.join("\n\n");
+  let truncated = kept.length < blocks.length;
+  if (source.length > limit) {
+    const cut = source.lastIndexOf(" ", limit);
+    source = `${source.slice(0, cut > 0 ? cut : limit).trimEnd()} …`;
+    truncated = true;
+  }
+  return { html: renderMarkdown(source), truncated };
 }
 
 // "Oct 2026" in UTC: the dates are written in UTC and a changelog only shows

@@ -126,6 +126,24 @@ FROM posts WHERE id = ?`, id).Scan(&post.ID, &post.Slug, &post.Title, &post.Body
 	return post, nil
 }
 
+// GetBySlug returns one published post by its URL form — the detail page of
+// the mini-blog. Drafts answer as if they do not exist, because this is the
+// public read path and the editor has its own.
+func (store *Store) GetBySlug(ctx context.Context, slug string) (Post, error) {
+	var post Post
+	var published int
+	err := store.db.QueryRowContext(ctx, `SELECT id, slug, title, body, published, created_at, updated_at
+FROM posts WHERE slug = ? AND published = 1`, slug).Scan(&post.ID, &post.Slug, &post.Title, &post.Body, &published, &post.CreatedAt, &post.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Post{}, ErrNotFound
+	}
+	if err != nil {
+		return Post{}, fmt.Errorf("news: get post by slug: %w", err)
+	}
+	post.Published = published == 1
+	return post, nil
+}
+
 // Create inserts a post and returns it with its assigned id and timestamps.
 func (store *Store) Create(ctx context.Context, slug, title, body string, published bool) (Post, error) {
 	now := time.Now().UTC().Format(time.RFC3339)

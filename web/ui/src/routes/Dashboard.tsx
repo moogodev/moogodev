@@ -2,24 +2,26 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, formatBytes, type Me, type Project } from "../lib/api";
 
-// Product updates, each an anchor into the changelog at news.moogo.dev.
+// Product updates, each a link into the mini-blog at news.moogo.dev. The
+// title opens the full post (news.moogo.dev/<slug>), not just the changelog
+// front page, so a reader lands on the entry they clicked.
 // Cross-origin on purpose: a plain <a> is the honest way to leave the
 // dashboard for another site, where SPA routing does not apply.
 const UPDATES: { date: string; title: string; href: string }[] = [
   {
     date: "Oct 2026",
     title: "Spreadsheet-style table editor with inline editing",
-    href: "https://news.moogo.dev/#spreadsheet-table-editor",
+    href: "https://news.moogo.dev/spreadsheet-table-editor",
   },
   {
     date: "Oct 2026",
     title: "Per-project buckets with a 256 MB quota",
-    href: "https://news.moogo.dev/#per-project-buckets",
+    href: "https://news.moogo.dev/per-project-buckets",
   },
   {
     date: "Sep 2026",
     title: "Email and password sign-in with password reset",
-    href: "https://news.moogo.dev/#email-password-signin",
+    href: "https://news.moogo.dev/email-password-signin",
   },
 ];
 

@@ -1,8 +1,10 @@
 @import "tailwindcss";
 
-/* A small, self-contained palette. The tokens are semantic rather than
-   literal (page/ink/line, not stone-50), so the dark variant is a second set
-   of values under a media query instead of a second set of class names. */
+/* A small, self-contained palette that mirrors the main site's theme: green
+   accent in light, teal in dark, same logo files, same opt-in dark class.
+   The tokens are semantic rather than literal (page/ink/line, not stone-50),
+   so the dark variant is a second set of values instead of a second set of
+   class names. */
 @theme {
   --color-page: #fafaf9;
   --color-card: #ffffff;
@@ -10,14 +12,21 @@
   --color-muted: #57534e;
   --color-faint: #a8a29e;
   --color-line: #e7e5e4;
-  --color-accent: #0f766e;
+  --color-accent: #16a34a;
+  --color-accent-strong: #15803d;
   --color-accent-ink: #ffffff;
   --color-warn: #b45309;
   --color-warn-bg: #fef3c7;
 }
 
+/* Dark applies two ways, in this order of authority:
+   - an explicit choice in the URL of the document (<html data-theme="dark">),
+     set by the toggle in the header and remembered in localStorage;
+   - otherwise the operating system, while no choice has been made yet.
+   Selecting "light" while the system is dark means :root[data-theme="light"]
+   never matches the media rule below, so the light palette simply stands. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-page: #0c0a09;
     --color-card: #1c1917;
     --color-ink: #fafaf9;
@@ -25,14 +34,38 @@
     --color-faint: #a8a29e;
     --color-line: #292524;
     --color-accent: #2dd4bf;
+    --color-accent-strong: #14b8a6;
     --color-accent-ink: #042f2e;
     --color-warn: #fbbf24;
     --color-warn-bg: #422006;
+    color-scheme: dark;
   }
 }
 
+:root[data-theme="dark"] {
+  --color-page: #0c0a09;
+  --color-card: #1c1917;
+  --color-ink: #fafaf9;
+  --color-muted: #d6d3d1;
+  --color-faint: #a8a29e;
+  --color-line: #292524;
+  --color-accent: #2dd4bf;
+  --color-accent-strong: #14b8a6;
+  --color-accent-ink: #042f2e;
+  --color-warn: #fbbf24;
+  --color-warn-bg: #422006;
+  color-scheme: dark;
+}
+
+:root {
+  color-scheme: light;
+}
+
+/* One size up from the default: a changelog is read, and 17px is where
+   paragraphs stop feeling like console output. Everything sized in rem
+   (including the markdown body below) follows from this one line. */
 html {
-  color-scheme: light dark;
+  font-size: 17px;
 }
 
 body {
@@ -49,22 +82,46 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The Moogo logo, the same two files the homepage uses. Which one shows
+   follows the theme, mirroring .brand-logo-light/.brand-logo-dark on the
+   main site. */
+.brand-logo-light {
+  display: block;
+}
+.brand-logo-dark {
+  display: none;
+}
+:root[data-theme="dark"] .brand-logo-light {
+  display: none;
+}
+:root[data-theme="dark"] .brand-logo-dark {
+  display: block;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand-logo-light {
+    display: none;
+  }
+  :root:not([data-theme="light"]) .brand-logo-dark {
+    display: block;
+  }
+}
+
 /* Post bodies arrive as rendered markdown. These are the only elements the
    editor's content can produce, kept here so the pages stay layout-only. */
 .markdown {
-  line-height: 1.65;
-  font-size: 0.95rem;
+  line-height: 1.7;
+  font-size: 1rem;
   color: var(--color-muted);
 }
 .markdown > * + * {
-  margin-top: 0.8em;
+  margin-top: 0.85em;
 }
 .markdown h1,
 .markdown h2,
 .markdown h3 {
   color: var(--color-ink);
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.35;
 }
 .markdown h1 {
   font-size: 1.3rem;
@@ -75,10 +132,17 @@ body {
 .markdown h3 {
   font-size: 1rem;
 }
+/* Links inside a post are the theme green and only underline on hover: an
+   always-underlined paragraph of links reads as noise, while colour alone is
+   not enough affordance for "this is clickable". */
 .markdown a {
   color: var(--color-accent);
+  font-weight: 500;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+.markdown a:hover {
   text-decoration: underline;
-  text-underline-offset: 2px;
 }
 .markdown ul,
 .markdown ol {

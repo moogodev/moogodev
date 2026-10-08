@@ -74,6 +74,11 @@ func TestCreateUpdateDelete(t *testing.T) {
 	if len(all) != 1 {
 		t.Errorf("all list has %d posts, want 1", len(all))
 	}
+	// And a draft's slug is not readable publicly either: the detail page
+	// must not leak that it exists.
+	if _, err := store.GetBySlug(ctx, "first-post"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("slug lookup on draft = %v, want ErrNotFound", err)
+	}
 
 	updated, err := store.Update(ctx, post.ID, "first-post", "First post, edited", "Body two", true)
 	if err != nil {
@@ -84,6 +89,10 @@ func TestCreateUpdateDelete(t *testing.T) {
 	}
 	if updated.Title != "First post, edited" || !updated.Published {
 		t.Errorf("update not applied: %+v", updated)
+	}
+	// Published, the same slug resolves on the public read path.
+	if got, err := store.GetBySlug(ctx, "first-post"); err != nil || got.Title != "First post, edited" {
+		t.Errorf("slug lookup = (%+v, %v), want the published post", got, err)
 	}
 
 	// Same slug on another post must collide on the UNIQUE constraint.

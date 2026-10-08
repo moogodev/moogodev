@@ -71,6 +71,7 @@ func NewServer(cfg Config, store *Store, static fs.FS) http.Handler {
 		api.Use(httpx.MaxBodyBytes(1 << 20))
 
 		api.Get("/posts", server.listPublished)
+		api.Get("/posts/{slug}", server.getPost)
 		api.Post("/login", loginLimiter.Middleware(http.HandlerFunc(server.login)).ServeHTTP)
 		api.Post("/logout", server.logout)
 		api.Get("/me", server.me)
@@ -97,6 +98,27 @@ func (server *Server) listPublished(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"posts": posts})
+}
+
+// getPost serves one published post by slug — the detail page behind every
+// "Read more" link. A draft answers 404 rather than 403: the public site
+// should not even be able to tell that an unpublished post exists.
+func (server *Server) getPost(w http.ResponseWriter, r *http.Request) {
+	slug := strings.TrimSpace(chi.URLParam(r, "slug"))
+	if slug == "" || !slugPattern.MatchString(slug) {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_input", "not a valid slug")
+		return
+	}
+	post, err := server.store.GetBySlug(r.Context(), slug)
+	if errors.Is(err, ErrNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no post with that slug")
+		return
+	}
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not read the post")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"post": post})
 }
 
 func (server *Server) listAll(w http.ResponseWriter, r *http.Request) {

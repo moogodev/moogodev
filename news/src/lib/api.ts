@@ -56,6 +56,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   posts: () => request<{ posts: Post[] }>("/api/posts"),
+  post: (slug: string) => request<{ post: Post }>(`/api/posts/${encodeURIComponent(slug)}`),
   myPosts: () => request<{ posts: Post[] }>("/api/admin/posts"),
   me: () => request<{ email: string }>("/api/me"),
   login: (email: string, password: string) =>

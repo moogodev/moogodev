@@ -145,6 +145,49 @@ func TestPublicPosts(t *testing.T) {
 	}
 }
 
+func TestGetPostBySlug(t *testing.T) {
+	server := newTestServer(t, nil)
+
+	// A published slug answers with the full post.
+	res, body := call(t, server.Client(), http.MethodGet, server.URL+"/api/posts/spreadsheet-table-editor", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("published slug = %d, want 200", res.StatusCode)
+	}
+	post, _ := body["post"].(map[string]any)
+	if post["slug"] != "spreadsheet-table-editor" || post["title"] == "" {
+		t.Errorf("post = %v, want the spreadsheet entry", post)
+	}
+
+	// Unknown slug is a plain 404.
+	res, body = call(t, server.Client(), http.MethodGet, server.URL+"/api/posts/no-such-post", nil)
+	if res.StatusCode != http.StatusNotFound || errorOf(body) != "not_found" {
+		t.Errorf("unknown slug = %d %q, want 404 not_found", res.StatusCode, errorOf(body))
+	}
+
+	// A slug that is not slug-shaped is a client error, not a lookup miss.
+	res, body = call(t, server.Client(), http.MethodGet, server.URL+"/api/posts/Not%20ASlug", nil)
+	if res.StatusCode != http.StatusBadRequest || errorOf(body) != "invalid_input" {
+		t.Errorf("malformed slug = %d %q, want 400 invalid_input", res.StatusCode, errorOf(body))
+	}
+
+	// A draft is invisible on the public read path: create one through the
+	// admin API, then confirm the public endpoint denies it exists.
+	client := jarClient(t)
+	if res := login(t, client, server.URL, testPassword); res.StatusCode != http.StatusOK {
+		t.Fatalf("login = %d, want 200", res.StatusCode)
+	}
+	res, _ = call(t, client, http.MethodPost, server.URL+"/api/admin/posts", map[string]any{
+		"slug": "hidden-draft", "title": "Hidden", "body": "WIP", "published": false,
+	})
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("create draft = %d, want 201", res.StatusCode)
+	}
+	res, body = call(t, server.Client(), http.MethodGet, server.URL+"/api/posts/hidden-draft", nil)
+	if res.StatusCode != http.StatusNotFound || errorOf(body) != "not_found" {
+		t.Errorf("draft slug = %d %q, want 404 not_found", res.StatusCode, errorOf(body))
+	}
+}
+
 func TestLoginFlow(t *testing.T) {
 	server := newTestServer(t, nil)
 	client := jarClient(t)
