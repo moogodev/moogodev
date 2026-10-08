@@ -102,7 +102,11 @@ func tokenize(statement string) ([]token, error) {
 			if err != nil {
 				return nil, err
 			}
-			tokens = append(tokens, token{kind: tokenIdentifier, position: position})
+			tokens = append(tokens, token{
+				kind:     tokenIdentifier,
+				value:    identifierText(statement, position, next, '"'),
+				position: position,
+			})
 			position = next
 			continue
 
@@ -111,13 +115,21 @@ func tokenize(statement string) ([]token, error) {
 			if err != nil {
 				return nil, err
 			}
-			tokens = append(tokens, token{kind: tokenIdentifier, position: position})
+			tokens = append(tokens, token{
+				kind:     tokenIdentifier,
+				value:    identifierText(statement, position, next, '`'),
+				position: position,
+			})
 			position = next
 			continue
 
 		case character == '[':
 			next := skipBracketIdentifier(statement, position)
-			tokens = append(tokens, token{kind: tokenIdentifier, position: position})
+			tokens = append(tokens, token{
+				kind:     tokenIdentifier,
+				value:    identifierText(statement, position, next, ']'),
+				position: position,
+			})
 			position = next
 			continue
 
@@ -153,6 +165,32 @@ func tokenize(statement string) ([]token, error) {
 	}
 
 	return tokens, nil
+}
+
+// identifierText recovers the name a quoted identifier spells, so every
+// check downstream compares the same text a bare word would have produced.
+//
+// SQLite resolves "readfile", `readfile` and [readfile] to one name; a token
+// that kept the quotes (or, as before, kept nothing) would be a different
+// string to the by-name checks. The text is uppercased exactly like a bare
+// word, and a doubled delimiter inside the quotes collapses to one.
+//
+// start is the opening delimiter, end one past the closing one. For brackets
+// the delimiter argument is ']', the character that ends the run; brackets
+// have no escaping, so the collapse branch never fires for them.
+func identifierText(statement string, start, end int, delimiter byte) string {
+	buffer := make([]byte, 0, end-start)
+	for position := start + 1; position < end-1; position++ {
+		character := statement[position]
+		if character == delimiter && position+1 < end-1 && statement[position+1] == delimiter {
+			position++
+		}
+		if character >= 'a' && character <= 'z' {
+			character -= 'a' - 'A'
+		}
+		buffer = append(buffer, character)
+	}
+	return string(buffer)
 }
 
 // skipLineComment advances past a -- comment, which runs to end of line.

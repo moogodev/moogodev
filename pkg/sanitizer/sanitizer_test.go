@@ -325,3 +325,67 @@ func TestErrorMessageIncludesKeyword(t *testing.T) {
 		t.Errorf("error message should include the code, got: %s", message)
 	}
 }
+
+// TestQuotedForbiddenFunctionIsRejected: SQLite calls a function by the name
+// its identifier spells, and quoting does not change that name. The tokenizer
+// has to unquote and normalize quoted identifiers, or "readfile" arrives as an
+// identifier with an empty value and sails past the by-name check.
+func TestQuotedForbiddenFunctionIsRejected(t *testing.T) {
+	testCases := []struct {
+		name      string
+		statement string
+	}{
+		{"double-quoted call", `SELECT "readfile"('/etc/passwd')`},
+		{"double-quoted uppercase", `SELECT "READFILE"('/etc/passwd')`},
+		{"double-quoted mixed case", `SELECT "ReadFile"('/etc/passwd')`},
+		{"backtick call", "SELECT `writefile`('/tmp/x', 'y')"},
+		{"bracket call", `SELECT [load_extension]('evil')`},
+		{"quoted as a bare name", `SELECT "readfile" FROM users`},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := Validate(testCase.statement)
+			if err == nil {
+				t.Fatalf("expected %s to be rejected", testCase.statement)
+			}
+			var validationErr *Error
+			if !errors.As(err, &validationErr) || validationErr.Code != CodeForbiddenFunction {
+				t.Errorf("err = %v, want %s", err, CodeForbiddenFunction)
+			}
+		})
+	}
+}
+
+// TestQuotedPragmaNamesAreRead: the allowlist has to see the name the pragma
+// actually spells, not an empty token. An allowed pragma stays allowed behind
+// any quoting style, and a forbidden one is still forbidden behind one.
+func TestQuotedPragmaNamesAreRead(t *testing.T) {
+	allowed := []string{
+		`PRAGMA "table_info"(users)`,
+		"PRAGMA `index_list`(users)",
+		`PRAGMA [foreign_key_list](orders)`,
+	}
+	for _, statement := range allowed {
+		if err := Validate(statement); err != nil {
+			t.Errorf("%s: err = %v, want allowed", statement, err)
+		}
+	}
+
+	forbidden := []string{
+		`PRAGMA "journal_mode"`,
+		"PRAGMA `page_size`",
+		`PRAGMA [rekey]`,
+	}
+	for _, statement := range forbidden {
+		err := Validate(statement)
+		if err == nil {
+			t.Errorf("%s: expected rejection", statement)
+			continue
+		}
+		var validationErr *Error
+		if !errors.As(err, &validationErr) || validationErr.Code != CodeForbiddenPragma {
+			t.Errorf("%s: err = %v, want %s", statement, err, CodeForbiddenPragma)
+		}
+	}
+}
