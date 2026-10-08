@@ -84,3 +84,40 @@ func TestUpdatesRouteAbsentWhenUnwired(t *testing.T) {
 		t.Error("expected no handler call when Updates is nil")
 	}
 }
+
+// TestUpdatesRouteIsRateLimited: the widget is public, but each call can
+// spend up to three seconds waiting on an outbound fetch, so the route
+// carries its own address-keyed ceiling rather than none. The first request
+// must reach the handler; a burst well past the allowance must end in a 429
+// with a Retry-After.
+func TestUpdatesRouteIsRateLimited(t *testing.T) {
+	built, _ := updatesRouter(t, true)
+
+	get := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/updates", nil)
+		// One caller address, so the allowance is spent in one bucket.
+		req.RemoteAddr = "198.51.100.7:2345"
+		built.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if code := get().Code; code != http.StatusOK {
+		t.Fatalf("first request should reach the handler, got %d", code)
+	}
+
+	limited := false
+	for attempt := 0; attempt < 130; attempt++ {
+		rec := get()
+		if rec.Code == http.StatusTooManyRequests {
+			limited = true
+			if rec.Header().Get("Retry-After") == "" {
+				t.Error("expected a Retry-After header on the 429")
+			}
+			break
+		}
+	}
+	if !limited {
+		t.Error("expected /api/updates to start refusing with 429")
+	}
+}

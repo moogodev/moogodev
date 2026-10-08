@@ -189,7 +189,11 @@ Being clear about this is more useful than a reassuring summary.
   (`/auth/login`, `/auth/register`, `/auth/forgot-password`,
   `/auth/reset-password`, `/auth/verify-email`, `/auth/resend-verification`)
   share 10 attempts a minute per client address, because they are the ones an
-  unauthenticated caller can hammer. A `429` carries a `Retry-After` header.
+  unauthenticated caller can hammer. The public update list the dashboard
+  reads, `GET /api/updates`, gets 120 a minute per address instead — public,
+  but every call can spend up to three seconds waiting on the news service —
+  and serves a minute-old cached answer, so the news service sees at most one
+  fetch a minute. A `429` carries a `Retry-After` header.
 - **SQLite writes are serialised per project.** This is a property of the engine,
   not something Moogo configures away. High write concurrency will queue.
 

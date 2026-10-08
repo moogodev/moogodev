@@ -205,10 +205,14 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 // formatUpdateDate renders a post's date the way the widget always has:
 // month and year, short form ("Oct 2026"). An unparsable timestamp renders as
 // nothing rather than "Invalid Date".
+//
+// UTC and en-US, matching the news site that renders the same timestamps:
+// without timeZone "UTC" the same post reads "Sep 2026" on a UTC-5 browser
+// and "Oct 2026" on a UTC+7 one, on a page whose link then disagrees.
 function formatUpdateDate(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  return date.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+  return date.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }

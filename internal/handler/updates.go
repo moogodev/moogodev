@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/moogodev/moogodev/pkg/httpx"
@@ -26,10 +27,23 @@ import (
 // Every failure answers an empty list rather than an error. The widget is
 // decoration on top of a working dashboard: a news outage, or a deployment
 // that runs no news service at all, must not surface as a dashboard failure.
+// The answer is also kept for updatesCacheTTL, so a busy dashboard spends one
+// outbound fetch a minute rather than one per visit.
 type UpdatesHandler struct {
 	newsURL string
 	client  *http.Client
 	log     *logger.Logger
+
+	// The last answer and when it was taken, guarded because every open
+	// dashboard hits this handler. The lock is held across the fetch on
+	// purpose: one caller refreshes while the others wait and then share
+	// the result, instead of several callers spending several outbound
+	// fetches on the same minute-old list. The rate limit in front is per
+	// address, not per process, so it cannot keep two goroutines here
+	// from asking at once.
+	mu       sync.Mutex
+	cached   []updateItem
+	cachedAt time.Time
 }
 
 // maxUpdates bounds the payload. The widget shows the newest few and the news
@@ -42,6 +56,13 @@ const maxUpdates = 5
 // asked for, and reading more of a response than that is only a way to spend
 // memory on a body that gets discarded anyway.
 const maxNewsBody = 1 << 20
+
+// updatesCacheTTL is how long one answer is served before the news service is
+// asked again. The window was specified as 30-60 seconds; a changelog post
+// appearing on the dashboard within a minute of publishing is plenty, and the
+// bound holds however many dashboards are open: the news service sees at most
+// one outbound fetch a minute no matter the traffic.
+const updatesCacheTTL = time.Minute
 
 // NewUpdatesHandler creates an UpdatesHandler that reads from newsURL.
 func NewUpdatesHandler(newsURL string, log *logger.Logger) *UpdatesHandler {
@@ -61,12 +82,32 @@ type updateItem struct {
 
 // Updates serves GET /api/updates.
 func (handler *UpdatesHandler) Updates(w http.ResponseWriter, r *http.Request) {
-	updates := handler.fetch(r.Context())
+	updates := handler.list(r.Context())
 	// make() rather than a possibly-nil slice, so a failed fetch answers
 	// {"updates":[]} instead of {"updates":null}. Both are valid JSON, but
 	// only one is an array, and a client that maps over the result without a
 	// null guard gets a TypeError on the response that claims to be a list.
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"updates": updates})
+}
+
+// list returns the cached answer while it is still fresh, and otherwise
+// fetches a new one and remembers it. Every outcome is cached -- the empty
+// answer after a failed fetch included -- so a news outage costs one outbound
+// attempt per minute rather than one per visitor, and a request that arrives
+// while the refresh is in flight waits for it instead of starting a second.
+// The fetch runs on a context detached from the caller: a visitor who
+// navigates away mid-fetch must not abort the work the others are waiting
+// on, nor poison the cache with the cancellation that would report.
+func (handler *UpdatesHandler) list(ctx context.Context) []updateItem {
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+
+	if handler.cached != nil && time.Since(handler.cachedAt) < updatesCacheTTL {
+		return handler.cached
+	}
+	handler.cached = handler.fetch(context.WithoutCancel(ctx))
+	handler.cachedAt = time.Now()
+	return handler.cached
 }
 
 // fetch reads the published posts from the news service. It returns a

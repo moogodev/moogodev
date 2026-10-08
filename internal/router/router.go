@@ -266,6 +266,21 @@ func New(deps Deps) http.Handler {
 	queryLimited := dataQuery.MiddlewareKey(projectRateKey)
 	bucketLimited := dataBucket.Middleware
 
+	// The dashboard's update list needs a ceiling of its own. It is the
+	// one unauthenticated route that waits on another service: each call
+	// can spend up to three seconds on an outbound fetch to the news
+	// service and read up to 1 MiB of the answer, and every signed-in
+	// reader's browser makes it on each trip back to the dashboard. It
+	// cannot join the credential limiter, because a burst here would spend
+	// /auth/login's allowance on page views, and it does not fit the
+	// data-plane pair: that is either keyed per project (this route has no
+	// project) or sized for object fetching. Address-keyed like the bucket
+	// plane, deliberately loose -- 120 a minute is two a second, far past
+	// a human returning to the dashboard even from one office NAT, while
+	// still capping how fast one address can reopen fetches after the
+	// handler's minute-long cache expires.
+	updatesLimited := ratelimit.New(ratelimit.Config{Limit: 120, Window: time.Minute}, deps.TrustedProxies).Plane("updates").Middleware
+
 	root.With(limited).Post("/auth/register", deps.Credentials.Register)
 	root.With(limited).Post("/auth/login", deps.Credentials.Login)
 	root.With(limited).Post("/auth/forgot-password", deps.Credentials.ForgotPassword)
@@ -516,9 +531,12 @@ func New(deps Deps) http.Handler {
 	// the dashboard's update list stays a same-origin request and the news
 	// service needs no CORS route of its own. Public because the posts are
 	// public on news.<domain> anyway: the widget only renders for a
-	// signed-in reader, but the data behind it is not account data.
+	// signed-in reader, but the data behind it is not account data. It is
+	// not unmetered either: each call can wait up to three seconds on the
+	// news service, so the route carries the updatesLimited ceiling above
+	// rather than no limiter at all.
 	if deps.Updates != nil {
-		root.Get("/api/updates", deps.Updates.Updates)
+		root.With(updatesLimited).Get("/api/updates", deps.Updates.Updates)
 	}
 
 	// --- Pages and static files ---

@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/moogodev/moogodev/pkg/logger"
 )
@@ -31,8 +33,14 @@ func post(slug, title string, published bool, createdAt string) map[string]any {
 
 func serveUpdates(t *testing.T, newsURL string) []updateItem {
 	t.Helper()
+	return callUpdates(t, NewUpdatesHandler(newsURL, logger.Nop()))
+}
 
-	handler := NewUpdatesHandler(newsURL, logger.Nop())
+// callUpdates performs one request against an existing handler, so a test can
+// ask the same handler twice -- the only way to observe the cache.
+func callUpdates(t *testing.T, handler *UpdatesHandler) []updateItem {
+	t.Helper()
+
 	recorder := httptest.NewRecorder()
 	handler.Updates(recorder, httptest.NewRequest(http.MethodGet, "/api/updates", nil))
 
@@ -170,5 +178,73 @@ func TestUpdatesTrailingSlashIsTrimmed(t *testing.T) {
 
 	if strings.Contains(gotPath, "//") {
 		t.Errorf("expected no doubled slash, got %q", gotPath)
+	}
+}
+
+// TestUpdatesServesTheCachedAnswer: a second request inside the cache window
+// must not reach the news service, and must answer the same list.
+func TestUpdatesServesTheCachedAnswer(t *testing.T) {
+	var calls atomic.Int32
+	news := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(newsPayload(post("s1", "Shipped", true, "2026-10-01T00:00:00Z"))))
+	}))
+	defer news.Close()
+
+	handler := NewUpdatesHandler(news.URL, logger.Nop())
+	first := callUpdates(t, handler)
+	second := callUpdates(t, handler)
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("expected one fetch to the news service, got %d", got)
+	}
+	if len(first) != 1 || len(second) != 1 || first[0] != second[0] {
+		t.Errorf("expected the same cached list twice, got %v then %v", first, second)
+	}
+}
+
+// TestUpdatesCachesTheEmptyAnswerAfterAFailure: a news outage must not turn
+// every dashboard visit into a new outbound fetch. The failed answer is
+// cached like any other, still a 200 with an array.
+func TestUpdatesCachesTheEmptyAnswerAfterAFailure(t *testing.T) {
+	var calls atomic.Int32
+	news := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer news.Close()
+
+	handler := NewUpdatesHandler(news.URL, logger.Nop())
+	first := callUpdates(t, handler)
+	second := callUpdates(t, handler)
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("expected the failure to be cached after one attempt, got %d attempts", got)
+	}
+	if len(first) != 0 || len(second) != 0 {
+		t.Errorf("expected two empty lists, got %v then %v", first, second)
+	}
+}
+
+// TestUpdatesRefetchesAfterTheCacheExpires: the cache is a bound, not a
+// snapshot; once the window has passed the news service is asked again.
+func TestUpdatesRefetchesAfterTheCacheExpires(t *testing.T) {
+	var calls atomic.Int32
+	news := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(newsPayload(post("s1", "Shipped", true, "2026-10-01T00:00:00Z"))))
+	}))
+	defer news.Close()
+
+	handler := NewUpdatesHandler(news.URL, logger.Nop())
+	callUpdates(t, handler)
+
+	handler.mu.Lock()
+	handler.cachedAt = time.Now().Add(-updatesCacheTTL - time.Second)
+	handler.mu.Unlock()
+
+	callUpdates(t, handler)
+	if got := calls.Load(); got != 2 {
+		t.Errorf("expected a second fetch once the cache expired, got %d fetches", got)
 	}
 }
