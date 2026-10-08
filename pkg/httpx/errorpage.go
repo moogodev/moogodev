@@ -3,8 +3,10 @@ package httpx
 import (
 	"bytes"
 	"encoding/json"
-	"html/template"
+	"html"
+	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -28,179 +30,133 @@ func wantsHTML(r *http.Request) bool {
 	return strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html")
 }
 
-// errorPageCopy is the user-facing wording for one status code.
-type errorPageCopy struct {
-	title string
-	hint  string
+// apiPathPrefixes are the groups that are a machine interface rather than a
+// page. They answer JSON for every client, including a browser that happens
+// to navigate to one: a probe that checks a status code and a fetch that
+// decodes the error envelope must not start receiving an HTML document.
+func apiPathPrefixes() []string {
+	return []string{"/api/", "/p/", "/db/", "/bucket/", "/auth/", "/static/"}
 }
 
-// errorPageCopyByStatus gives each status its own page rather than a generic
-// wall of text. Anything not listed falls back to http.StatusText.
-var errorPageCopyByStatus = map[int]errorPageCopy{
-	http.StatusBadRequest:            {"Bad request", "The request could not be understood. Check it and try again."},
-	http.StatusUnauthorized:          {"Sign in required", "This page needs an account. Sign in and try again."},
-	http.StatusForbidden:             {"Access denied", "You do not have access to this address."},
-	http.StatusNotFound:              {"Page not found", "Check the address for a typo, or start over from the home page."},
-	http.StatusMethodNotAllowed:      {"Method not allowed", "This address does not accept that kind of request."},
-	http.StatusNotAcceptable:         {"Not acceptable", "The response format requested is not available here."},
-	http.StatusRequestTimeout:        {"Request timed out", "The request took too long. Try again."},
-	http.StatusConflict:              {"Conflict", "The request conflicts with the current state of this resource."},
-	http.StatusGone:                  {"Gone", "This address no longer exists."},
-	http.StatusRequestEntityTooLarge: {"Payload too large", "The body sent is bigger than this endpoint accepts."},
-	http.StatusRequestURITooLong:     {"URI too long", "The address is longer than this server accepts."},
-	http.StatusUnsupportedMediaType:  {"Unsupported media type", "Send the body as application/json."},
-	http.StatusUnprocessableEntity:   {"Unprocessable request", "The request was understood but could not be processed."},
-	http.StatusTooManyRequests:       {"Too many requests", "You have hit a rate limit. Wait a moment and try again."},
-	http.StatusInternalServerError:   {"Something went wrong", "The problem has been logged. Include the request id below when you report it."},
-	http.StatusNotImplemented:        {"Not implemented", "This endpoint is not implemented."},
-	http.StatusBadGateway:            {"Bad gateway", "An upstream service returned an invalid response."},
-	http.StatusServiceUnavailable:    {"Service unavailable", "The service is starting up or a dependency is unreachable. Try again shortly."},
-	http.StatusGatewayTimeout:        {"Gateway timeout", "An upstream service took too long to respond."},
-}
-
-// copyFor returns the wording for a status, falling back to the standard
-// reason phrase so an unusual code still gets a sensible page.
-func copyFor(status int) errorPageCopy {
-	if copy, ok := errorPageCopyByStatus[status]; ok {
-		return copy
+func isAPIPath(path string) bool {
+	switch path {
+	case "/healthz", "/readyz", "/metrics":
+		return true
 	}
-	if text := http.StatusText(status); text != "" {
-		return errorPageCopy{title: text, hint: "Something did not work. Go back to the home page and try again."}
+	for _, prefix := range apiPathPrefixes() {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
 	}
-	return errorPageCopy{title: "Error", hint: "Something did not work. Go back to the home page and try again."}
+	return false
 }
 
-// errorPageData feeds the page template.
-type errorPageData struct {
-	Status    int
-	Title     string
-	Hint      string
-	Message   string
-	Code      string
-	Path      string
-	RequestID string
-}
-
-// errorPageTemplate is parsed once. Inline styles are allowed by the
-// Content-Security-Policy the router sets (style-src includes 'unsafe-inline'),
-// and the page needs no scripts at all.
-var errorPageTemplate = template.Must(template.New("error").Parse(`<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>{{.Status}} {{.Title}} — moogo</title>
-<style>
-:root{color-scheme:light dark;--accent:#16a34a;--accent-strong:#15803d}
-*{box-sizing:border-box}
-body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;
-font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
-background:#fafafa;color:#111827}
-.card{width:100%;max-width:34rem;background:#fff;border:1px solid #e5e7eb;border-radius:16px;
-padding:2.5rem 2rem;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,.04)}
-.brand{font-size:.85rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
-color:var(--accent);text-decoration:none}
-.status{margin-top:1.25rem;font-size:4rem;font-weight:700;line-height:1;
-letter-spacing:-.03em;color:var(--accent)}
-h1{margin:.75rem 0 0;font-size:1.4rem;font-weight:650}
-.lead{margin:.75rem 0 0;color:#4b5563;line-height:1.55}
-.detail{margin:1rem 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;
-color:#9ca3af;word-break:break-all}
-.pills{margin-top:1rem;display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap}
-.pill{max-width:100%;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-font-size:.72rem;color:#6b7280;background:#f3f4f6;border:1px solid #e5e7eb;
-border-radius:999px;padding:.2rem .6rem}
-nav{margin-top:1.75rem;display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap}
-.btn{display:inline-block;padding:.55rem 1.2rem;border-radius:999px;font-size:.92rem;
-font-weight:550;text-decoration:none;border:1px solid #d1d5db;color:#111827}
-.btn:hover{background:#f9fafb}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.btn.primary:hover{background:var(--accent-strong);border-color:var(--accent-strong)}
-@media (prefers-color-scheme:dark){
-body{background:#0b0f0d;color:#e5e7eb}
-.card{background:#111815;border-color:#1f2a24;box-shadow:none}
-.lead{color:#d1d5db}
-.detail{color:#6b7280}
-.pill{color:#9ca3af;background:#0f1512;border-color:#1f2a24}
-.btn{border-color:#374151;color:#e5e7eb}
-.btn:hover{background:#111815}
-}
-</style>
-</head>
-<body>
-<main class="card">
-<a class="brand" href="/">moogo</a>
-<div class="status">{{.Status}}</div>
-<h1>{{.Title}}</h1>
-<p class="lead">{{.Hint}}</p>
-{{if .Message}}<p class="detail">{{.Message}}</p>{{end}}
-<div class="pills">
-<span class="pill">{{.Path}}</span>
-{{if .Code}}<span class="pill">{{.Code}}</span>{{end}}
-{{if .RequestID}}<span class="pill">{{.RequestID}}</span>{{end}}
-</div>
-<nav>
-{{if eq .Status 401}}<a class="btn primary" href="/login">Sign in</a><a class="btn" href="/">Go home</a>
-{{else}}<a class="btn primary" href="/">Go home</a><a class="btn" href="/docs">Docs</a>{{end}}
-</nav>
-</main>
-</body>
-</html>`))
-
-// ErrorPages rewrites failed responses into a server-rendered HTML page when
-// the client asked for a document, and leaves every other response alone.
+// ErrorPages answers a failed browser navigation with the front page itself.
 //
-// The whole API answers with one JSON error shape, which is right for the
-// dashboard's fetch calls and for curl, but a person who mistypes a URL should
-// not be shown a JSON blob in the browser. The handler runs on every response
-// so a page appears for any failing status from any layer -- a missing route,
-// a rejected method, an authorisation check, a rate limit, a panic turned into
-// a 500 -- without each call site having to know who is asking.
+// The API answers every failure with one JSON error shape, which is right for
+// the dashboard's fetch calls and for curl but not for a person who mistyped a
+// URL. For a document request to a page address, the response is replaced with
+// the served index.html carrying the original status and a small hidden marker
+// with that status, so the client router renders the error inside the site's
+// own layout -- announcement bar, navigation and footer included -- instead of
+// a standalone page that has to imitate the site's chrome and drifts from it.
+// A route that does not exist reaches the catch-all error route anyway; the
+// marker is what tells it when the failure was something other than 404.
 //
-// Requests whose Accept header does not include text/html never buffer: they
-// pass straight through and keep the JSON body byte for byte.
-func ErrorPages(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// The response now depends on Accept, so any cache must key on it.
-		w.Header().Add("Vary", "Accept")
+// API paths and requests whose Accept header does not include text/html never
+// buffer: they pass straight through and keep the JSON body byte for byte.
+// The index is read on every error the way spa reads it, so a rebuilt binary
+// never assembles a page from an older build.
+func ErrorPages(indexFS fs.FS) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// The response now depends on Accept, so any cache must key on it.
+			w.Header().Add("Vary", "Accept")
 
-		if !wantsHTML(r) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		capture := &errorPageCapture{w: w}
-		next.ServeHTTP(capture, r)
-
-		if capture.passthrough {
-			return
-		}
-
-		if capture.status() >= 400 {
-			// An error must never be replayed from a cache to the next visitor.
-			w.Header().Set("Cache-Control", "no-store")
-
-			if !looksLikeHTML(capture.buf) {
-				code, message := decodeErrorEnvelope(capture.buf)
-				renderErrorPage(w, r, capture.status(), code, message)
+			if !wantsHTML(r) || isAPIPath(r.URL.Path) {
+				next.ServeHTTP(w, r)
 				return
 			}
-		}
 
-		status := capture.status()
-		if status == 0 && len(capture.buf) == 0 {
-			// The handler never responded. net/http answers 200 with an empty
-			// body on its own, which is what happens without this middleware.
+			capture := &errorPageCapture{w: w}
+			next.ServeHTTP(capture, r)
+
+			if capture.passthrough {
+				return
+			}
+
+			status := capture.status()
+			if status >= 400 && !looksLikeHTML(capture.buf) {
+				// An error must never be replayed from a cache to the next
+				// visitor, and the document is a fresh shell rather than what
+				// the handler produced, so its headers are replaced here.
+				w.Header().Set("Cache-Control", "no-store")
+				code, message := decodeErrorEnvelope(capture.buf)
+				serveErrorDocument(w, status, code, message, indexFS)
+				return
+			}
+
+			if status == 0 && len(capture.buf) == 0 {
+				// The handler never responded. net/http answers 200 with an
+				// empty body on its own, which is what happens without this
+				// middleware.
+				return
+			}
+			w.WriteHeader(status)
+			_, _ = w.Write(capture.buf)
+		})
+	}
+}
+
+// serveErrorDocument writes index.html under the failed status, with the
+// status embedded for the client route. When the frontend is not part of the
+// binary there is no document to serve, so the JSON envelope the handler
+// produced is what reaches the client instead.
+func serveErrorDocument(w http.ResponseWriter, status int, code string, message string, indexFS fs.FS) {
+	if indexFS != nil {
+		if contents, err := fs.ReadFile(indexFS, "index.html"); err == nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			// The handler may have declared JSON; the body is a document now.
+			// Any Content-Length it set would be wrong for the new body.
+			w.Header().Del("Content-Length")
+			w.WriteHeader(status)
+			_, _ = w.Write(injectErrorStatus(contents, status))
 			return
 		}
-		w.WriteHeader(status)
-		_, _ = w.Write(capture.buf)
-	})
+	}
+
+	if code == "" {
+		code = "error"
+	}
+	if message == "" {
+		message = http.StatusText(status)
+	}
+	WriteError(w, status, code, message)
+}
+
+// injectErrorStatus embeds the failed status in the document as a hidden data
+// block the client reads once at boot. The value is escaped so a message can
+// never break out of the markup; textContent decodes the entities back before
+// JSON.parse sees them. The block goes ahead of the app root so it is in the
+// document before any module runs.
+func injectErrorStatus(index []byte, status int) []byte {
+	payload := html.EscapeString(`{"status":` + strconv.Itoa(status) + `}`)
+	block := []byte(`<div id="moogo-error" hidden>` + payload + `</div>`)
+
+	for _, anchor := range []string{`<div id="root">`, `</body>`} {
+		if at := bytes.Index(index, []byte(anchor)); at >= 0 {
+			var out []byte
+			out = append(out, index[:at]...)
+			out = append(out, block...)
+			out = append(out, index[at:]...)
+			return out
+		}
+	}
+	return append(index, block...)
 }
 
 // errorPageCapture holds a response in memory until the handler is done, so a
-// JSON error can still be replaced with an HTML page. Headers pass straight
+// JSON error can still be replaced with the document. Headers pass straight
 // through on the shared header map; only the status and body are held.
 type errorPageCapture struct {
 	w           http.ResponseWriter
@@ -286,42 +242,12 @@ func looksLikeHTML(body []byte) bool {
 }
 
 // decodeErrorEnvelope pulls the code and message out of the standard JSON
-// error body so the page can show what actually failed. A body in any other
-// shape simply yields empty strings and the page relies on the status copy.
+// error body so the JSON fallback keeps the wording the handler chose. A body
+// in any other shape simply yields empty strings.
 func decodeErrorEnvelope(body []byte) (code string, message string) {
 	var envelope ErrorBody
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return "", ""
 	}
 	return envelope.Error.Code, envelope.Error.Message
-}
-
-// renderErrorPage writes the HTML page for one failed response.
-func renderErrorPage(w http.ResponseWriter, r *http.Request, status int, code string, message string) {
-	copy := copyFor(status)
-	data := errorPageData{
-		Status:    status,
-		Title:     copy.title,
-		Hint:      copy.hint,
-		Message:   message,
-		Code:      code,
-		Path:      r.URL.Path,
-		RequestID: RequestIDFromContext(r.Context()),
-	}
-
-	var page bytes.Buffer
-	if err := errorPageTemplate.Execute(&page, data); err != nil {
-		// The template is compiled at init, so a failure here is a build
-		// problem rather than a request one. Fall back to the JSON shape,
-		// which needs no rendering.
-		WriteError(w, status, code, message)
-		return
-	}
-
-	// The handler may have declared JSON; the body is a document now. Any
-	// Content-Length it set would be wrong for the new body.
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Del("Content-Length")
-	w.WriteHeader(status)
-	_, _ = w.Write(page.Bytes())
 }

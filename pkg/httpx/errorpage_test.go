@@ -6,9 +6,16 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/moogodev/moogodev/pkg/logger"
 )
+
+// testIndexFS stands in for the built front page: a document with an app root
+// for the status marker to sit ahead of.
+var testIndexFS = fstest.MapFS{
+	"index.html": {Data: []byte(`<!doctype html><html><head><title>home</title></head><body><div id="root"></div><script type="module" src="/static/app.js"></script></body></html>`)},
+}
 
 func TestWantsHTMLOnlyForDocumentRequests(t *testing.T) {
 	cases := []struct {
@@ -41,14 +48,18 @@ func TestWantsHTMLOnlyForDocumentRequests(t *testing.T) {
 
 // serveErrorPages runs a handler behind ErrorPages with a browser Accept.
 func serveErrorPages(handler http.Handler, method, target string) *httptest.ResponseRecorder {
+	return serveErrorPagesOn(testIndexFS, handler, method, target)
+}
+
+func serveErrorPagesOn(indexFS fstest.MapFS, handler http.Handler, method, target string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, nil)
 	request.Header.Set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
 	recorder := httptest.NewRecorder()
-	ErrorPages(handler).ServeHTTP(recorder, request)
+	ErrorPages(indexFS)(handler).ServeHTTP(recorder, request)
 	return recorder
 }
 
-func TestErrorPagesRenderDocumentForJSONError(t *testing.T) {
+func TestErrorPagesServeDocumentUnderFailedStatus(t *testing.T) {
 	recorder := serveErrorPages(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, "not_found", "no such endpoint")
 	}), http.MethodGet, "/askdans")
@@ -60,13 +71,22 @@ func TestErrorPagesRenderDocumentForJSONError(t *testing.T) {
 		t.Errorf("expected an html content type, got %q", contentType)
 	}
 	body := recorder.Body.String()
-	for _, want := range []string{"404", "Page not found", "no such endpoint", "/askdans"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("page missing %q", want)
-		}
+	if !strings.Contains(body, "<title>home</title>") {
+		t.Errorf("expected the front page document, got %q", body)
+	}
+	if !strings.Contains(body, `id="moogo-error" hidden`) {
+		t.Errorf("expected the status marker, got %q", body)
+	}
+	if !strings.Contains(body, `&#34;status&#34;:404`) {
+		t.Errorf("expected the embedded status, got %q", body)
+	}
+	// The marker has to be in the document before the app root, or the client
+	// would mount first and never see it.
+	if marker, root := strings.Index(body, "moogo-error"), strings.Index(body, `id="root"`); marker > root {
+		t.Errorf("marker at %d sits after the app root at %d", marker, root)
 	}
 	if cacheControl := recorder.Header().Get("Cache-Control"); cacheControl != "no-store" {
-		t.Errorf("expected error pages to be uncacheable, got %q", cacheControl)
+		t.Errorf("expected error documents to be uncacheable, got %q", cacheControl)
 	}
 	if vary := recorder.Header().Get("Vary"); !strings.Contains(vary, "Accept") {
 		t.Errorf("expected Vary: Accept, got %q", vary)
@@ -84,7 +104,7 @@ func TestErrorPagesKeepJSONForAPIClients(t *testing.T) {
 			request.Header.Set("Accept", accept)
 		}
 		recorder := httptest.NewRecorder()
-		ErrorPages(handler).ServeHTTP(recorder, request)
+		ErrorPages(testIndexFS)(handler).ServeHTTP(recorder, request)
 
 		if recorder.Code != http.StatusNotFound {
 			t.Errorf("accept %q: expected 404, got %d", accept, recorder.Code)
@@ -98,10 +118,25 @@ func TestErrorPagesKeepJSONForAPIClients(t *testing.T) {
 	}
 }
 
+func TestErrorPagesKeepAPIPathsJSONForBrowsers(t *testing.T) {
+	for _, path := range []string{"/api/me", "/p/abc/db/query", "/auth/login", "/healthz"} {
+		recorder := serveErrorPages(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			WriteError(w, http.StatusUnauthorized, "unauthorized", "sign in first")
+		}), http.MethodGet, path)
+
+		if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
+			t.Errorf("path %q: expected json for a browser too, got %q", path, contentType)
+		}
+		if body := recorder.Body.String(); !strings.Contains(body, `"code":"unauthorized"`) {
+			t.Errorf("path %q: expected the json error body, got %q", path, body)
+		}
+	}
+}
+
 func TestErrorPagesKeepJSONForPostWithHTMLAccept(t *testing.T) {
 	recorder := serveErrorPages(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusUnauthorized, "unauthorized", "sign in first")
-	}), http.MethodPost, "/api/me")
+	}), http.MethodPost, "/somewhere")
 
 	if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
 		t.Errorf("a post must stay json, got %q", contentType)
@@ -123,7 +158,7 @@ func TestErrorPagesPassSuccessfulResponsesThrough(t *testing.T) {
 	}
 }
 
-func TestErrorPagesRenderPageForBodylessError(t *testing.T) {
+func TestErrorPagesServeDocumentForBodylessError(t *testing.T) {
 	recorder := serveErrorPages(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}), http.MethodGet, "/secret")
@@ -134,12 +169,12 @@ func TestErrorPagesRenderPageForBodylessError(t *testing.T) {
 	if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
 		t.Errorf("expected html, got %q", contentType)
 	}
-	if body := recorder.Body.String(); !strings.Contains(body, "Access denied") {
-		t.Errorf("expected the 403 copy, got %q", body)
+	if body := recorder.Body.String(); !strings.Contains(body, `&#34;status&#34;:403`) {
+		t.Errorf("expected the embedded status, got %q", body)
 	}
 }
 
-func TestErrorPagesCoverEveryCommonStatus(t *testing.T) {
+func TestErrorPagesCarryEveryCommonStatus(t *testing.T) {
 	statuses := []int{
 		http.StatusBadRequest,
 		http.StatusUnauthorized,
@@ -166,38 +201,16 @@ func TestErrorPagesCoverEveryCommonStatus(t *testing.T) {
 			if recorder.Code != status {
 				t.Errorf("expected %d, got %d", status, recorder.Code)
 			}
-			body := recorder.Body.String()
-			if !strings.Contains(body, strconv.Itoa(status)) {
-				t.Errorf("page missing the status number %d", status)
-			}
-			wantTitle := copyFor(status).title
-			if !strings.Contains(body, wantTitle) {
-				t.Errorf("page missing title %q", wantTitle)
-			}
-			if !strings.Contains(body, "test message") {
-				t.Errorf("page missing the error message")
+			want := `&#34;status&#34;:` + strconv.Itoa(status)
+			if body := recorder.Body.String(); !strings.Contains(body, want) {
+				t.Errorf("page missing %q", want)
 			}
 		})
 	}
 }
 
-func TestErrorPagesEscapeReflectedValues(t *testing.T) {
-	recorder := serveErrorPages(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		WriteError(w, http.StatusNotFound, "<script>alert(1)</script>", "<img src=x onerror=alert(1)>")
-	}), http.MethodGet, "/<script>")
-
-	body := recorder.Body.String()
-	if strings.Contains(body, "<script>alert(1)</script>") ||
-		strings.Contains(body, "<img src=x") {
-		t.Errorf("reflected values were not escaped: %q", body)
-	}
-	if !strings.Contains(body, "&lt;script&gt;") {
-		t.Errorf("expected the escaped form in the page: %q", body)
-	}
-}
-
 func TestErrorPagesConvertPanicThroughRecoverer(t *testing.T) {
-	handler := ErrorPages(Recoverer(logger.Nop())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := ErrorPages(testIndexFS)(Recoverer(logger.Nop())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("sensitive internal detail")
 	})))
 
@@ -212,11 +225,28 @@ func TestErrorPagesConvertPanicThroughRecoverer(t *testing.T) {
 	if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
 		t.Errorf("expected html, got %q", contentType)
 	}
-	if body := recorder.Body.String(); !strings.Contains(body, "Something went wrong") {
-		t.Errorf("expected the 500 copy, got %q", body)
+	body := recorder.Body.String()
+	if !strings.Contains(body, `&#34;status&#34;:500`) {
+		t.Errorf("expected the embedded status, got %q", body)
 	}
-	if strings.Contains(recorder.Body.String(), "sensitive internal detail") {
+	if strings.Contains(body, "sensitive internal detail") {
 		t.Errorf("the panic value must not be reflected")
+	}
+}
+
+func TestErrorPagesFallBackToJSONWithoutAnIndex(t *testing.T) {
+	recorder := serveErrorPagesOn(nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		WriteError(w, http.StatusNotFound, "not_found", "no such endpoint")
+	}), http.MethodGet, "/askdans")
+
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", recorder.Code)
+	}
+	if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
+		t.Errorf("expected json without an index, got %q", contentType)
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, `"message":"no such endpoint"`) {
+		t.Errorf("expected the original envelope, got %q", body)
 	}
 }
 

@@ -1366,10 +1366,12 @@ func TestUnknownPathServesErrorPageToBrowsers(t *testing.T) {
 		if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
 			t.Errorf("expected an html document, got %q", contentType)
 		}
+		// The front page itself, carrying the failed status for the client
+		// route to render inside the site's own layout.
 		body := recorder.Body.String()
-		for _, want := range []string{"404", "Page not found", "/askdans"} {
+		for _, want := range []string{"<title>home</title>", `id="moogo-error"`, `&#34;status&#34;:404`} {
 			if !strings.Contains(body, want) {
-				t.Errorf("error page missing %q", want)
+				t.Errorf("document missing %q", want)
 			}
 		}
 	})

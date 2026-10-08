@@ -176,9 +176,9 @@ func New(deps Deps) http.Handler {
 	// a different header value per request. Both are one curl argument away.
 	root.Use(httpx.RealIP(deps.TrustedProxies))
 	root.Use(httpx.RequestID(deps.Log))
-	// Inside RequestID so the page can show the correlation id, and outside
-	// Recoverer so a panic's 500 passes through it too.
-	root.Use(httpx.ErrorPages)
+	// Outside Recoverer so a panic's 500 passes through it and reaches the
+	// browser as a page rather than a raw error body.
+	root.Use(httpx.ErrorPages(deps.IndexFS))
 	root.Use(httpx.Recoverer(deps.Log))
 	root.Use(httpx.AccessLog(deps.Log))
 	root.Use(NoCacheForAPI)
