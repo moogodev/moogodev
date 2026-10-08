@@ -389,3 +389,66 @@ func TestQuotedPragmaNamesAreRead(t *testing.T) {
 		}
 	}
 }
+
+// TestDatabaseListPragmaIsRejected: pragma database_list reports the
+// filesystem path of every attached database -- the data directory layout of
+// the whole server -- to any project client. It was on the allowlist; the
+// audit dropped it. Both spellings and the function form must be refused.
+func TestDatabaseListPragmaIsRejected(t *testing.T) {
+	testCases := []struct {
+		name      string
+		statement string
+	}{
+		{"keyword form", "PRAGMA database_list"},
+		{"keyword form with argument", "PRAGMA database_list(main)"},
+		{"quoted", `PRAGMA "database_list"`},
+		{"function form", "SELECT * FROM pragma_database_list()"},
+		{"function form in projection", "SELECT * FROM pragma_database_list"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := Validate(testCase.statement)
+			if err == nil {
+				t.Fatalf("expected %s to be rejected", testCase.statement)
+			}
+			var validationErr *Error
+			if !errors.As(err, &validationErr) || validationErr.Code != CodeForbiddenPragma {
+				t.Errorf("err = %v, want %s", err, CodeForbiddenPragma)
+			}
+		})
+	}
+}
+
+// TestPragmaFunctionsAreUnderTheSameAllowlist: the keyword form is
+// allowlisted, but pragma_* functions never present the PRAGMA keyword, so
+// without this check the allowlist is one SELECT away from being bypassable
+// -- pragma_journal_mode() would reach a pragma the keyword form refuses.
+func TestPragmaFunctionsAreUnderTheSameAllowlist(t *testing.T) {
+	allowed := []string{
+		"SELECT * FROM pragma_table_info('users')",
+		"SELECT * FROM pragma_index_list('users')",
+	}
+	for _, statement := range allowed {
+		if err := Validate(statement); err != nil {
+			t.Errorf("%s: err = %v, want allowed", statement, err)
+		}
+	}
+
+	forbidden := []string{
+		"SELECT * FROM pragma_journal_mode('wal')",
+		"SELECT * FROM pragma_page_size()",
+		"SELECT * FROM pragma_rekey('a', 'b')",
+	}
+	for _, statement := range forbidden {
+		err := Validate(statement)
+		if err == nil {
+			t.Errorf("%s: expected rejection", statement)
+			continue
+		}
+		var validationErr *Error
+		if !errors.As(err, &validationErr) || validationErr.Code != CodeForbiddenPragma {
+			t.Errorf("%s: err = %v, want %s", statement, err, CodeForbiddenPragma)
+		}
+	}
+}

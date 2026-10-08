@@ -156,6 +156,11 @@ var forbiddenFunctions = map[string]bool{
 // key, rekey, page_size, auto_vacuum, synchronous, and others can all change
 // the file on disk. An allowlist is also what keeps the dashboard's schema
 // inspector working.
+//
+// database_list is deliberately absent even though it only reads: it reports
+// the filesystem path of every attached database, which hands the data
+// directory layout of the server to any project client. The dashboard never
+// needs it.
 var allowedPragmas = map[string]bool{
 	"TABLE_INFO":        true,
 	"TABLE_XINFO":       true,
@@ -163,7 +168,6 @@ var allowedPragmas = map[string]bool{
 	"INDEX_INFO":        true,
 	"INDEX_XINFO":       true,
 	"FOREIGN_KEY_LIST":  true,
-	"DATABASE_LIST":     true,
 	"COLLATION_LIST":    true,
 	"FUNCTION_LIST":     true,
 	"MODULE_LIST":       true,

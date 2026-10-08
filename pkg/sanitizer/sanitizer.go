@@ -251,6 +251,27 @@ func checkPragmas(tokens []token) error {
 			}
 		}
 	}
+
+	// The function form never presents the PRAGMA keyword, so the loop above
+	// never sees it: pragma_database_list() is one SELECT away from the
+	// paths pragma database_list reports, and pragma_journal_mode() would
+	// reach a pragma the keyword form's allowlist refuses. Matched by name
+	// wherever it appears -- a column that happens to be called
+	// pragma_custom is the cost, the same trade the forbidden functions
+	// make.
+	for _, current := range tokens {
+		if current.kind != tokenIdentifier || !strings.HasPrefix(current.value, "PRAGMA_") {
+			continue
+		}
+		name := strings.TrimPrefix(current.value, "PRAGMA_")
+		if !allowedPragmas[name] {
+			return &Error{
+				Code:    CodeForbiddenPragma,
+				Message: "this PRAGMA is not on the allowlist",
+				Keyword: current.value,
+			}
+		}
+	}
 	return nil
 }
 

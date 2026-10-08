@@ -1186,9 +1186,13 @@ that might be wrong. Write your invariants in application code.
 Allowed:
 
 \`table_info\`, \`table_xinfo\`, \`index_list\`, \`index_info\`, \`index_xinfo\`,
-\`foreign_key_list\`, \`database_list\`, \`collation_list\`, \`function_list\`,
+\`foreign_key_list\`, \`collation_list\`, \`function_list\`,
 \`module_list\`, \`pragma_list\`, \`compile_options\`, \`integrity_check\`,
 \`quick_check\`, \`foreign_key_check\`
+
+The same list covers the \`pragma_*\` function spelling — \`pragma_database_list()\`
+is refused for the same reason \`PRAGMA database_list\` is: it reports filesystem
+paths.
 
 Both spellings work:
 
