@@ -1349,3 +1349,45 @@ func TestMetricsEndpointIsLoopbackOnly(t *testing.T) {
 		t.Error("the remote body must not reveal that metrics exist")
 	}
 }
+
+func TestUnknownPathServesErrorPageToBrowsers(t *testing.T) {
+	built, _, _, _ := testRouter(t, uuid.New())
+
+	t.Run("browser navigation", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/askdans", nil)
+		request.Header.Set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d", recorder.Code)
+		}
+		if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
+			t.Errorf("expected an html document, got %q", contentType)
+		}
+		body := recorder.Body.String()
+		for _, want := range []string{"404", "Page not found", "/askdans"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("error page missing %q", want)
+			}
+		}
+	})
+
+	t.Run("api client keeps json", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/askdans", nil)
+
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d", recorder.Code)
+		}
+		if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
+			t.Errorf("expected json, got %q", contentType)
+		}
+		if body := recorder.Body.String(); !strings.Contains(body, `"code":"not_found"`) {
+			t.Errorf("expected the json error body, got %q", body)
+		}
+	})
+}
