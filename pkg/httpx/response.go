@@ -115,6 +115,10 @@ func ReadJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	// published, when the flag was never read.
 	decoder.DisallowUnknownFields()
 
+	// Numbers are kept as json.Number rather than float64 so a value beyond
+	// 2^53 keeps every digit all the way into the typed field it lands in.
+	decoder.UseNumber()
+
 	if err := decoder.Decode(target); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_body",
 			"the request body must be a JSON object with the expected fields")

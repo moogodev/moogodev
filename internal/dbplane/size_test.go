@@ -2,6 +2,7 @@ package dbplane
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -160,5 +161,45 @@ func TestHugeSynthesizedValueIsRefused(t *testing.T) {
 
 	if _, err := manager.Query(ctx, projectID, `SELECT zeroblob(8388608)`, nil, 0); err == nil {
 		t.Fatal("expected a value twice the database's limit to be refused")
+	}
+}
+
+// TestJSONNumberArgumentsBindAsNumbers: after UseNumber the decoder hands
+// the engine json.Number. database/sql's default converter would turn that
+// into TEXT -- "SELECT ?" would answer with a quoted number -- so the
+// engine converts to int64/float64 before the driver sees it. The digit
+// beyond 2^53 is the case that proves no float64 rode along.
+func TestJSONNumberArgumentsBindAsNumbers(t *testing.T) {
+	manager := newTestManager(t, 100*1024*1024)
+	projectID := uuid.New()
+	ctx := context.Background()
+
+	if err := manager.InitializeProject(ctx, projectID); err != nil {
+		t.Fatalf("initialize project: %v", err)
+	}
+
+	result, err := manager.Query(ctx, projectID,
+		`SELECT ?, ?, ?, typeof(?)`,
+		[]any{json.Number("9007199254740993"), json.Number("2.5"), json.Number("42"), json.Number("42")},
+		0)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(result.Rows) != 1 || len(result.Rows[0]) != 4 {
+		t.Fatalf("unexpected rows: %+v", result.Rows)
+	}
+
+	row := result.Rows[0]
+	if row[0] != int64(9007199254740993) {
+		t.Errorf("integer arg: got %#v, want int64 9007199254740993", row[0])
+	}
+	if row[1] != 2.5 {
+		t.Errorf("real arg: got %#v, want float64 2.5", row[1])
+	}
+	if row[2] != int64(42) {
+		t.Errorf("small integer arg: got %#v, want int64 42", row[2])
+	}
+	if row[3] != "integer" {
+		t.Errorf("typeof: got %#v, want integer", row[3])
 	}
 }

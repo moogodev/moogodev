@@ -3,9 +3,11 @@ package dbplane
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +66,7 @@ func (manager *Manager) Query(
 	if err := normalizeProjectID(projectID); err != nil {
 		return nil, err
 	}
+	args = normalizeArgs(args)
 	if maxRows <= 0 {
 		maxRows = defaultMaxRows
 	}
@@ -172,6 +175,7 @@ func (manager *Manager) Exec(
 	if err := normalizeProjectID(projectID); err != nil {
 		return nil, err
 	}
+	args = normalizeArgs(args)
 
 	connection, release, err := manager.acquire(projectID)
 	if err != nil {
@@ -366,6 +370,46 @@ func rowValueBytes(values []any) int {
 		}
 	}
 	return total
+}
+
+// normalizeArgs converts decoded JSON numbers into the scalar types SQLite
+// binds, and returns the caller's slice unchanged when there is nothing to
+// convert.
+//
+// The request decoders use UseNumber so a 15 digit id survives decoding
+// with every digit intact, but json.Number reaching the driver would be
+// turned by database/sql's default converter into TEXT -- "SELECT ?" would
+// answer with a quoted number. Parsing here keeps the conversion in one
+// place, at the point of binding, for every caller of Query and Exec.
+//
+// An integer literal becomes int64, anything else (fraction, exponent, or
+// a value past int64) becomes float64. A string that parses as neither
+// cannot come from a JSON decoder; it is passed through and the driver
+// reports it as the bad argument it is.
+func normalizeArgs(args []any) []any {
+	converted := make([]any, len(args))
+	changed := false
+	for index, arg := range args {
+		converted[index] = arg
+		number, ok := arg.(json.Number)
+		if !ok {
+			continue
+		}
+		changed = true
+		if integer, err := strconv.ParseInt(number.String(), 10, 64); err == nil {
+			converted[index] = integer
+			continue
+		}
+		if floating, err := strconv.ParseFloat(number.String(), 64); err == nil {
+			converted[index] = floating
+			continue
+		}
+		converted[index] = number.String()
+	}
+	if !changed {
+		return args
+	}
+	return converted
 }
 
 // copyRow duplicates a scanned row.

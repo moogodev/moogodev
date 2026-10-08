@@ -429,3 +429,29 @@ func jsonString(value string) string {
 	}
 	return string(encoded)
 }
+
+// TestJSONArgumentsPreserveLargeIntegerDigits: a JSON number beyond 2^53
+// becomes a wrong float64 under the default decoder -- 9007199254740993
+// arrives as 9007199254740992. UseNumber keeps the digits exactly as
+// written; the engine converts them to an int64 before binding.
+func TestJSONArgumentsPreserveLargeIntegerDigits(t *testing.T) {
+	handler, engine := testDataPlane(t)
+
+	body := `{"query":"SELECT ?, ?, ?","args":[9007199254740993, 2.5, "text"]}`
+
+	recorder := httptest.NewRecorder()
+	handler.Query(recorder, dataPlaneRequest(t, uuid.New(), "/db/x/query", body))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	first, isNumber := engine.lastArgs[0].(json.Number)
+	if !isNumber {
+		t.Fatalf("args[0] = %T (%v), want json.Number preserving every digit",
+			engine.lastArgs[0], engine.lastArgs[0])
+	}
+	if first.String() != "9007199254740993" {
+		t.Errorf("args[0] = %q, want 9007199254740993", first.String())
+	}
+}

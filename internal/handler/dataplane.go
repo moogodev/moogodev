@@ -293,6 +293,11 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
 	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
+	// Numbers arrive as json.Number, not float64: an id like
+	// 9007199254740993 is a legal JSON number and a wrong float64. The
+	// digits survive decoding exactly; the engine converts them to an
+	// int64 or float64 before anything binds them.
+	decoder.UseNumber()
 
 	if err := decoder.Decode(target); err != nil {
 		var maxBytesError *http.MaxBytesError
