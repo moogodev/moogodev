@@ -29,7 +29,13 @@ type Config struct {
 	// that request arrived at the dashboard, and behind a proxy it arrived over
 	// plain HTTP. Defaults to PublicURL, which is what a single-host
 	// deployment wants.
-	APIURL      string
+	APIURL string
+	// NewsURL is the What's-new service whose published posts feed the
+	// dashboard's update list. The list is fetched over loopback and served
+	// on this origin, so the news service needs no CORS route. The default
+	// matches the shipped news unit; when news is not running the fetch
+	// fails and the list is empty rather than the dashboard erroring.
+	NewsURL     string
 	ReadTimeout time.Duration
 	IdleTimeout time.Duration
 	// ShutdownTimeout bounds graceful shutdown after a signal. It must
@@ -201,6 +207,7 @@ func Load() (Config, error) {
 		Addr:            reader.string("MOOGO_ADDR", ":8080"),
 		PublicURL:       strings.TrimRight(reader.string("MOOGO_PUBLIC_URL", "http://localhost:8080"), "/"),
 		APIURL:          strings.TrimRight(reader.string("MOOGO_API_URL", ""), "/"),
+		NewsURL:         strings.TrimRight(reader.string("MOOGO_NEWS_URL", "http://127.0.0.1:8081"), "/"),
 		ReadTimeout:     reader.duration("MOOGO_READ_TIMEOUT", 15*time.Second),
 		IdleTimeout:     reader.duration("MOOGO_IDLE_TIMEOUT", 120*time.Second),
 		ShutdownTimeout: reader.duration("MOOGO_SHUTDOWN_TIMEOUT", 30*time.Second),

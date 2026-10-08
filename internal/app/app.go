@@ -89,6 +89,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 	oauthHandler := handler.NewOAuth(google, sessions, store, cfg, options.Log)
 	bucketHandler := handler.NewBucketPlane(store, databases, cfg.MaxStorageBytes, cfg.PublicURL, options.Log)
 	docsHandler := handler.NewDocsHandler(handler.GetDocsFS(), options.Log)
+	updatesHandler := handler.NewUpdatesHandler(cfg.NewsURL, options.Log)
 
 	mailer := mail.New(cfg.ResendAPIKey, cfg.MailFrom, cfg.PublicURL, options.Log)
 	credentialsHandler := handler.NewCredentials(store, sessions, mailer, cfg, options.Log)
@@ -108,6 +109,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		Data:           dataHandler,
 		Bucket:         bucketHandler,
 		Docs:           docsHandler,
+		Updates:        updatesHandler,
 		Sessions:       sessions,
 		ProjectKeys:    store,
 		Projects:       store,

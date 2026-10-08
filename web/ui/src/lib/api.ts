@@ -249,6 +249,18 @@ export interface ProjectList {
   offset: number;
 }
 
+// UpdateItem is one published post from the news service, as served by
+// GET /api/updates for the dashboard's "What's new" list.
+export interface UpdateItem {
+  slug: string;
+  title: string;
+  created_at: string;
+}
+
+export interface UpdateList {
+  updates: UpdateItem[];
+}
+
 // ApiError carries the code, status and optional detail so a caller can branch
 // on them instead of parsing the message.
 export class ApiError extends Error {
@@ -319,6 +331,11 @@ export const api = {
   session: () => request<SessionInfo>("/auth/session"),
   oauthSetup: () => request<SetupConfig>("/auth/setup"),
   me: () => request<Me>("/api/me"),
+  // The dashboard's "What's new" list. The endpoint is public and answers an
+  // empty list when the news service is down, so this never rejects because
+  // of a changelog outage — but the caller still treats it separately from
+  // account data, and swallows the error, to keep the widget quiet.
+  updates: () => request<UpdateList>("/api/updates"),
   changePassword: (body: ChangePasswordRequest) =>
     request<{ success: boolean; message: string }>("/api/account/password", {
       method: "POST",

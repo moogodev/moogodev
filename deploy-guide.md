@@ -212,6 +212,7 @@ limit on your whole user base.
 | `MOOGO_ADDR` | `:8080` |
 | `MOOGO_DATA_DIR` | `/data` |
 | `MOOGO_PUBLIC_URL` | `http://localhost:8080` |
+| `MOOGO_NEWS_URL` | `http://127.0.0.1:8081` (the news service; when it is down the dashboard's What's-new list is empty) |
 | `MOOGO_ENV` | `development` |
 | `MOOGO_COOKIE_SECURE` | `true` |
 | `MOOGO_TRUSTED_PROXIES` | `""` (header ignored) |

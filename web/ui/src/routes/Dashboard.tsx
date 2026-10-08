@@ -1,29 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, formatBytes, type Me, type Project } from "../lib/api";
-
-// Product updates, each a slug of the mini-blog. The title opens the full
-// post (news.<domain>/<slug>), not just the changelog front page, so a reader
-// lands on the entry they clicked.
-// Cross-origin on purpose: a plain <a> is the honest way to leave the
-// dashboard for another site, where SPA routing does not apply.
-const UPDATES: { date: string; title: string; slug: string }[] = [
-  {
-    date: "Oct 2026",
-    title: "Spreadsheet-style table editor with inline editing",
-    slug: "spreadsheet-table-editor",
-  },
-  {
-    date: "Oct 2026",
-    title: "Per-project buckets with a 256 MB quota",
-    slug: "per-project-buckets",
-  },
-  {
-    date: "Sep 2026",
-    title: "Email and password sign-in with password reset",
-    slug: "email-password-signin",
-  },
-];
+import {
+  api,
+  ApiError,
+  formatBytes,
+  type Me,
+  type Project,
+  type UpdateItem,
+} from "../lib/api";
 
 // newsOrigin is where the changelog lives: news.<domain> in production, the
 // local news binary on :8081 when the dashboard runs on localhost. The news
@@ -40,6 +24,7 @@ function newsOrigin(): string {
 export default function Dashboard() {
   const [me, setMe] = useState<Me | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [updates, setUpdates] = useState<UpdateItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +45,26 @@ export default function Dashboard() {
       }
     }
     void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The update list is fetched on its own, deliberately: it is decoration
+  // beside real account data, so a missing or failing changelog leaves the
+  // list empty instead of joining Promise.all above, where its failure would
+  // land as an error banner saying the dashboard could not load.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadUpdates() {
+      try {
+        const listing = await api.updates();
+        if (!cancelled) setUpdates(listing.updates);
+      } catch {
+        if (!cancelled) setUpdates([]);
+      }
+    }
+    void loadUpdates();
     return () => {
       cancelled = true;
     };
@@ -155,19 +160,32 @@ export default function Dashboard() {
               See all
             </a>
           </div>
-          <ul className="border-t border-edge">
-            {UPDATES.map((update) => (
-              <li key={update.title} className="border-b border-edge">
-                <a
-                  href={`${newsOrigin()}/${update.slug}`}
-                  className="flex items-baseline justify-between gap-3 py-2.5 transition-colors hover:text-accent"
-                >
-                  <span className="min-w-0 truncate text-[0.86rem]">{update.title}</span>
-                  <span className="flex-shrink-0 text-[0.75rem] text-faint">{update.date}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
+          {/* Titles come from the news service, so deleting or renaming a post
+              there changes this list with no redeploy. The widget renders its
+              header either way and stays quiet when the list is empty — no
+              placeholder, no error banner — because it is decoration on top of
+              an otherwise healthy dashboard. */}
+          {updates.length > 0 && (
+            <ul className="border-t border-edge">
+              {updates.map((update) => (
+                <li key={update.slug} className="border-b border-edge">
+                  {/* Cross-origin on purpose: a plain <a> is the honest way to
+                      leave the dashboard for another site, where SPA routing
+                      does not apply. The slug opens the full post, not just
+                      the changelog front page. */}
+                  <a
+                    href={`${newsOrigin()}/${update.slug}`}
+                    className="flex items-baseline justify-between gap-3 py-2.5 transition-colors hover:text-accent"
+                  >
+                    <span className="min-w-0 truncate text-[0.86rem]">{update.title}</span>
+                    <span className="flex-shrink-0 text-[0.75rem] text-faint">
+                      {formatUpdateDate(update.created_at)}
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
     </div>
@@ -182,4 +200,15 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
       {hint && <dd className="text-[0.75rem] text-faint">{hint}</dd>}
     </div>
   );
+}
+
+// formatUpdateDate renders a post's date the way the widget always has:
+// month and year, short form ("Oct 2026"). An unparsable timestamp renders as
+// nothing rather than "Invalid Date".
+function formatUpdateDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleDateString(undefined, { month: "short", year: "numeric" });
 }

@@ -99,6 +99,11 @@ type DocsHandlers interface {
 	DocList(http.ResponseWriter, *http.Request)
 }
 
+// UpdatesHandlers is the dashboard's "What's new" list.
+type UpdatesHandlers interface {
+	Updates(http.ResponseWriter, *http.Request)
+}
+
 // ProjectAuthorizer checks that a project belongs to the signed-in user.
 //
 // It is the slice of the store the dashboard routes need, declared here so the
@@ -120,6 +125,10 @@ type Deps struct {
 	Data        DataPlaneHandlers
 	Bucket      BucketHandlers
 	Docs        DocsHandlers
+	// Updates is the dashboard's "What's new" list, read from the news
+	// service. Nil in tests that do not care, and a nil handler leaves the
+	// route unregistered rather than failing to build, like Metrics.
+	Updates     UpdatesHandlers
 	Sessions    *auth.SessionManager
 	ProjectKeys auth.ProjectResolver
 	// Projects authorizes the dashboard's per-project routes by ownership.
@@ -499,6 +508,17 @@ func New(deps Deps) http.Handler {
 		root.Head("/api/docs", deps.Docs.DocList)
 		root.Get("/api/docs/*", deps.Docs.Doc)
 		root.Head("/api/docs/*", deps.Docs.Doc)
+	}
+
+	// --- Changelog updates (public) ---
+	//
+	// Published titles from the news service, re-served on this origin so
+	// the dashboard's update list stays a same-origin request and the news
+	// service needs no CORS route of its own. Public because the posts are
+	// public on news.<domain> anyway: the widget only renders for a
+	// signed-in reader, but the data behind it is not account data.
+	if deps.Updates != nil {
+		root.Get("/api/updates", deps.Updates.Updates)
 	}
 
 	// --- Pages and static files ---
