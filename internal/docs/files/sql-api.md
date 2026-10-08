@@ -100,6 +100,10 @@ Rows are **arrays, not objects**. `rows[i][j]` corresponds to `columns[j]`, whic
 keeps the payload small and lets you render a table without reading the first row
 to discover the shape.
 
+A read response also carries at most **16 MB** of row data. `truncated` covers
+the row cap of 1000 rows; a result past the byte cap fails with
+`413 result_too_large` rather than coming back half-complete.
+
 `/query` **rejects writes** with `not_a_read`. That is deliberate: routing a write
 through the read endpoint would let a caller pull a large result set past the row
 cap.

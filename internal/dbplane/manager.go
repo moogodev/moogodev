@@ -31,6 +31,10 @@ var (
 	// ErrSizeExceeded means the database is at or over its configured
 	// limit, so the statement was refused before writing.
 	ErrSizeExceeded = errors.New("database size limit exceeded")
+	// ErrResultTooLarge means a read produced more bytes than one response
+	// may carry. The row cap bounds how many rows come back; this bounds
+	// how many bytes they add up to.
+	ErrResultTooLarge = errors.New("result too large")
 	// ErrTimeout means the statement exceeded its time budget.
 	ErrTimeout = errors.New("statement timed out")
 	// ErrClosed means the manager has been shut down.

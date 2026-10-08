@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"modernc.org/sqlite"
 
 	"github.com/moogodev/moogodev/internal/metrics"
 	"github.com/moogodev/moogodev/pkg/logger"
@@ -19,6 +21,19 @@ import (
 // A host with 2 GB of RAM cannot absorb an unbounded result set, and
 // "SELECT * FROM large_table" is an easy thing to write by accident.
 const defaultMaxRows = 1000
+
+// defaultMaxResultBytes caps the payload of a single query response.
+//
+// The row cap bounds how many rows come back, not how many bytes: a thousand
+// rows of a wide BLOB column are still a response that has to be held in
+// memory twice (once as rows, once as JSON) on a 2 GB host. A result over
+// this budget fails instead of being written.
+const defaultMaxResultBytes = 16 << 20
+
+// sqliteLimitLength is SQLITE_LIMIT_LENGTH from sqlite3.h -- the maximum size
+// in bytes of a single string or BLOB value SQLite will accept or return.
+// It is 0, not 1: id 1 is SQLITE_LIMIT_SQL_LENGTH.
+const sqliteLimitLength = 0
 
 // slowQueryThreshold is how long a statement runs before it is logged.
 //
@@ -85,7 +100,22 @@ func (manager *Manager) Query(
 	statementCtx, cancel := context.WithTimeout(ctx, manager.queryTimeout)
 	defer cancel()
 
-	rows, err := connection.readDB.QueryContext(statementCtx, statement, args...)
+	// The statement runs on one checked-out connection so the per-value
+	// length limit can be pinned onto it first: sqlite3_limit applies per
+	// physical connection, and checkout is the point where this project's
+	// ceiling is known to be in force, whether the pool opened the
+	// connection at startup or a second ago.
+	readConn, err := connection.readDB.Conn(statementCtx)
+	if err != nil {
+		return nil, classifyError(err, statementCtx)
+	}
+	defer readConn.Close()
+
+	if err := applyValueLimit(readConn, manager.maxDBBytes); err != nil {
+		return nil, err
+	}
+
+	rows, err := readConn.QueryContext(statementCtx, statement, args...)
 	if err != nil {
 		return nil, classifyError(err, statementCtx)
 	}
@@ -103,6 +133,7 @@ func (manager *Manager) Query(
 	}
 
 	result := &QueryResult{Columns: columnNames, Rows: make([][]any, 0, 16)}
+	resultBytes := 0
 
 	for rows.Next() {
 		if len(result.Rows) >= maxRows {
@@ -111,6 +142,10 @@ func (manager *Manager) Query(
 		}
 		if err := rows.Scan(scanTargets...); err != nil {
 			return nil, fmt.Errorf("scan row: %w", err)
+		}
+		resultBytes += rowValueBytes(values)
+		if resultBytes > defaultMaxResultBytes {
+			return nil, ErrResultTooLarge
 		}
 		result.Rows = append(result.Rows, copyRow(values))
 	}
@@ -177,7 +212,21 @@ func (manager *Manager) Exec(
 		return nil, err
 	}
 
-	execResult, err := connection.db.ExecContext(statementCtx, statement, args...)
+	// The write goes out on a checked-out connection for the same reason a
+	// read does: the per-value length limit is applied here, before any
+	// expression in the statement can materialize a value larger than the
+	// project's whole database.
+	writeConn, err := connection.db.Conn(statementCtx)
+	if err != nil {
+		return nil, classifyError(err, statementCtx)
+	}
+	defer writeConn.Close()
+
+	if err := applyValueLimit(writeConn, manager.maxDBBytes); err != nil {
+		return nil, err
+	}
+
+	execResult, err := writeConn.ExecContext(statementCtx, statement, args...)
 	if err != nil {
 		return nil, classifyError(err, statementCtx)
 	}
@@ -270,6 +319,45 @@ func databaseSize(ctx context.Context, database *sql.DB) (int64, error) {
 		return 0, fmt.Errorf("compute database size: %w", err)
 	}
 	return (pageCount - freelistSize) * pageSize, nil
+}
+
+// applyValueLimit pins SQLITE_LIMIT_LENGTH onto a checked-out connection,
+// using the project's own size limit as the ceiling: a value bigger than the
+// whole database has no business existing, and a statement like
+// "SELECT zeroblob(n)" builds one from two words, sidestepping every size
+// check that looks at the file.
+//
+// sqlite3_limit is per physical connection, so this runs at every checkout:
+// a connection the pool opened after startup carries the limit before it
+// hands back a row.
+func applyValueLimit(connection *sql.Conn, maxDBBytes int64) error {
+	if maxDBBytes <= 0 {
+		return nil
+	}
+	limit := maxDBBytes
+	if limit > math.MaxInt {
+		limit = math.MaxInt
+	}
+	if _, err := sqlite.Limit(connection, sqliteLimitLength, int(limit)); err != nil {
+		return fmt.Errorf("apply value length limit: %w", err)
+	}
+	return nil
+}
+
+// rowValueBytes counts the payload a scanned row contributes to the response
+// budget: variable-length values are strings and byte slices, and everything
+// else is a fixed-width number that rounds off to nothing here.
+func rowValueBytes(values []any) int {
+	total := 0
+	for _, value := range values {
+		switch typed := value.(type) {
+		case string:
+			total += len(typed)
+		case []byte:
+			total += len(typed)
+		}
+	}
+	return total
 }
 
 // copyRow duplicates a scanned row.

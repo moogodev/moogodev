@@ -38,6 +38,15 @@ StartLimitIntervalSec=0
 # on a node with many projects.
 LimitNOFILE=65535
 
+# Memory ceiling. SQLite runs as pure Go here, so SQLite's allocations are Go
+# allocations: GOMEMLIMIT caps them, a statement that needs more comes back as
+# SQLITE_FULL instead of getting the process OOM-killed, and MemoryMax is the
+# hard stop behind it if anything ignores the soft limit. Uncomment both and
+# size them to what the node can spare -- 448M / 512M is a starting point on a
+# 2 GB host, not a rule.
+# GOMEMLIMIT=448MiB
+# MemoryMax=512M
+
 # --- Sandboxing ---
 # Everything the service writes is the data directory. With ProtectSystem=strict
 # the rest of the filesystem is read-only, so a bug that walks a path cannot

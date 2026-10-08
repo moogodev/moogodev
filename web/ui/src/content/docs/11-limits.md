@@ -8,7 +8,7 @@ you find out from the API rather than from a hung tab or a surprise bill.
 | Limit | Value | Enforced |
 |---|---|---|
 | Projects per account | **2** | Checked inside the transaction that creates a project. |
-| Database size | **100 MB** per project | Before *and* after every write. |
+| Database size | **100 MB** per project | Before every write; SQLite itself refuses page growth past the ceiling. |
 | Storage | **256 MB** per project | On upload, against usage plus declared size. |
 | Object size | Bucket's `max_object_size_bytes`, or 256 MB | On upload. |
 
@@ -22,12 +22,12 @@ with three projects.
 
 ### Database size
 
-100 MB, measured as `page_count * page_size` — the real size on disk, not an
-estimate.
+100 MB, measured as `(page_count - freelist_count) * page_size` — the data pages,
+so space freed by a DELETE starts counting as free immediately.
 
-The check runs **before** the write commits and again after. A write that would
-cross the ceiling is refused; it is not partially applied and it is not silently
-truncated.
+The check runs **before** the write, and SQLite refuses the page growth that
+would cross the ceiling, so a write that would overrun is refused; it is not
+partially applied and it is not silently truncated.
 
 ```json
 { "error": { "code": "database_too_large", "message": "the database has reached its size limit" } }
@@ -35,7 +35,23 @@ truncated.
 
 Note that a database does not shrink on its own. Deleting rows frees space
 *inside* the file for reuse, but the file does not get smaller. A database that
-once grew past 100 MB stays large, and you will keep needing to delete.
+once grew past 100 MB stays large, and the freed pages only stop counting toward
+the ceiling until later writes reuse them.
+
+### Result size
+
+One read response carries at most **16 MB** of row data. The row cap of 1000
+bounds how many rows come back; this bounds how many bytes they add up to — a
+thousand rows of a wide `BLOB` column would otherwise be a response held twice
+in memory, once as rows and once as JSON.
+
+A single value larger than the project's own size limit is refused before SQLite
+materializes it, so `SELECT zeroblob(n)` cannot ask for more bytes than the file
+would ever hold.
+
+```json
+{ "error": { "code": "result_too_large", "message": "the result set is over the response size limit; narrow the query or page the result" } }
+```
 
 ### Storage
 
@@ -61,6 +77,7 @@ overrun the quota.
 | Request body (storage uploads) | Bucket cap or 256 MB | `object_too_large` |
 | Statement length | **64 KB** | `sql_too_long` |
 | Statement duration | **15 seconds** | `statement_timeout` |
+| Result payload (one read) | **16 MB** | `result_too_large` |
 | Storage credentials per project | **5** | `storage_credential_limit` |
 | Sign-in endpoints | **10 / minute / client address**, shared | `rate_limited` |
 | Data plane | **300 / minute** — queries per project, storage per address | `rate_limited` |
@@ -97,7 +114,8 @@ Worth knowing explicitly, because these are common assumptions:
 | Error | What to do |
 |---|---|
 | `quota_exceeded` on project creation | Delete an unused project, or [pause](/docs/create-project#pausing) it if you only need to stop using it. Pausing does not free the slot — it is still a project. |
-| `database_too_large` | Delete rows you no longer need. Remember the file itself will not shrink. If you genuinely need more, this is the ceiling to design around. |
+| `database_too_large` | Delete rows you no longer need. Freed pages stop counting toward the ceiling, but the file itself will not shrink. If you genuinely need more, this is the ceiling to design around. |
+| `result_too_large` | Narrow the query: add a `WHERE`, select fewer columns, or page the result. The row cap of 1000 does not bound bytes. |
 | `statement_timeout` | Look at the query. Add an index, narrow the `WHERE`, or page the result. |
 | `sql_too_long` | Generate fewer statements per request. One statement per request is the rule. |
 | `body_too_large` | Send less in one call. Page a listing instead of requesting everything. |

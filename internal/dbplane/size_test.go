@@ -57,8 +57,12 @@ func TestSingleStatementCannotCrossTheSizeLimit(t *testing.T) {
 		t.Fatalf("create table: %v", err)
 	}
 
+	// One statement far beyond the limit, built row by row so no single
+	// value trips the per-value length limit first: the point is the file
+	// growth, not a big literal.
 	_, err := manager.Exec(ctx, projectID,
-		`INSERT INTO items (payload) VALUES (zeroblob(4194304))`, nil)
+		`WITH RECURSIVE seq(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM seq WHERE i < 2048) `+
+			`INSERT INTO items (payload) SELECT zeroblob(4096) FROM seq`, nil)
 	if !errors.Is(err, ErrSizeExceeded) {
 		t.Fatalf("crossing statement: err = %v, want ErrSizeExceeded", err)
 	}
@@ -112,5 +116,49 @@ func TestFullDatabaseStillAcceptsDeletesAndRecovers(t *testing.T) {
 	if _, err := manager.Exec(ctx, projectID,
 		`INSERT INTO items (payload) VALUES (zeroblob(4096))`, nil); err != nil {
 		t.Fatalf("insert after delete: %v", err)
+	}
+}
+
+// TestQueryRefusesAnOversizedResult is MG-05's Go-side byte cap: the row cap
+// bounds how many rows come back, not how many bytes, so one wide column
+// times the row cap could pin hundreds of megabytes before the response is
+// written. The result that would exceed the response budget fails instead.
+func TestQueryRefusesAnOversizedResult(t *testing.T) {
+	manager := newTestManager(t, 100*1024*1024)
+	projectID := uuid.New()
+	ctx := context.Background()
+
+	if err := manager.InitializeProject(ctx, projectID); err != nil {
+		t.Fatalf("initialize project: %v", err)
+	}
+	if _, err := manager.Exec(ctx, projectID, `CREATE TABLE items (payload BLOB)`, nil); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	if _, err := manager.Exec(ctx, projectID,
+		`INSERT INTO items (payload) VALUES (zeroblob(17825792))`, nil); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	if _, err := manager.Query(ctx, projectID, `SELECT payload FROM items`, nil, 0); !errors.Is(err, ErrResultTooLarge) {
+		t.Fatalf("query: err = %v, want ErrResultTooLarge", err)
+	}
+}
+
+// TestHugeSynthesizedValueIsRefused is MG-05's SQLite-side length limit: a
+// value larger than the project's whole database never has to exist --
+// zeroblob builds one from a two-word statement, so the database size cap
+// says nothing about it. sqlite3_limit refuses it before SQLite materializes
+// the bytes.
+func TestHugeSynthesizedValueIsRefused(t *testing.T) {
+	manager := newTestManager(t, 4*1024*1024)
+	projectID := uuid.New()
+	ctx := context.Background()
+
+	if err := manager.InitializeProject(ctx, projectID); err != nil {
+		t.Fatalf("initialize project: %v", err)
+	}
+
+	if _, err := manager.Query(ctx, projectID, `SELECT zeroblob(8388608)`, nil, 0); err == nil {
+		t.Fatal("expected a value twice the database's limit to be refused")
 	}
 }

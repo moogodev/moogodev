@@ -95,6 +95,7 @@ for (let index = 0; index < rows.length; index += batch) {
 | `database_not_found` | 404 | The project database does not exist. |
 | `statement_timeout` | 504 | Passed 15 seconds and was cancelled. |
 | `database_too_large` | 413 | The database is at its 100 MB ceiling. |
+| `result_too_large` | 413 | The result set passed the 16 MB response cap. |
 
 ### `sql_error` — read `detail`
 

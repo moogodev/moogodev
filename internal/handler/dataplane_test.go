@@ -294,6 +294,26 @@ func TestSizeLimitIsAClientError(t *testing.T) {
 	}
 }
 
+// TestResultTooLargeIsAClientError covers MG-05's byte cap reaching the API:
+// a result over the response budget is the caller's query to narrow, not a
+// server fault, so it arrives as 413 with its own code.
+func TestResultTooLargeIsAClientError(t *testing.T) {
+	handler, engine := testDataPlane(t)
+	engine.err = dbplane.ErrResultTooLarge
+
+	body := `{"query":"SELECT payload FROM items"}`
+
+	recorder := httptest.NewRecorder()
+	handler.Query(recorder, dataPlaneRequest(t, uuid.New(), "/db/x/query", body))
+
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d", recorder.Code)
+	}
+	if code := errorCode(t, recorder); code != "result_too_large" {
+		t.Errorf("expected result_too_large, got %q", code)
+	}
+}
+
 func TestTimeoutIsReportedAsGatewayTimeout(t *testing.T) {
 	handler, engine := testDataPlane(t)
 	engine.err = dbplane.ErrTimeout

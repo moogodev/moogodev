@@ -264,6 +264,9 @@ func classifyDataPlaneError(err error) (int, string, string) {
 	case errors.Is(err, dbplane.ErrSizeExceeded):
 		return http.StatusRequestEntityTooLarge, "database_too_large",
 			"the database has reached its size limit"
+	case errors.Is(err, dbplane.ErrResultTooLarge):
+		return http.StatusRequestEntityTooLarge, "result_too_large",
+			"the result set is over the response size limit; narrow the query or page the result"
 	case errors.Is(err, dbplane.ErrTimeout):
 		return http.StatusGatewayTimeout, "statement_timeout", "the statement took too long"
 	case errors.Is(err, dbplane.ErrBusy):
