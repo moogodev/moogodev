@@ -36,10 +36,17 @@ authorises each request by checking that you own the project.
 
 | Path | What it is |
 |---|---|
-| `/app` | Overview: your projects, usage, and quick actions. |
+| `/app` | Overview: your projects, usage, quick actions, and **What's new**. |
 | `/app/projects` | All projects. |
 | `/app/projects/{id}` | The project page — database, bucket, settings. |
 | `/app/settings` | Account settings. |
+
+The overview also carries **What's new**: the newest published posts from the
+news service, as links. The list is public — the same posts appear on
+news.moogo.dev — so it is re-served from this origin rather than fetched across
+sites; a post shows up within a minute of publishing, in the same UTC dates the
+news site uses. It is decoration: if the news service is down the widget is
+empty and the rest of the dashboard is unaffected.
 
 ## The database tab
 

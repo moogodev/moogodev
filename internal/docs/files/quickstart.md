@@ -5,7 +5,7 @@ start at [step 2](#2-create-a-project).
 
 ## 1. Register
 
-Go to [/register](/register) and create an account with an email and a
+Go to [moogo.dev/register](/register) and create an account with an email and a
 password. One email is one account, and you are signed in immediately — there is
 no confirmation email to wait for.
 
@@ -17,14 +17,15 @@ In the [dashboard](/app), click **New project**, name it, and confirm.
 
 When it reaches the status `ready`, Moogo shows three values **once**:
 
-```text
+```
 MOOGO_PROJECT_URL=https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 MOOGO_SECRET_KEY=moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
 ```
 
 **Copy them now.** The secret key is never displayed again — only a hash and an
-eight-character prefix are stored.
+eight-character prefix are stored. If you lose it, you can
+[rotate it](/docs/credentials#rotating-a-key).
 
 Put them in your environment:
 
@@ -33,6 +34,8 @@ export MOOGO_PROJECT_URL="https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7
 export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
 export MOOGO_SECRET_KEY="moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK"
 ```
+
+Full detail: [Create your first project](/docs/create-project).
 
 ## 3. Create a table
 
@@ -46,15 +49,22 @@ curl $MOOGO_PROJECT_URL/exec \
     "query": "CREATE TABLE users (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL,
-      plan TEXT NOT NULL DEFAULT 'free',
+      plan TEXT NOT NULL DEFAULT '"'"'free'"'"',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )"
   }'
 ```
 
+Response:
+
+```json
+{ "success": true, "rows_affected": 0, "size_bytes": 20480, "duration_ms": 1 }
+```
+
 ## 4. Insert data
 
-Values are bound parameters, never interpolated into the SQL text.
+Note the `args` array — values are bound parameters, never interpolated into the
+SQL text.
 
 ```bash
 curl $MOOGO_PROJECT_URL/exec \
@@ -66,6 +76,10 @@ curl $MOOGO_PROJECT_URL/exec \
   }'
 ```
 
+```json
+{ "success": true, "rows_affected": 1, "size_bytes": 24576, "duration_ms": 1 }
+```
+
 ## 5. Read it back
 
 Reads go to `/query`:
@@ -75,6 +89,17 @@ curl $MOOGO_PROJECT_URL/query \
   -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"SELECT id, email, plan FROM users WHERE plan = ?","args":["pro"]}'
+```
+
+```json
+{
+  "success": true,
+  "columns": ["id", "email", "plan"],
+  "rows": [["7c1f", "ketut@example.com", "pro"]],
+  "row_count": 1,
+  "truncated": false,
+  "duration_ms": 1
+}
 ```
 
 That is a working database.
@@ -90,6 +115,8 @@ Sending the wrong kind of statement is the most common early mistake, and it is
 rejected rather than silently accepted so you find out immediately.
 
 ## From JavaScript
+
+The quickest way to integrate, since there is no driver to install:
 
 ```js
 const headers = {
@@ -111,7 +138,9 @@ export async function sql(query, args = []) {
   if (!response.ok) throw new Error(body.error?.message ?? "request failed");
   return body;
 }
+```
 
+```js
 const proUsers = await sql(
   "SELECT id, email FROM users WHERE plan = ?",
   ["pro"],

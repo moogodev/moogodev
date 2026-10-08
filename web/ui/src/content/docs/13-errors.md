@@ -139,10 +139,12 @@ success that did nothing.
 
 ### When you get `rate_limited`
 
-Only the sign-in endpoints are limited: `/auth/login`, `/auth/register`,
-`/auth/forgot-password`, `/auth/verify-email` and `/auth/resend-verification`,
-at 10 attempts a minute per client address. The allowance is shared across all
-five, so moving from one to the next does not reset it.
+The sign-in endpoints are limited: `/auth/login`, `/auth/register`,
+`/auth/forgot-password`, `/auth/reset-password`, `/auth/verify-email` and
+`/auth/resend-verification`, at 10 attempts a minute per client address, with
+the allowance shared across all six — moving from one to the next does not
+reset it. Other routes have ceilings of their own (the data plane, the
+dashboard's update list); see [Limits](/docs/limits).
 
 The `429` carries a `Retry-After` header in seconds. Honour it rather than
 retrying immediately — the header says how long until a whole attempt is back,

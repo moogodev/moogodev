@@ -2152,10 +2152,17 @@ authorises each request by checking that you own the project.
 
 | Path | What it is |
 |---|---|
-| \`/app\` | Overview: your projects, usage, and quick actions. |
+| \`/app\` | Overview: your projects, usage, quick actions, and **What's new**. |
 | \`/app/projects\` | All projects. |
 | \`/app/projects/{id}\` | The project page — database, bucket, settings. |
 | \`/app/settings\` | Account settings. |
+
+The overview also carries **What's new**: the newest published posts from the
+news service, as links. The list is public — the same posts appear on
+news.moogo.dev — so it is re-served from this origin rather than fetched across
+sites; a post shows up within a minute of publishing, in the same UTC dates the
+news site uses. It is decoration: if the news service is down the widget is
+empty and the rest of the dashboard is unaffected.
 
 ## The database tab
 
@@ -2360,6 +2367,7 @@ overrun the quota.
 | Storage credentials per project | **5** | \`storage_credential_limit\` |
 | Sign-in endpoints | **10 / minute / client address**, shared | \`rate_limited\` |
 | Data plane | **300 / minute** — queries per project, storage per address | \`rate_limited\` |
+| Dashboard update list (\`GET /api/updates\`) | **120 / minute / client address** | \`rate_limited\` |
 
 The JSON and storage caps differ on purpose. They guard different things: a JSON
 body is a statement or a settings object where anything past a megabyte is a
@@ -2606,7 +2614,11 @@ Being clear about this is more useful than a reassuring summary.
   (\`/auth/login\`, \`/auth/register\`, \`/auth/forgot-password\`,
   \`/auth/reset-password\`, \`/auth/verify-email\`, \`/auth/resend-verification\`)
   share 10 attempts a minute per client address, because they are the ones an
-  unauthenticated caller can hammer. A \`429\` carries a \`Retry-After\` header.
+  unauthenticated caller can hammer. The public update list the dashboard
+  reads, \`GET /api/updates\`, gets 120 a minute per address instead — public,
+  but every call can spend up to three seconds waiting on the news service —
+  and serves a minute-old cached answer, so the news service sees at most one
+  fetch a minute. A \`429\` carries a \`Retry-After\` header.
 - **SQLite writes are serialised per project.** This is a property of the engine,
   not something Moogo configures away. High write concurrency will queue.
 
@@ -2774,10 +2786,12 @@ success that did nothing.
 
 ### When you get \`rate_limited\`
 
-Only the sign-in endpoints are limited: \`/auth/login\`, \`/auth/register\`,
-\`/auth/forgot-password\`, \`/auth/verify-email\` and \`/auth/resend-verification\`,
-at 10 attempts a minute per client address. The allowance is shared across all
-five, so moving from one to the next does not reset it.
+The sign-in endpoints are limited: \`/auth/login\`, \`/auth/register\`,
+\`/auth/forgot-password\`, \`/auth/reset-password\`, \`/auth/verify-email\` and
+\`/auth/resend-verification\`, at 10 attempts a minute per client address, with
+the allowance shared across all six — moving from one to the next does not
+reset it. Other routes have ceilings of their own (the data plane, the
+dashboard's update list); see [Limits](/docs/limits).
 
 The \`429\` carries a \`Retry-After\` header in seconds. Honour it rather than
 retrying immediately — the header says how long until a whole attempt is back,
