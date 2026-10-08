@@ -761,3 +761,41 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 	}
 	return parsed
 }
+
+// TestRequireProjectKeyVerifiesTheKeyBeforeTheStateChecks: the 403s for
+// "paused" and "not ready" are statements about the project, and answering
+// them before the key is verified hands that information to anyone who can
+// guess a project id. The key decides first; only the owner learns the state.
+func TestRequireProjectKeyVerifiesTheKeyBeforeTheStateChecks(t *testing.T) {
+	testCases := []struct {
+		name   string
+		status dbcontrol.ProjectStatus
+	}{
+		{"paused", dbcontrol.ProjectPaused},
+		{"pending", dbcontrol.ProjectPending},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			project, _ := readyProject(t)
+			project.Status = testCase.status
+
+			resolver := &fakeResolver{projects: map[uuid.UUID]*dbcontrol.Project{project.ID: project}}
+			handler := RequireProjectKey(resolver)(http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					t.Error("handler should not be reached")
+				}))
+
+			request := requestWithProjectID(project.ID)
+			request.Header.Set("Authorization", "Bearer moogo_wrong_key")
+
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusUnauthorized {
+				t.Errorf("wrong key on a %s project: got %d, want 401 -- the state must not be revealed before the key verifies",
+					testCase.name, recorder.Code)
+			}
+		})
+	}
+}

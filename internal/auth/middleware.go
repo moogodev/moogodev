@@ -57,6 +57,17 @@ func RequireProjectKey(resolver ProjectResolver) func(http.Handler) http.Handler
 				return
 			}
 
+			// The key decides before the project's state is said out loud.
+			// "project_paused" and "project_not_ready" are statements about
+			// the project, and answering them for an unverified caller would
+			// turn this endpoint into a status oracle for anyone who can
+			// guess a project id. The storage credential middleware already
+			// works in this order; this one now matches it.
+			if !secretkey.Verify(presented, project.SecretKeyHash) {
+				writeUnauthorized(w)
+				return
+			}
+
 			if project.Paused() {
 				writeForbidden(w, "project_paused", "project is paused")
 				return
@@ -64,11 +75,6 @@ func RequireProjectKey(resolver ProjectResolver) func(http.Handler) http.Handler
 
 			if !project.Ready() {
 				writeForbidden(w, "project_not_ready", "project is not ready yet")
-				return
-			}
-
-			if !secretkey.Verify(presented, project.SecretKeyHash) {
-				writeUnauthorized(w)
 				return
 			}
 
