@@ -2,28 +2,40 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, formatBytes, type Me, type Project } from "../lib/api";
 
-// Product updates, each a link into the mini-blog at news.moogo.dev. The
-// title opens the full post (news.moogo.dev/<slug>), not just the changelog
-// front page, so a reader lands on the entry they clicked.
+// Product updates, each a slug of the mini-blog. The title opens the full
+// post (news.<domain>/<slug>), not just the changelog front page, so a reader
+// lands on the entry they clicked.
 // Cross-origin on purpose: a plain <a> is the honest way to leave the
 // dashboard for another site, where SPA routing does not apply.
-const UPDATES: { date: string; title: string; href: string }[] = [
+const UPDATES: { date: string; title: string; slug: string }[] = [
   {
     date: "Oct 2026",
     title: "Spreadsheet-style table editor with inline editing",
-    href: "https://news.moogo.dev/spreadsheet-table-editor",
+    slug: "spreadsheet-table-editor",
   },
   {
     date: "Oct 2026",
     title: "Per-project buckets with a 256 MB quota",
-    href: "https://news.moogo.dev/per-project-buckets",
+    slug: "per-project-buckets",
   },
   {
     date: "Sep 2026",
     title: "Email and password sign-in with password reset",
-    href: "https://news.moogo.dev/email-password-signin",
+    slug: "email-password-signin",
   },
 ];
+
+// newsOrigin is where the changelog lives: news.<domain> in production, the
+// local news binary on :8081 when the dashboard runs on localhost. The news
+// service is always a separate origin, so every link below is an <a>, never
+// a client-side route.
+function newsOrigin(): string {
+  const { protocol, hostname } = window.location;
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return `${protocol}//${hostname}:8081`;
+  }
+  return "https://news.moogo.dev";
+}
 
 export default function Dashboard() {
   const [me, setMe] = useState<Me | null>(null);
@@ -137,7 +149,7 @@ export default function Dashboard() {
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-[0.9rem] font-semibold">What&apos;s new</h2>
             <a
-              href="https://news.moogo.dev"
+              href={newsOrigin()}
               className="text-[0.8rem] text-accent hover:underline"
             >
               See all
@@ -147,7 +159,7 @@ export default function Dashboard() {
             {UPDATES.map((update) => (
               <li key={update.title} className="border-b border-edge">
                 <a
-                  href={update.href}
+                  href={`${newsOrigin()}/${update.slug}`}
                   className="flex items-baseline justify-between gap-3 py-2.5 transition-colors hover:text-accent"
                 >
                   <span className="min-w-0 truncate text-[0.86rem]">{update.title}</span>

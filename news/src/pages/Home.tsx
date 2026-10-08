@@ -74,7 +74,7 @@ export default function Home() {
               <article key={post.id} id={post.slug} className="post-anchor border-t border-line pt-6">
                 <div className="flex items-baseline gap-3">
                   <h2 className="min-w-0 text-[1.05rem] font-semibold tracking-tight">
-                    <Link to={`/${post.slug}`} className="hover:text-accent">
+                    <Link to={`/${post.slug}`} className="text-accent hover:underline">
                       {post.title}
                     </Link>
                   </h2>
