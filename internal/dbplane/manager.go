@@ -75,7 +75,7 @@ type Manager struct {
 	mu sync.Mutex
 	// dbs is the handle cache, open projects only. Entries are evicted down
 	// to maxCachedProjects, least recently used first.
-	dbs map[uuid.UUID]*sql.DB
+	dbs map[uuid.UUID]*projectHandle
 	// refs counts in-flight operations per project. A project with a
 	// non-zero count is never evicted: closing its handle underneath a
 	// running query would either block every other project on manager.mu
@@ -102,9 +102,32 @@ type Manager struct {
 	bucketMu  sync.Mutex
 }
 
-// projectConnection is one project's database handle plus its write lock.
+// projectHandle is one project's cached pair of pools: the read-write pool
+// Exec runs on, and the query_only pool Query is confined to.
+//
+// The second pool is the real enforcement behind the handler's read/write
+// routing. The classifier is a hint, so the engine itself must make a write
+// impossible on the path that serves reads: query_only makes SQLite refuse
+// every modification at the statement level, no matter what the caller
+// believed the statement was.
+type projectHandle struct {
+	db     *sql.DB
+	readDB *sql.DB
+}
+
+// close closes both pools. A handle that leaks one of them keeps file
+// handles and idle connections alive after the project is evicted or
+// removed.
+func (handle *projectHandle) close() error {
+	return errors.Join(handle.db.Close(), handle.readDB.Close())
+}
+
+// projectConnection is one project's pair of pools plus its write lock.
 type projectConnection struct {
+	// db is the read-write pool, used by Exec.
 	db *sql.DB
+	// readDB is the query_only pool, used by Query.
+	readDB *sql.DB
 	// writeLock serializes writes. SQLite answers a second concurrent writer
 	// with SQLITE_BUSY, and a mutex in Go keeps that error away from users.
 	//
@@ -138,7 +161,7 @@ func NewManager(dataDir string, maxDBBytes int64, queryTimeout time.Duration, ma
 		maxDBBytes:        maxDBBytes,
 		queryTimeout:      queryTimeout,
 		maxCachedProjects: maxCachedProjects,
-		dbs:               make(map[uuid.UUID]*sql.DB),
+		dbs:               make(map[uuid.UUID]*projectHandle),
 		refs:              make(map[uuid.UUID]int),
 		used:              make(map[uuid.UUID]time.Time),
 		writeLocks:        make(map[uuid.UUID]*sync.Mutex),
@@ -241,8 +264,15 @@ func (manager *Manager) acquire(projectID uuid.UUID) (*projectConnection, func()
 			return nil, noop, err
 		}
 
-		handle = opened
-		manager.dbs[projectID] = opened
+		readOpened, err := openProjectReadDatabase(path, manager.queryTimeout)
+		if err != nil {
+			_ = opened.Close()
+			manager.mu.Unlock()
+			return nil, noop, err
+		}
+
+		handle = &projectHandle{db: opened, readDB: readOpened}
+		manager.dbs[projectID] = handle
 		manager.refs[projectID] = 1
 		manager.used[projectID] = time.Now()
 		manager.evictLocked()
@@ -252,7 +282,8 @@ func (manager *Manager) acquire(projectID uuid.UUID) (*projectConnection, func()
 		manager.writeLocks[projectID] = &sync.Mutex{}
 	}
 	connection := &projectConnection{
-		db:        handle,
+		db:        handle.db,
+		readDB:    handle.readDB,
 		writeLock: manager.writeLocks[projectID],
 	}
 	manager.mu.Unlock()
@@ -300,7 +331,7 @@ func (manager *Manager) evictLocked() {
 		delete(manager.dbs, oldestID)
 		delete(manager.refs, oldestID)
 		delete(manager.used, oldestID)
-		if err := handle.Close(); err != nil {
+		if err := handle.close(); err != nil {
 			manager.logger.Warn("evict project connection failed",
 				logger.Fields{"project_id": oldestID.String(), "error": err.Error()})
 		}
@@ -315,6 +346,20 @@ func (manager *Manager) evictLocked() {
 // them. foreign_keys in particular defaults to OFF in SQLite, which silently
 // means referential integrity is not enforced.
 func openProjectDatabase(path string, queryTimeout time.Duration) (*sql.DB, error) {
+	return openProjectPool(path, queryTimeout, false)
+}
+
+// openProjectReadDatabase opens the query_only pool that Query runs on.
+//
+// query_only makes SQLite refuse any modifying statement at the statement
+// level. The handler routes writes to Exec, but that routing is a hint, so
+// this pool is what guarantees a statement on the read path cannot change
+// data even when the classifier is wrong.
+func openProjectReadDatabase(path string, queryTimeout time.Duration) (*sql.DB, error) {
+	return openProjectPool(path, queryTimeout, true)
+}
+
+func openProjectPool(path string, queryTimeout time.Duration, readOnly bool) (*sql.DB, error) {
 	// _txlock=immediate asks for a write lock at BEGIN rather than on first
 	// write, which turns a late SQLITE_BUSY into an immediate one. The write
 	// mutex makes that rare, but a checkpoint or another process can still
@@ -330,6 +375,12 @@ func openProjectDatabase(path string, queryTimeout time.Duration) (*sql.DB, erro
 		"&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate" +
 		"&_pragma=cache_size(-4000)&_pragma=temp_store(MEMORY)" +
 		"&_pragma=journal_size_limit(67108864)&_pragma=wal_autocheckpoint(1000)"
+	if readOnly {
+		// The database is already in WAL mode when this pool opens, so
+		// journal_mode(WAL) above is a no-op, and query_only only blocks SQL
+		// statements -- the connection still opens the file normally.
+		dsn += "&_pragma=query_only(1)"
+	}
 
 	database, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -367,7 +418,7 @@ func (manager *Manager) Close() error {
 	}
 	manager.closed = true
 	handles := manager.dbs
-	manager.dbs = make(map[uuid.UUID]*sql.DB)
+	manager.dbs = make(map[uuid.UUID]*projectHandle)
 	manager.refs = make(map[uuid.UUID]int)
 	manager.used = make(map[uuid.UUID]time.Time)
 	manager.writeLocks = make(map[uuid.UUID]*sync.Mutex)
@@ -376,7 +427,7 @@ func (manager *Manager) Close() error {
 
 	var closeErrors []error
 	for projectID, handle := range handles {
-		if err := handle.Close(); err != nil {
+		if err := handle.close(); err != nil {
 			closeErrors = append(closeErrors, fmt.Errorf("close project %s: %w", projectID, err))
 		}
 	}
@@ -402,7 +453,7 @@ func (manager *Manager) RemoveProject(projectID uuid.UUID) error {
 	delete(manager.gates, projectID)
 	manager.mu.Unlock()
 	if found {
-		if err := handle.Close(); err != nil {
+		if err := handle.close(); err != nil {
 			manager.logger.Warn("close project connection before removal failed",
 				logger.Fields{"project_id": projectID.String(), "error": err.Error()})
 		}
@@ -445,7 +496,8 @@ func (manager *Manager) OpenConnections() map[string]int {
 
 	connections := make(map[string]int, len(manager.dbs))
 	for projectID, connection := range manager.dbs {
-		connections[projectID.String()] = connection.Stats().OpenConnections
+		connections[projectID.String()] = connection.db.Stats().OpenConnections +
+			connection.readDB.Stats().OpenConnections
 	}
 	return connections
 }

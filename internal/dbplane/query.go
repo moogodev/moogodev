@@ -32,6 +32,10 @@ const slowQueryThreshold = time.Second
 // Reads are not serialized against each other: WAL mode lets readers proceed
 // while a write is in flight, so no lock is taken here.
 //
+// The statement runs on the pool opened query_only, so a statement that
+// modifies data fails here even when the caller's classification called it a
+// read. That is the enforcement behind the handler's routing hint.
+//
 // Rows are capped by maxRows. Without a cap a query like
 // "SELECT * FROM huge" would stream an unbounded amount of data into memory on
 // a 2 GB host.
@@ -81,7 +85,7 @@ func (manager *Manager) Query(
 	statementCtx, cancel := context.WithTimeout(ctx, manager.queryTimeout)
 	defer cancel()
 
-	rows, err := connection.db.QueryContext(statementCtx, statement, args...)
+	rows, err := connection.readDB.QueryContext(statementCtx, statement, args...)
 	if err != nil {
 		return nil, classifyError(err, statementCtx)
 	}

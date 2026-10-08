@@ -65,9 +65,10 @@ var writeKeywords = map[string]bool{
 
 // isReadStatement reports whether a statement returns rows.
 //
-// This decides which endpoint a caller meant, nothing more. Both endpoints run
-// the sanitizer first, so a wrong answer here cannot let anything through that
-// would not otherwise be allowed.
+// This decides which endpoint a caller meant. It is a routing hint, not a
+// security gate: the sanitizer runs first on both endpoints, and the engine's
+// query pool is opened query_only, so a wrong answer here cannot turn a write
+// into one that modifies data.
 func isReadStatement(statement string) bool {
 	keyword := leadingKeyword(statement)
 
@@ -208,7 +209,10 @@ func (cursor *scanCursor) atBlockComment() bool {
 // word reads the next bare word and returns it uppercased.
 //
 // Quoted text is skipped rather than returned: a literal like 'delete' is data,
-// not a keyword, and treating it as one would misroute the statement.
+// not a keyword, and treating it as one would misroute the statement. A
+// bracket-quoted identifier such as [(x) SELECT] is consumed as one unit for
+// the same reason: SQLite accepts it as a name, so the SELECT hiding inside it
+// must not read as the statement type.
 //
 // The cursor always advances by at least one byte. A scanner that can sit still
 // turns any unexpected character into an infinite loop.
@@ -219,6 +223,11 @@ func (cursor *scanCursor) word() string {
 
 		if character == '\'' || character == '"' || character == '`' {
 			cursor.skipQuoted(character)
+			continue
+		}
+
+		if character == '[' {
+			cursor.skipBracket()
 			continue
 		}
 
@@ -237,6 +246,21 @@ func (cursor *scanCursor) word() string {
 	}
 
 	return upperASCII(cursor.text[start:cursor.index])
+}
+
+// skipBracket advances past a bracket-quoted identifier.
+//
+// SQLite offers no escape inside brackets: the first ] closes the name, and
+// an unterminated one runs to the end of the text.
+func (cursor *scanCursor) skipBracket() {
+	cursor.index++
+	for cursor.index < len(cursor.text) {
+		if cursor.text[cursor.index] == ']' {
+			cursor.index++
+			return
+		}
+		cursor.index++
+	}
 }
 
 // skipQuoted advances past a quoted section, honouring doubled quotes.

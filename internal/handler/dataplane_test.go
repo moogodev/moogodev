@@ -130,6 +130,31 @@ func TestQueryRejectsWrites(t *testing.T) {
 	}
 }
 
+// TestQueryRejectsBracketCTEWrites reproduces the audit's MG-01: SQLite accepts
+// a CTE named [(x) SELECT], the handler's own scanner used to read the (x) as
+// parentheses and the inner SELECT as the statement type, and the write
+// reached the read-write connection. The bracket form must classify as a
+// write and never reach the engine.
+func TestQueryRejectsBracketCTEWrites(t *testing.T) {
+	handler, engine := testDataPlane(t)
+	projectID := uuid.New()
+
+	body := `{"query":"WITH [(x) SELECT] AS (SELECT 1) DELETE FROM t"}`
+
+	recorder := httptest.NewRecorder()
+	handler.Query(recorder, dataPlaneRequest(t, projectID, "/db/x/query", body))
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d (%s)", recorder.Code, recorder.Body.String())
+	}
+	if code := errorCode(t, recorder); code != "not_a_read" {
+		t.Errorf("expected not_a_read, got %q", code)
+	}
+	if engine.queryCalls != 0 {
+		t.Error("a write sent to /query must not reach the engine")
+	}
+}
+
 func TestExecRejectsReads(t *testing.T) {
 	handler, engine := testDataPlane(t)
 	projectID := uuid.New()
@@ -330,6 +355,11 @@ func TestIsReadStatement(t *testing.T) {
 		{"EXPLAIN SELECT 1", true},
 		{"PRAGMA table_info(users)", true},
 		{"WITH c AS (SELECT 1) SELECT * FROM c", true},
+		{"WITH [(x) SELECT] AS (SELECT 1) DELETE FROM t", false},
+		{"WITH [(x) SELECT] AS (SELECT 1) INSERT INTO t VALUES (1)", false},
+		{"WITH [(x) SELECT] AS (SELECT 1) UPDATE t SET a = 2", false},
+		{"WITH [(x) SELECT] AS (SELECT 1) REPLACE INTO t VALUES (1)", false},
+		{"WITH RECURSIVE [(x) SELECT] AS (SELECT 1) SELECT * FROM t", true},
 		{"INSERT INTO t VALUES (1)", false},
 		{"UPDATE t SET a = 1", false},
 		{"DELETE FROM t", false},
