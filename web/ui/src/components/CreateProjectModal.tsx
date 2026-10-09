@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, ApiError, type Project } from "../lib/api";
 import { apiOrigin } from "../lib/origin";
 
@@ -25,6 +26,21 @@ export default function CreateProjectModal({
   const [error, setError] = useState<string | null>(null);
   const [secretKey, setSecretKey] = useState<string | null>(null);
   const [created, setCreated] = useState<Project | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
+  const navigate = useNavigate();
+
+  // The three values, derived once so the rows on screen, the clipboard
+  // paste and the downloaded file cannot drift apart: whatever leaves the
+  // modal is exactly what was read in it. Memoized because the copy and
+  // download callbacks hold on to it across renders.
+  const envEntries: Array<[string, string]> = useMemo(() => {
+    if (!created || !secretKey) return [];
+    return [
+      ["MOOGO_PROJECT_URL", `${apiOrigin()}/p/${created.id}`],
+      ["MOOGO_PROJECT_ID", created.id],
+      ["MOOGO_SECRET_KEY", secretKey],
+    ];
+  }, [created, secretKey]);
 
   useEffect(() => {
     if (isOpen) {
@@ -59,7 +75,35 @@ export default function CreateProjectModal({
 
   const handleDone = useCallback(() => {
     onClose();
-  }, [onClose]);
+    // The button says "open", so it opens: straight to the database view,
+    // the same target the project card behind the modal links to.
+    if (created) navigate(`/app/projects/${created.id}/database`);
+  }, [onClose, created, navigate]);
+
+  const handleCopyAll = useCallback(async () => {
+    if (envEntries.length === 0) return;
+    const lines = envEntries.map(([key, value]) => `${key}=${value}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(lines);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 2000);
+    } catch {
+      // Clipboard unavailable; every value stays selectable on screen.
+    }
+  }, [envEntries]);
+
+  const handleDownloadJSON = useCallback(() => {
+    if (!created || envEntries.length === 0) return;
+    // Three short lines, so the blob approach the database backup avoids
+    // (it would buffer the whole file with no progress) costs nothing here.
+    const body = `${JSON.stringify(Object.fromEntries(envEntries), null, 2)}\n`;
+    const url = URL.createObjectURL(new Blob([body], { type: "application/json" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `moogo-${slugify(created.name)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, [created, envEntries]);
 
   if (!isOpen) return null;
 
@@ -139,34 +183,75 @@ export default function CreateProjectModal({
               </p>
             </div>
 
-            {secretKey && (
+            {envEntries.length > 0 && (
               <div className="mb-6 rounded-lg border border-accent-strong/40 bg-accent-strong/10 p-5">
                 <p className="mb-4 text-sm leading-relaxed text-accent">
                   The secret key is shown only once and cannot be retrieved again. If you
                   lose it, rotate it from Settings.
                 </p>
                 <div className="space-y-3">
-                  <EnvRow
-                    name="MOOGO_PROJECT_URL"
-                    value={`${apiOrigin()}/p/${created?.id ?? ""}`}
-                  />
-                  <EnvRow name="MOOGO_PROJECT_ID" value={created?.id ?? ""} />
-                  <EnvRow name="MOOGO_SECRET_KEY" value={secretKey} highlight />
+                  {envEntries.map(([key, value]) => (
+                    <EnvRow
+                      key={key}
+                      name={key}
+                      value={value}
+                      highlight={key === "MOOGO_SECRET_KEY"}
+                    />
+                  ))}
                 </div>
               </div>
             )}
 
-            <button
-              onClick={handleDone}
-              className="w-full cursor-pointer rounded-lg bg-accent-strong px-4 py-2.5 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent"
-            >
-              Open the project
-            </button>
+            {/* Three ways out of the panel: take the values as one paste,
+                keep them as a file, or go and use them. The first two carry
+                exactly the three lines shown above, and only the last is
+                primary — it is the one that moves the work forward. */}
+            <div className="space-y-3">
+              {envEntries.length > 0 && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyAll}
+                    className="cursor-pointer rounded-lg border border-edge-strong px-4 py-2.5 text-sm font-semibold text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
+                    aria-label="Copy all three values to the clipboard"
+                  >
+                    {copiedAll ? "Copied all" : "Copy all"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadJSON}
+                    className="cursor-pointer rounded-lg border border-edge-strong px-4 py-2.5 text-sm font-semibold text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
+                    aria-label="Download the three values as a JSON file"
+                  >
+                    Download JSON
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={handleDone}
+                className="w-full cursor-pointer rounded-lg bg-accent-strong px-4 py-2.5 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent"
+              >
+                Open the project
+              </button>
+            </div>
           </>
         )}
       </div>
     </div>
   );
+}
+
+// slugify turns a project name into the filename half of a download name.
+// Anything a filesystem treats as punctuation collapses into one dash, and a
+// name made entirely of punctuation falls back to a fixed word rather than
+// producing "moogo-.json".
+function slugify(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "project";
 }
 
 // EnvRow is one copyable environment variable for the post-create panel.
