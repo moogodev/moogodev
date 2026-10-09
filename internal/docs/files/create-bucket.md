@@ -18,8 +18,8 @@ which update as you upload.
 ### From the API
 
 ```bash
-curl https://moogo.dev/api/projects/$MOOGO_PROJECT_ID/buckets \
-  -H "Cookie: session=..." \
+curl https://api.moogo.dev/api/projects/$MOOGO_PROJECT_ID/buckets \
+  -H "Cookie: moogo_session=..." \
   -H "Content-Type: application/json" \
   -d '{"name":"avatars"}'
 ```
@@ -27,7 +27,7 @@ curl https://moogo.dev/api/projects/$MOOGO_PROJECT_ID/buckets \
 Or, using a [storage credential](/docs/credentials):
 
 ```bash
-curl https://moogo.dev/buckets/$MOOGO_PROJECT_ID \
+curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
   -H "Content-Type: application/json" \
@@ -38,6 +38,7 @@ Response:
 
 ```json
 {
+  "success": true,
   "bucket": {
     "id": "3f8a2c11-9d4e-4b7a-8f21-5e6c3d9a1b84",
     "name": "avatars",
@@ -45,14 +46,17 @@ Response:
     "size_bytes": 0,
     "created_at": "2026-10-01T09:14:22Z",
     "is_public": false,
-    "allowed_types": ["image"],
-    "max_object_size_bytes": 2097152,
+    "allowed_types": ["any"],
+    "max_object_size_bytes": 0,
     "quota_bytes": 262144000
   }
 }
 ```
 
-Bucket names must be unique within a project. A duplicate returns `409`.
+Bucket names must be unique within a project. Creating one with a name that
+already exists does not error — it returns the existing bucket with `201`,
+applying any upload-policy settings you sent. To start from a clean slate, delete
+the bucket first.
 
 ## The `default` bucket
 
@@ -102,7 +106,7 @@ same upload has no answer, so the request is rejected rather than one side being
 dropped silently.
 
 ```bash
-curl -X PATCH https://moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
+curl -X PATCH https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
   -H "Content-Type: application/json" \
@@ -142,7 +146,7 @@ By default every object is private. Publishing makes it readable at a URL with n
 credential at all:
 
 ```bash
-curl -X POST https://moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/public \
+curl -X POST https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/public \
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
   -H "Content-Type: application/json" \
@@ -158,7 +162,7 @@ Publish one object:
 A published object gets a `public_url`:
 
 ```
-https://moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
+https://api.moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
 ```
 
 That URL works with no header, no cookie, and no session. You can put it in an
@@ -199,23 +203,26 @@ A key must:
 - contain no control characters or NUL
 - contain no backslash
 
-Both spellings below are accepted and mean the same object:
+Valid keys look like this:
 
 ```
 avatars/user-1.png
+exports/2026-09/report.csv
+```
+
+All of these are **rejected**:
+
+```
+/avatars/user-1.png
 ./avatars/user-1.png
-```
-
-Both of these are **rejected**:
-
-```
 ../other-project/secrets.txt
 avatars//user-1.png
 ```
 
-A key is rejected rather than silently normalised when it contains `..`, because
-two different keys resolving to one object is more surprising than a clear error.
-Maximum key length is **1024 characters**.
+A key is rejected rather than silently normalised when it contains a `.` or
+`..` segment or a leading slash, because two different keys resolving to one
+object is more surprising than a clear error. Maximum key length is **1024
+characters**.
 
 ## Quota
 
@@ -244,7 +251,7 @@ together overrun the quota.
 ## Delete a bucket
 
 ```bash
-curl -X DELETE https://moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
+curl -X DELETE https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
 ```
@@ -253,7 +260,12 @@ This removes the bucket **and every object in it**, permanently. The response
 reports how many objects were deleted:
 
 ```json
-{ "deleted_objects": 42 }
+{
+  "success": true,
+  "deleted_objects": 42,
+  "storage_used_bytes": 10485760,
+  "quota_bytes": 268435456
+}
 ```
 
 Check that count before you confirm the deletion in the UI.

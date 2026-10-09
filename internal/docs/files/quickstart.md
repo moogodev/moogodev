@@ -18,9 +18,9 @@ In the [dashboard](/app), click **New project**, name it, and confirm.
 When it reaches the status `ready`, Moogo shows three values **once**:
 
 ```
-MOOGO_PROJECT_URL=https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+MOOGO_SECRET_KEY=moogo_...
 ```
 
 **Copy them now.** The secret key is never displayed again — only a hash and an
@@ -30,9 +30,9 @@ eight-character prefix are stored. If you lose it, you can
 Put them in your environment:
 
 ```bash
-export MOOGO_PROJECT_URL="https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_PROJECT_URL="https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
 export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
-export MOOGO_SECRET_KEY="moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK"
+export MOOGO_SECRET_KEY="moogo_..."
 ```
 
 Full detail: [Create your first project](/docs/create-project).
@@ -108,7 +108,7 @@ That is a working database.
 
 | Endpoint | Accepts | Rejects |
 |---|---|---|
-| `/query` | Reads — `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN` | Writes, with `not_a_read` |
+| `/query` | Reads — `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN`, `WITH` that selects | Writes, with `not_a_read` |
 | `/exec` | Writes — `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP` | Reads, with `not_a_write` |
 
 Sending the wrong kind of statement is the most common early mistake, and it is
@@ -125,7 +125,9 @@ const headers = {
 };
 
 export async function sql(query, args = []) {
-  const endpoint = /^(select|values|pragma|explain)\b/i.test(query.trim())
+  // `with` covers CTE reads (WITH ... SELECT). A CTE that writes
+  // (WITH ... INSERT) must be sent to /exec directly.
+  const endpoint = /^(select|values|pragma|explain|with)\b/i.test(query.trim())
     ? "query"
     : "exec";
 

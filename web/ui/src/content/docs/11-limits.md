@@ -78,7 +78,7 @@ overrun the quota.
 | Statement length | **64 KB** | `sql_too_long` |
 | Statement duration | **15 seconds** | `statement_timeout` |
 | Result payload (one read) | **16 MB** | `result_too_large` |
-| Storage credentials per project | **5** | `storage_credential_limit` |
+| Storage credentials per project | **5** | `credential_limit` |
 | Sign-in endpoints | **10 / minute / client address**, shared | `rate_limited` |
 | Data plane | **300 / minute** — queries per project, storage per address | `rate_limited` |
 | Dashboard update list (`GET /api/updates`) | **60 / minute / client address** | `rate_limited` |
@@ -121,7 +121,7 @@ Worth knowing explicitly, because these are common assumptions:
 | `sql_too_long` | Generate fewer statements per request. One statement per request is the rule. |
 | `body_too_large` | Send less in one call. Page a listing instead of requesting everything. |
 | `object_too_large` | Lower the bucket's `max_object_size_bytes`, or compress the file. |
-| `storage_credential_limit` | Revoke the credentials you no longer use — 5 is the cap. |
+| `credential_limit` | Revoke the credentials you no longer use — 5 is the cap. |
 
 ## Designed to be visible
 

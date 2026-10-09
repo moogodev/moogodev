@@ -148,12 +148,12 @@ Every response carries:
 
 | Header | Value |
 |---|---|
-| `Content-Security-Policy` | `default-src 'self'`; no inline scripts, no external sources |
+| `Content-Security-Policy` | `default-src 'self'`; no inline scripts, own origin for frames and connections; images from own origin, `data:`, or `https:` |
 | `X-Content-Type-Options` | `nosniff` |
 | `X-Frame-Options` | `DENY` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Strict-Transport-Security` | Over HTTPS only |
-| `Cache-Control` | `no-store` on all API routes |
+| `Cache-Control` | `no-store` on `/api/`, `/p/`, `/db/`, `/bucket/`, `/auth/` |
 
 `no-store` matters because the dashboard shows secret material on create and
 rotate. A cached response body would hand it to whoever asked next.

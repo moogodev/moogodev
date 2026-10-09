@@ -20,7 +20,7 @@ scoped to the job it is named for.
 Issued when a project is created, and again whenever you rotate. Format:
 
 ```
-moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+moogo_...
 ```
 
 The prefix is `moogo_` followed by 32 bytes of base64 from `crypto/rand`. The
@@ -29,7 +29,7 @@ prefix means a key found in a log can be identified as a Moogo key.
 ### Send it like this
 
 ```bash
-Authorization: Bearer moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+Authorization: Bearer moogo_...
 ```
 
 Only the `Bearer` scheme is accepted. Basic auth and custom schemes are refused,
@@ -68,11 +68,11 @@ If you rotate and then discover your deployment cannot pick up environment
 changes, the project is still fully usable from the dashboard — you only need to
 rotate again.
 
-### Storage credential for one job
+### One key per environment
 
-If several parts of your system need the SQL key, consider
-[rotating per environment](/docs/credentials#storage-credentials) instead of
-sharing one key across everything.
+If several parts of your system need the SQL key, rotate per environment rather
+than sharing one key across everything — a key from staging should not open
+production.
 
 ## Storage credentials
 
@@ -80,8 +80,8 @@ Storage has its own credential type, following the shape of Cloudflare R2: an
 **access key id** that is safe to display, and a **secret key** that is not.
 
 ```
-moogo_ak_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK   <- access key id (public)
-moogo_sk_3nQ8wRtZ2mK5xB9cV1yH4jL7pA0sD6fG2iO7uE   <- secret key (private)
+moogo_ak_...   <- access key id (public)
+moogo_sk_...   <- secret key (private)
 ```
 
 The distinct prefixes mean that if you ever see both in a log, you know which is
@@ -110,12 +110,12 @@ variables:
 
 ```json
 {
-  "access_key_id": "moogo_ak_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK",
-  "secret_access_key": "moogo_sk_3nQ8wRtZ2mK5xB9cV1yH4jL7pA0sD6fG2iO7uE",
+  "access_key_id": "moogo_ak_...",
+  "secret_access_key": "moogo_sk_...",
   "env": {
-    "MOOGO_BUCKET_ENDPOINT": "https://moogo.dev",
-    "MOOGO_BUCKET_ACCESS_KEY_ID": "moogo_ak_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK",
-    "MOOGO_BUCKET_SECRET_KEY": "moogo_sk_3nQ8wRtZ2mK5xB9cV1yH4jL7pA0sD6fG2iO7uE"
+    "MOOGO_BUCKET_ENDPOINT": "https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/bucket",
+    "MOOGO_BUCKET_ACCESS_KEY_ID": "moogo_ak_...",
+    "MOOGO_BUCKET_SECRET_KEY": "moogo_sk_..."
   }
 }
 ```
@@ -127,7 +127,7 @@ variables:
 Two headers, on every storage request:
 
 ```bash
-curl https://moogo.dev/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png \
+curl https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png \
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
 ```

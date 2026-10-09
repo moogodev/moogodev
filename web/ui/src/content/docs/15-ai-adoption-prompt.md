@@ -33,7 +33,7 @@ Read [Limits](/docs/limits) before designing around it.
 3. Put these in the project's environment:
 
 ```bash
-MOOGO_PROJECT_URL=https://moogo.dev/p/<project_id>
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project_id>
 MOOGO_PROJECT_ID=<project_id>
 MOOGO_SECRET_KEY=...             # SQL only
 MOOGO_BUCKET_ACCESS_KEY_ID=...   # object storage only
@@ -44,15 +44,15 @@ MOOGO_BUCKET_SECRET_KEY=...      # object storage only
    `Content-Type: application/json` — a body declared as anything else is
    refused with `415 unsupported_media_type`.
 
-On moogo.dev the base is `https://moogo.dev`; a self-hosted deployment uses its
-own public URL. Read credentials from the environment. Never ask the user to
+On moogo.dev the base is `https://api.moogo.dev`; a self-hosted deployment uses
+its own public URL. Read credentials from the environment. Never ask the user to
 paste them, and never print them.
 
 ## SQL API
 
 | Endpoint | Accepts | Rejects |
 |---|---|---|
-| `/query` | Reads — `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN` | Writes, with `not_a_read` |
+| `/query` | Reads — `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN`, `WITH` that selects | Writes, with `not_a_read` |
 | `/exec` | Writes — `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP` | Reads, with `not_a_write` |
 
 Request, authorized with the SQL key:
@@ -78,7 +78,7 @@ Response from `/query`:
 ```
 
 `rows` are arrays aligned with `columns`, not objects. `/exec` answers
-`{"success": true, "rows_affected": 1, "row_count": 1, "duration_ms": 2}`.
+`{"success": true, "rows_affected": 1, "size_bytes": 24576, "duration_ms": 2}`.
 Every failure, on any endpoint, uses one envelope:
 
 ```json
@@ -118,7 +118,7 @@ Upload answers with the object — `key`, `size_bytes`, `content_type`,
 `storage_used_bytes` and `quota_bytes` — and three URL fields: `url` for your
 application (it needs the credential), `preview_url` for the dashboard, and
 `public_url`, which stays empty until the object is published. A published
-object is readable by anyone holding `https://moogo.dev/pub/{project_id}/{key}`;
+object is readable by anyone holding `https://api.moogo.dev/pub/{project_id}/{key}`;
 treat publishing as permanent, because anyone who recorded the URL keeps it.
 
 ## Limits
@@ -133,7 +133,7 @@ Every limit is enforced by the server, and most come back in the response.
 | Object size | The bucket's `max_object_size_bytes`, or 256 MB |
 | JSON request body | 1 MB (`body_too_large`) |
 | Statement | 64 KB (`sql_too_long`), 15 seconds (`statement_timeout`) |
-| Storage credentials | 5 per project (`storage_credential_limit`) |
+| Storage credentials | 5 per project (`credential_limit`) |
 | Sign-in endpoints | 10 requests/minute per client address, shared across them (`rate_limited`) |
 | Data plane | 300 requests/minute — queries per project, storage per address (`rate_limited`) |
 | Result rows | 1000 per response; `truncated: true` when the cap was hit |

@@ -8,7 +8,7 @@ both validate your SQL before it touches the database.
 Everything hangs off `MOOGO_PROJECT_URL`, which already contains the project id:
 
 ```
-https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 ```
 
 Append `/query` or `/exec`. You never assemble the path yourself, so the internal
@@ -23,7 +23,7 @@ New code should use the project-scoped URL.
 Every request needs the project key:
 
 ```
-Authorization: Bearer moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+Authorization: Bearer moogo_...
 Content-Type: application/json
 ```
 
@@ -65,7 +65,8 @@ Not this, ever:
 
 ## `POST /query` — reads
 
-Use this for anything that returns rows: `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN`.
+Use this for anything that returns rows: `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN`,
+or a `WITH` clause that ends in a read.
 
 ```bash
 curl $MOOGO_PROJECT_URL/query \
@@ -449,7 +450,9 @@ const headers = {
 
 async function sql(query, args = []) {
   // Route to the right endpoint: /query for reads, /exec for writes.
-  const endpoint = /^(select|values|pragma|explain)\b/i.test(query.trim())
+  // `with` covers CTE reads (WITH ... SELECT); a CTE that writes
+  // (WITH ... INSERT) must be sent to /exec directly.
+  const endpoint = /^(select|values|pragma|explain|with)\b/i.test(query.trim())
     ? "query"
     : "exec";
 

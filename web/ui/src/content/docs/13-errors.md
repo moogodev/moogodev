@@ -97,6 +97,7 @@ for (let index = 0; index < rows.length; index += batch) {
 | `database_too_large` | 413 | The database is at its 100 MB ceiling. |
 | `result_too_large` | 413 | The result set passed the 16 MB response cap. |
 | `database_busy` | 503 | The project hit its concurrency limit — waiting on a slot or the previous writer. Comes with `Retry-After: 1`. |
+| `service_unavailable` | 503 | The service is restarting. Retry shortly. |
 
 ### `sql_error` — read `detail`
 
@@ -124,6 +125,8 @@ explanation lives. Log it.
 | `unsupported_media_type` | 415 | `Content-Type` was not `application/json`. |
 | `not_found` | 404 | No such endpoint. Check the path. |
 | `rate_limited` | 429 | Too many requests from one client address. Comes with a `Retry-After` header. |
+| `quota_exceeded` | 429 | An account quota was reached — most often a third project. Storage reports a full storage quota as `507` instead. |
+| `credential_limit` | 429 | The project already holds the maximum number of storage credentials (5). |
 
 `invalid_body` usually means a **typo in a field name**. Unknown fields are
 rejected rather than ignored, so `{"is_pubic": true}` is an error rather than a
@@ -138,6 +141,8 @@ success that did nothing.
 | `project_paused` | 403 | The project is paused. Resume it. |
 | `project_not_ready` | 403 | The project is still being created. |
 | `method_not_allowed` | 405 | Wrong HTTP method for this route. |
+| `forbidden` | 403 | A browser POST whose `Origin` does not match the request host. Direct API clients are unaffected. |
+| `email_not_verified` | 403 | The account has not followed its confirmation link. The login page offers **Send a new link**. |
 | `mail_failed` | 500 | The account was created, but the confirmation email could not be sent. |
 
 ### When you get `rate_limited`
@@ -165,7 +170,8 @@ Two things worth knowing if you are seeing this when you did not expect it:
 
 ### When you get `unauthorized`
 
-1. **Is it the right key?** Check `secret_key_prefix` in the dashboard against the
+1. **Is it the right key?** The project's Settings tab shows a masked
+   `MOOGO_SECRET_KEY` — the key's eight-character prefix. Check it against the
    start of your key.
 2. **Is it the right scheme?** Only `Bearer` is accepted — not Basic, not a bare
    token.
@@ -208,9 +214,15 @@ looks like.
 | `invalid_key` | 400 | The key breaks the [naming rules](/docs/create-bucket#keys-are-strict). |
 | `invalid_prefix` | 400 | The prefix for a folder delete is not valid. |
 | `key_taken` | 409 | An object with that key already exists. |
+| `quota_below_usage` | 409 | A PATCH tried to set `quota_bytes` below what the bucket already holds. |
 | `not_found` | 404 | No such object or bucket. |
 | `object_too_large` | 413 | Over the bucket's per-object cap. |
 | `quota_exceeded` | 507 | The project storage total is full. |
+| `bucket_quota_exceeded` | 507 | The bucket's own `quota_bytes` is full, even though the project still has room. |
+| `invalid_bucket_name` | 400 | The name is empty or not 2–63 characters of lowercase letters, digits, `_`, `-`. |
+| `invalid_allowed_types` | 400 | The upload policy names an unknown type, or combines `any` with a specific one. |
+| `invalid_max_object_size` | 400 | `max_object_size_bytes` is negative. `0` means no limit. |
+| `invalid_quota_bytes` | 400 | `quota_bytes` is negative or over the project's 256 MB. |
 | `storage_error` | 500 | The request could not be completed. |
 
 ### `key_taken`
@@ -233,8 +245,10 @@ are fine, and the difference is the credential. Check:
 
 ### "My query works but my insert says `no such column`"
 
-A column name is case-sensitive in SQLite but not in the error message. Check the
-exact spelling from `PRAGMA table_info(your_table)` rather than assuming.
+The column named in the statement does not exist in that table, or is spelled
+differently from one that does. SQLite matches column names
+case-insensitively, so casing is never the cause — check the exact set of
+columns with `PRAGMA table_info(your_table)` rather than assuming.
 
 ### "The response says `truncated: true`"
 

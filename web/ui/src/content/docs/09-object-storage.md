@@ -22,12 +22,12 @@ the URL and you append only the object key.
 Two headers, on every request:
 
 ```
-X-Moogo-Access-Key-Id: moogo_ak_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
-Authorization: Bearer moogo_sk_3nQ8wRtZ2mK5xB9cV1yH4jL7pA0sD6fG2iO7uE
+X-Moogo-Access-Key-Id: moogo_ak_...
+Authorization: Bearer moogo_sk_...
 ```
 
 ```bash
-export ENDPOINT="https://moogo.dev/p/$MOOGO_PROJECT_ID/bucket"
+export ENDPOINT="https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket"
 
 curl "$ENDPOINT/avatars/kit.png" \
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
@@ -71,7 +71,7 @@ Response:
     "content_type": "image/png",
     "is_public": false,
     "etag": "\"a1b2c3d4\"",
-    "url": "https://moogo.dev/p/8f3c.../bucket/avatars/kit.png",
+    "url": "https://api.moogo.dev/p/8f3c.../bucket/avatars/kit.png",
     "preview_url": "/api/projects/8f3c.../bucket/avatars/kit.png",
     "public_url": "",
     "created_at": "2026-10-01T09:20:11Z",
@@ -95,8 +95,8 @@ This trips people up, so it is worth being explicit.
 
 `url` is the one your application uses. Do not put it in an `<img>` tag: a browser
 tab does not carry a storage credential, so the image would break for every
-private object. `public_url` is empty until the object is published — it is
-absent rather than pointing at a route that would `404`.
+private object. `public_url` is an empty string until the object is published —
+a value you can test for, rather than a missing field.
 
 ### Upload limits
 
@@ -134,7 +134,7 @@ curl -I "$ENDPOINT/avatars/kit.png" \
 ## Public download
 
 ```bash
-curl https://moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
+curl https://api.moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
 ```
 
 No headers. Serves only objects that were published; anything else returns `404`,
@@ -206,7 +206,13 @@ curl -X DELETE "$ENDPOINT/avatars/kit.png" \
 ```
 
 ```json
-{ "deleted": 1, "freed_bytes": 24576 }
+{
+  "success": true,
+  "deleted": 1,
+  "freed_bytes": 24576,
+  "storage_used_bytes": 10485760,
+  "quota_bytes": 268435456
+}
 ```
 
 **Everything under a prefix** — this is the folder delete, and it is an explicit
@@ -224,7 +230,7 @@ curl -X DELETE "$ENDPOINT/avatars/?prefix=true" \
 ## Bucket catalog
 
 ```bash
-curl https://moogo.dev/buckets/$MOOGO_PROJECT_ID \
+curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
 ```
@@ -286,7 +292,8 @@ All of them use the standard envelope:
 
 ```js
 // storage.js
-const root = `${process.env.MOOGO_BUCKET_ENDPOINT}/p/${process.env.MOOGO_PROJECT_ID}/bucket`;
+// MOOGO_BUCKET_ENDPOINT already ends in /p/{project_id}/bucket.
+const root = process.env.MOOGO_BUCKET_ENDPOINT;
 
 const headers = {
   "X-Moogo-Access-Key-Id": process.env.MOOGO_BUCKET_ACCESS_KEY_ID,
@@ -311,8 +318,15 @@ export const upload = (key, file, bucket) =>
     body: file,
   });
 
-export const download = (key) =>
-  storage(key).then((result) => result); // returns the object metadata
+// GET returns the bytes, not JSON, so this bypasses storage().
+export const download = async (key) => {
+  const response = await fetch(`${root}/${encodeKey(key)}`, { headers });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "storage request failed");
+  }
+  return response.blob();
+};
 
 export const list = (prefix) =>
   storage(`?prefix=${encodeURIComponent(prefix)}&limit=100`);

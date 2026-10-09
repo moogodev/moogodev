@@ -33,9 +33,9 @@ than a spinner that never resolves — you always find out which state you are i
 On creation, Moogo shows three values **once**:
 
 ```
-MOOGO_PROJECT_URL=https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+MOOGO_SECRET_KEY=moogo_...
 ```
 
 | Value | What it is |
@@ -56,9 +56,9 @@ rotate.
 
 ```bash
 # .env
-MOOGO_PROJECT_URL=https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+MOOGO_SECRET_KEY=moogo_...
 ```
 
 Do not commit this file. The key is a real credential and it is the only thing
@@ -67,22 +67,16 @@ standing between your database and anyone who has it.
 ## Make your first query
 
 ```bash
-curl $MOOGO_PROJECT_URL/query \
+curl $MOOGO_PROJECT_URL/exec \
   -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL, plan TEXT)"}'
 ```
 
-That is a write, so it went to `/exec` in practice — `/query` refuses writes and
-`/exec` refuses reads. Use the right one for what you are doing:
+That is a write, so it goes to `/exec`: `/query` refuses writes and `/exec`
+refuses reads. Use the right one for what you are doing:
 
 ```bash
-# Create a table (a write)
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"query":"CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL, plan TEXT)"}'
-
 # Insert a row (a write, with a bound parameter)
 curl $MOOGO_PROJECT_URL/exec \
   -H "Authorization: Bearer $MOOGO_SECRET_KEY" \

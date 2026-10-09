@@ -7,9 +7,9 @@ string, no driver, and no database client to install.
 You create a project, and Moogo hands you three values:
 
 ```
-MOOGO_PROJECT_URL=https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+MOOGO_SECRET_KEY=moogo_...
 ```
 
 Put those in your application's environment and it can read and write data:

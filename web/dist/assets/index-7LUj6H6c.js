@@ -29,9 +29,9 @@ In the [dashboard](/app), click **New project**, name it, and confirm.
 When it reaches the status \`ready\`, Moogo shows three values **once**:
 
 \`\`\`
-MOOGO_PROJECT_URL=https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+MOOGO_SECRET_KEY=moogo_...
 \`\`\`
 
 **Copy them now.** The secret key is never displayed again — only a hash and an
@@ -41,9 +41,9 @@ eight-character prefix are stored. If you lose it, you can
 Put them in your environment:
 
 \`\`\`bash
-export MOOGO_PROJECT_URL="https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_PROJECT_URL="https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
 export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
-export MOOGO_SECRET_KEY="moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK"
+export MOOGO_SECRET_KEY="moogo_..."
 \`\`\`
 
 Full detail: [Create your first project](/docs/create-project).
@@ -119,7 +119,7 @@ That is a working database.
 
 | Endpoint | Accepts | Rejects |
 |---|---|---|
-| \`/query\` | Reads — \`SELECT\`, \`VALUES\`, \`PRAGMA\`, \`EXPLAIN\` | Writes, with \`not_a_read\` |
+| \`/query\` | Reads — \`SELECT\`, \`VALUES\`, \`PRAGMA\`, \`EXPLAIN\`, \`WITH\` that selects | Writes, with \`not_a_read\` |
 | \`/exec\` | Writes — \`INSERT\`, \`UPDATE\`, \`DELETE\`, \`CREATE\`, \`ALTER\`, \`DROP\` | Reads, with \`not_a_write\` |
 
 Sending the wrong kind of statement is the most common early mistake, and it is
@@ -136,7 +136,9 @@ const headers = {
 };
 
 export async function sql(query, args = []) {
-  const endpoint = /^(select|values|pragma|explain)\\b/i.test(query.trim())
+  // \`with\` covers CTE reads (WITH ... SELECT). A CTE that writes
+  // (WITH ... INSERT) must be sent to /exec directly.
+  const endpoint = /^(select|values|pragma|explain|with)\\b/i.test(query.trim())
     ? "query"
     : "exec";
 
@@ -181,9 +183,9 @@ string, no driver, and no database client to install.
 You create a project, and Moogo hands you three values:
 
 \`\`\`
-MOOGO_PROJECT_URL=https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+MOOGO_SECRET_KEY=moogo_...
 \`\`\`
 
 Put those in your application's environment and it can read and write data:
@@ -657,9 +659,9 @@ than a spinner that never resolves — you always find out which state you are i
 On creation, Moogo shows three values **once**:
 
 \`\`\`
-MOOGO_PROJECT_URL=https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+MOOGO_SECRET_KEY=moogo_...
 \`\`\`
 
 | Value | What it is |
@@ -680,9 +682,9 @@ rotate.
 
 \`\`\`bash
 # .env
-MOOGO_PROJECT_URL=https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+MOOGO_SECRET_KEY=moogo_...
 \`\`\`
 
 Do not commit this file. The key is a real credential and it is the only thing
@@ -691,22 +693,16 @@ standing between your database and anyone who has it.
 ## Make your first query
 
 \`\`\`bash
-curl $MOOGO_PROJECT_URL/query \\
+curl $MOOGO_PROJECT_URL/exec \\
   -H "Authorization: Bearer $MOOGO_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"query":"CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL, plan TEXT)"}'
 \`\`\`
 
-That is a write, so it went to \`/exec\` in practice — \`/query\` refuses writes and
-\`/exec\` refuses reads. Use the right one for what you are doing:
+That is a write, so it goes to \`/exec\`: \`/query\` refuses writes and \`/exec\`
+refuses reads. Use the right one for what you are doing:
 
 \`\`\`bash
-# Create a table (a write)
-curl $MOOGO_PROJECT_URL/exec \\
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"query":"CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL, plan TEXT)"}'
-
 # Insert a row (a write, with a bound parameter)
 curl $MOOGO_PROJECT_URL/exec \\
   -H "Authorization: Bearer $MOOGO_SECRET_KEY" \\
@@ -801,7 +797,7 @@ scoped to the job it is named for.
 Issued when a project is created, and again whenever you rotate. Format:
 
 \`\`\`
-moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+moogo_...
 \`\`\`
 
 The prefix is \`moogo_\` followed by 32 bytes of base64 from \`crypto/rand\`. The
@@ -810,7 +806,7 @@ prefix means a key found in a log can be identified as a Moogo key.
 ### Send it like this
 
 \`\`\`bash
-Authorization: Bearer moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+Authorization: Bearer moogo_...
 \`\`\`
 
 Only the \`Bearer\` scheme is accepted. Basic auth and custom schemes are refused,
@@ -849,11 +845,11 @@ If you rotate and then discover your deployment cannot pick up environment
 changes, the project is still fully usable from the dashboard — you only need to
 rotate again.
 
-### Storage credential for one job
+### One key per environment
 
-If several parts of your system need the SQL key, consider
-[rotating per environment](/docs/credentials#storage-credentials) instead of
-sharing one key across everything.
+If several parts of your system need the SQL key, rotate per environment rather
+than sharing one key across everything — a key from staging should not open
+production.
 
 ## Storage credentials
 
@@ -861,8 +857,8 @@ Storage has its own credential type, following the shape of Cloudflare R2: an
 **access key id** that is safe to display, and a **secret key** that is not.
 
 \`\`\`
-moogo_ak_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK   <- access key id (public)
-moogo_sk_3nQ8wRtZ2mK5xB9cV1yH4jL7pA0sD6fG2iO7uE   <- secret key (private)
+moogo_ak_...   <- access key id (public)
+moogo_sk_...   <- secret key (private)
 \`\`\`
 
 The distinct prefixes mean that if you ever see both in a log, you know which is
@@ -891,12 +887,12 @@ variables:
 
 \`\`\`json
 {
-  "access_key_id": "moogo_ak_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK",
-  "secret_access_key": "moogo_sk_3nQ8wRtZ2mK5xB9cV1yH4jL7pA0sD6fG2iO7uE",
+  "access_key_id": "moogo_ak_...",
+  "secret_access_key": "moogo_sk_...",
   "env": {
-    "MOOGO_BUCKET_ENDPOINT": "https://moogo.dev",
-    "MOOGO_BUCKET_ACCESS_KEY_ID": "moogo_ak_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK",
-    "MOOGO_BUCKET_SECRET_KEY": "moogo_sk_3nQ8wRtZ2mK5xB9cV1yH4jL7pA0sD6fG2iO7uE"
+    "MOOGO_BUCKET_ENDPOINT": "https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/bucket",
+    "MOOGO_BUCKET_ACCESS_KEY_ID": "moogo_ak_...",
+    "MOOGO_BUCKET_SECRET_KEY": "moogo_sk_..."
   }
 }
 \`\`\`
@@ -908,7 +904,7 @@ variables:
 Two headers, on every storage request:
 
 \`\`\`bash
-curl https://moogo.dev/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png \\
+curl https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png \\
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
 \`\`\`
@@ -986,7 +982,7 @@ both validate your SQL before it touches the database.
 Everything hangs off \`MOOGO_PROJECT_URL\`, which already contains the project id:
 
 \`\`\`
-https://moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 \`\`\`
 
 Append \`/query\` or \`/exec\`. You never assemble the path yourself, so the internal
@@ -1001,7 +997,7 @@ New code should use the project-scoped URL.
 Every request needs the project key:
 
 \`\`\`
-Authorization: Bearer moogo_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
+Authorization: Bearer moogo_...
 Content-Type: application/json
 \`\`\`
 
@@ -1043,7 +1039,8 @@ Not this, ever:
 
 ## \`POST /query\` — reads
 
-Use this for anything that returns rows: \`SELECT\`, \`VALUES\`, \`PRAGMA\`, \`EXPLAIN\`.
+Use this for anything that returns rows: \`SELECT\`, \`VALUES\`, \`PRAGMA\`, \`EXPLAIN\`,
+or a \`WITH\` clause that ends in a read.
 
 \`\`\`bash
 curl $MOOGO_PROJECT_URL/query \\
@@ -1427,7 +1424,9 @@ const headers = {
 
 async function sql(query, args = []) {
   // Route to the right endpoint: /query for reads, /exec for writes.
-  const endpoint = /^(select|values|pragma|explain)\\b/i.test(query.trim())
+  // \`with\` covers CTE reads (WITH ... SELECT); a CTE that writes
+  // (WITH ... INSERT) must be sent to /exec directly.
+  const endpoint = /^(select|values|pragma|explain|with)\\b/i.test(query.trim())
     ? "query"
     : "exec";
 
@@ -1550,8 +1549,8 @@ which update as you upload.
 ### From the API
 
 \`\`\`bash
-curl https://moogo.dev/api/projects/$MOOGO_PROJECT_ID/buckets \\
-  -H "Cookie: session=..." \\
+curl https://api.moogo.dev/api/projects/$MOOGO_PROJECT_ID/buckets \\
+  -H "Cookie: moogo_session=..." \\
   -H "Content-Type: application/json" \\
   -d '{"name":"avatars"}'
 \`\`\`
@@ -1559,7 +1558,7 @@ curl https://moogo.dev/api/projects/$MOOGO_PROJECT_ID/buckets \\
 Or, using a [storage credential](/docs/credentials):
 
 \`\`\`bash
-curl https://moogo.dev/buckets/$MOOGO_PROJECT_ID \\
+curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \\
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
@@ -1570,6 +1569,7 @@ Response:
 
 \`\`\`json
 {
+  "success": true,
   "bucket": {
     "id": "3f8a2c11-9d4e-4b7a-8f21-5e6c3d9a1b84",
     "name": "avatars",
@@ -1577,14 +1577,17 @@ Response:
     "size_bytes": 0,
     "created_at": "2026-10-01T09:14:22Z",
     "is_public": false,
-    "allowed_types": ["image"],
-    "max_object_size_bytes": 2097152,
+    "allowed_types": ["any"],
+    "max_object_size_bytes": 0,
     "quota_bytes": 262144000
   }
 }
 \`\`\`
 
-Bucket names must be unique within a project. A duplicate returns \`409\`.
+Bucket names must be unique within a project. Creating one with a name that
+already exists does not error — it returns the existing bucket with \`201\`,
+applying any upload-policy settings you sent. To start from a clean slate, delete
+the bucket first.
 
 ## The \`default\` bucket
 
@@ -1634,7 +1637,7 @@ same upload has no answer, so the request is rejected rather than one side being
 dropped silently.
 
 \`\`\`bash
-curl -X PATCH https://moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \\
+curl -X PATCH https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \\
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
@@ -1674,7 +1677,7 @@ By default every object is private. Publishing makes it readable at a URL with n
 credential at all:
 
 \`\`\`bash
-curl -X POST https://moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/public \\
+curl -X POST https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/public \\
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
@@ -1690,7 +1693,7 @@ Publish one object:
 A published object gets a \`public_url\`:
 
 \`\`\`
-https://moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
+https://api.moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
 \`\`\`
 
 That URL works with no header, no cookie, and no session. You can put it in an
@@ -1731,23 +1734,26 @@ A key must:
 - contain no control characters or NUL
 - contain no backslash
 
-Both spellings below are accepted and mean the same object:
+Valid keys look like this:
 
 \`\`\`
 avatars/user-1.png
+exports/2026-09/report.csv
+\`\`\`
+
+All of these are **rejected**:
+
+\`\`\`
+/avatars/user-1.png
 ./avatars/user-1.png
-\`\`\`
-
-Both of these are **rejected**:
-
-\`\`\`
 ../other-project/secrets.txt
 avatars//user-1.png
 \`\`\`
 
-A key is rejected rather than silently normalised when it contains \`..\`, because
-two different keys resolving to one object is more surprising than a clear error.
-Maximum key length is **1024 characters**.
+A key is rejected rather than silently normalised when it contains a \`.\` or
+\`..\` segment or a leading slash, because two different keys resolving to one
+object is more surprising than a clear error. Maximum key length is **1024
+characters**.
 
 ## Quota
 
@@ -1776,7 +1782,7 @@ together overrun the quota.
 ## Delete a bucket
 
 \`\`\`bash
-curl -X DELETE https://moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \\
+curl -X DELETE https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \\
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
 \`\`\`
@@ -1785,7 +1791,12 @@ This removes the bucket **and every object in it**, permanently. The response
 reports how many objects were deleted:
 
 \`\`\`json
-{ "deleted_objects": 42 }
+{
+  "success": true,
+  "deleted_objects": 42,
+  "storage_used_bytes": 10485760,
+  "quota_bytes": 268435456
+}
 \`\`\`
 
 Check that count before you confirm the deletion in the UI.
@@ -1818,12 +1829,12 @@ the URL and you append only the object key.
 Two headers, on every request:
 
 \`\`\`
-X-Moogo-Access-Key-Id: moogo_ak_9Fk2xQmZ7pR4tYvB1nC6wD8sH3jL5gA0eU2iO7fK
-Authorization: Bearer moogo_sk_3nQ8wRtZ2mK5xB9cV1yH4jL7pA0sD6fG2iO7uE
+X-Moogo-Access-Key-Id: moogo_ak_...
+Authorization: Bearer moogo_sk_...
 \`\`\`
 
 \`\`\`bash
-export ENDPOINT="https://moogo.dev/p/$MOOGO_PROJECT_ID/bucket"
+export ENDPOINT="https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket"
 
 curl "$ENDPOINT/avatars/kit.png" \\
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
@@ -1867,7 +1878,7 @@ Response:
     "content_type": "image/png",
     "is_public": false,
     "etag": "\\"a1b2c3d4\\"",
-    "url": "https://moogo.dev/p/8f3c.../bucket/avatars/kit.png",
+    "url": "https://api.moogo.dev/p/8f3c.../bucket/avatars/kit.png",
     "preview_url": "/api/projects/8f3c.../bucket/avatars/kit.png",
     "public_url": "",
     "created_at": "2026-10-01T09:20:11Z",
@@ -1891,8 +1902,8 @@ This trips people up, so it is worth being explicit.
 
 \`url\` is the one your application uses. Do not put it in an \`<img>\` tag: a browser
 tab does not carry a storage credential, so the image would break for every
-private object. \`public_url\` is empty until the object is published — it is
-absent rather than pointing at a route that would \`404\`.
+private object. \`public_url\` is an empty string until the object is published —
+a value you can test for, rather than a missing field.
 
 ### Upload limits
 
@@ -1930,7 +1941,7 @@ curl -I "$ENDPOINT/avatars/kit.png" \\
 ## Public download
 
 \`\`\`bash
-curl https://moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
+curl https://api.moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
 \`\`\`
 
 No headers. Serves only objects that were published; anything else returns \`404\`,
@@ -2002,7 +2013,13 @@ curl -X DELETE "$ENDPOINT/avatars/kit.png" \\
 \`\`\`
 
 \`\`\`json
-{ "deleted": 1, "freed_bytes": 24576 }
+{
+  "success": true,
+  "deleted": 1,
+  "freed_bytes": 24576,
+  "storage_used_bytes": 10485760,
+  "quota_bytes": 268435456
+}
 \`\`\`
 
 **Everything under a prefix** — this is the folder delete, and it is an explicit
@@ -2020,7 +2037,7 @@ curl -X DELETE "$ENDPOINT/avatars/?prefix=true" \\
 ## Bucket catalog
 
 \`\`\`bash
-curl https://moogo.dev/buckets/$MOOGO_PROJECT_ID \\
+curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \\
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
 \`\`\`
@@ -2082,7 +2099,8 @@ All of them use the standard envelope:
 
 \`\`\`js
 // storage.js
-const root = \`\${process.env.MOOGO_BUCKET_ENDPOINT}/p/\${process.env.MOOGO_PROJECT_ID}/bucket\`;
+// MOOGO_BUCKET_ENDPOINT already ends in /p/{project_id}/bucket.
+const root = process.env.MOOGO_BUCKET_ENDPOINT;
 
 const headers = {
   "X-Moogo-Access-Key-Id": process.env.MOOGO_BUCKET_ACCESS_KEY_ID,
@@ -2107,8 +2125,15 @@ export const upload = (key, file, bucket) =>
     body: file,
   });
 
-export const download = (key) =>
-  storage(key).then((result) => result); // returns the object metadata
+// GET returns the bytes, not JSON, so this bypasses storage().
+export const download = async (key) => {
+  const response = await fetch(\`\${root}/\${encodeKey(key)}\`, { headers });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "storage request failed");
+  }
+  return response.blob();
+};
 
 export const list = (prefix) =>
   storage(\`?prefix=\${encodeURIComponent(prefix)}&limit=100\`);
@@ -2389,7 +2414,7 @@ overrun the quota.
 | Statement length | **64 KB** | \`sql_too_long\` |
 | Statement duration | **15 seconds** | \`statement_timeout\` |
 | Result payload (one read) | **16 MB** | \`result_too_large\` |
-| Storage credentials per project | **5** | \`storage_credential_limit\` |
+| Storage credentials per project | **5** | \`credential_limit\` |
 | Sign-in endpoints | **10 / minute / client address**, shared | \`rate_limited\` |
 | Data plane | **300 / minute** — queries per project, storage per address | \`rate_limited\` |
 | Dashboard update list (\`GET /api/updates\`) | **60 / minute / client address** | \`rate_limited\` |
@@ -2432,7 +2457,7 @@ Worth knowing explicitly, because these are common assumptions:
 | \`sql_too_long\` | Generate fewer statements per request. One statement per request is the rule. |
 | \`body_too_large\` | Send less in one call. Page a listing instead of requesting everything. |
 | \`object_too_large\` | Lower the bucket's \`max_object_size_bytes\`, or compress the file. |
-| \`storage_credential_limit\` | Revoke the credentials you no longer use — 5 is the cap. |
+| \`credential_limit\` | Revoke the credentials you no longer use — 5 is the cap. |
 
 ## Designed to be visible
 
@@ -2600,12 +2625,12 @@ Every response carries:
 
 | Header | Value |
 |---|---|
-| \`Content-Security-Policy\` | \`default-src 'self'\`; no inline scripts, no external sources |
+| \`Content-Security-Policy\` | \`default-src 'self'\`; no inline scripts, own origin for frames and connections; images from own origin, \`data:\`, or \`https:\` |
 | \`X-Content-Type-Options\` | \`nosniff\` |
 | \`X-Frame-Options\` | \`DENY\` |
 | \`Referrer-Policy\` | \`strict-origin-when-cross-origin\` |
 | \`Strict-Transport-Security\` | Over HTTPS only |
-| \`Cache-Control\` | \`no-store\` on all API routes |
+| \`Cache-Control\` | \`no-store\` on \`/api/\`, \`/p/\`, \`/db/\`, \`/bucket/\`, \`/auth/\` |
 
 \`no-store\` matters because the dashboard shows secret material on create and
 rotate. A cached response body would hand it to whoever asked next.
@@ -2774,6 +2799,7 @@ for (let index = 0; index < rows.length; index += batch) {
 | \`database_too_large\` | 413 | The database is at its 100 MB ceiling. |
 | \`result_too_large\` | 413 | The result set passed the 16 MB response cap. |
 | \`database_busy\` | 503 | The project hit its concurrency limit — waiting on a slot or the previous writer. Comes with \`Retry-After: 1\`. |
+| \`service_unavailable\` | 503 | The service is restarting. Retry shortly. |
 
 ### \`sql_error\` — read \`detail\`
 
@@ -2801,6 +2827,8 @@ explanation lives. Log it.
 | \`unsupported_media_type\` | 415 | \`Content-Type\` was not \`application/json\`. |
 | \`not_found\` | 404 | No such endpoint. Check the path. |
 | \`rate_limited\` | 429 | Too many requests from one client address. Comes with a \`Retry-After\` header. |
+| \`quota_exceeded\` | 429 | An account quota was reached — most often a third project. Storage reports a full storage quota as \`507\` instead. |
+| \`credential_limit\` | 429 | The project already holds the maximum number of storage credentials (5). |
 
 \`invalid_body\` usually means a **typo in a field name**. Unknown fields are
 rejected rather than ignored, so \`{"is_pubic": true}\` is an error rather than a
@@ -2815,6 +2843,8 @@ success that did nothing.
 | \`project_paused\` | 403 | The project is paused. Resume it. |
 | \`project_not_ready\` | 403 | The project is still being created. |
 | \`method_not_allowed\` | 405 | Wrong HTTP method for this route. |
+| \`forbidden\` | 403 | A browser POST whose \`Origin\` does not match the request host. Direct API clients are unaffected. |
+| \`email_not_verified\` | 403 | The account has not followed its confirmation link. The login page offers **Send a new link**. |
 | \`mail_failed\` | 500 | The account was created, but the confirmation email could not be sent. |
 
 ### When you get \`rate_limited\`
@@ -2842,7 +2872,8 @@ Two things worth knowing if you are seeing this when you did not expect it:
 
 ### When you get \`unauthorized\`
 
-1. **Is it the right key?** Check \`secret_key_prefix\` in the dashboard against the
+1. **Is it the right key?** The project's Settings tab shows a masked
+   \`MOOGO_SECRET_KEY\` — the key's eight-character prefix. Check it against the
    start of your key.
 2. **Is it the right scheme?** Only \`Bearer\` is accepted — not Basic, not a bare
    token.
@@ -2885,9 +2916,15 @@ looks like.
 | \`invalid_key\` | 400 | The key breaks the [naming rules](/docs/create-bucket#keys-are-strict). |
 | \`invalid_prefix\` | 400 | The prefix for a folder delete is not valid. |
 | \`key_taken\` | 409 | An object with that key already exists. |
+| \`quota_below_usage\` | 409 | A PATCH tried to set \`quota_bytes\` below what the bucket already holds. |
 | \`not_found\` | 404 | No such object or bucket. |
 | \`object_too_large\` | 413 | Over the bucket's per-object cap. |
 | \`quota_exceeded\` | 507 | The project storage total is full. |
+| \`bucket_quota_exceeded\` | 507 | The bucket's own \`quota_bytes\` is full, even though the project still has room. |
+| \`invalid_bucket_name\` | 400 | The name is empty or not 2–63 characters of lowercase letters, digits, \`_\`, \`-\`. |
+| \`invalid_allowed_types\` | 400 | The upload policy names an unknown type, or combines \`any\` with a specific one. |
+| \`invalid_max_object_size\` | 400 | \`max_object_size_bytes\` is negative. \`0\` means no limit. |
+| \`invalid_quota_bytes\` | 400 | \`quota_bytes\` is negative or over the project's 256 MB. |
 | \`storage_error\` | 500 | The request could not be completed. |
 
 ### \`key_taken\`
@@ -2910,8 +2947,10 @@ are fine, and the difference is the credential. Check:
 
 ### "My query works but my insert says \`no such column\`"
 
-A column name is case-sensitive in SQLite but not in the error message. Check the
-exact spelling from \`PRAGMA table_info(your_table)\` rather than assuming.
+The column named in the statement does not exist in that table, or is spelled
+differently from one that does. SQLite matches column names
+case-insensitively, so casing is never the cause — check the exact set of
+columns with \`PRAGMA table_info(your_table)\` rather than assuming.
 
 ### "The response says \`truncated: true\`"
 
@@ -3093,7 +3132,7 @@ Read [Limits](/docs/limits) before designing around it.
 3. Put these in the project's environment:
 
 \`\`\`bash
-MOOGO_PROJECT_URL=https://moogo.dev/p/<project_id>
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project_id>
 MOOGO_PROJECT_ID=<project_id>
 MOOGO_SECRET_KEY=...             # SQL only
 MOOGO_BUCKET_ACCESS_KEY_ID=...   # object storage only
@@ -3104,15 +3143,15 @@ MOOGO_BUCKET_SECRET_KEY=...      # object storage only
    \`Content-Type: application/json\` — a body declared as anything else is
    refused with \`415 unsupported_media_type\`.
 
-On moogo.dev the base is \`https://moogo.dev\`; a self-hosted deployment uses its
-own public URL. Read credentials from the environment. Never ask the user to
+On moogo.dev the base is \`https://api.moogo.dev\`; a self-hosted deployment uses
+its own public URL. Read credentials from the environment. Never ask the user to
 paste them, and never print them.
 
 ## SQL API
 
 | Endpoint | Accepts | Rejects |
 |---|---|---|
-| \`/query\` | Reads — \`SELECT\`, \`VALUES\`, \`PRAGMA\`, \`EXPLAIN\` | Writes, with \`not_a_read\` |
+| \`/query\` | Reads — \`SELECT\`, \`VALUES\`, \`PRAGMA\`, \`EXPLAIN\`, \`WITH\` that selects | Writes, with \`not_a_read\` |
 | \`/exec\` | Writes — \`INSERT\`, \`UPDATE\`, \`DELETE\`, \`CREATE\`, \`ALTER\`, \`DROP\` | Reads, with \`not_a_write\` |
 
 Request, authorized with the SQL key:
@@ -3138,7 +3177,7 @@ Response from \`/query\`:
 \`\`\`
 
 \`rows\` are arrays aligned with \`columns\`, not objects. \`/exec\` answers
-\`{"success": true, "rows_affected": 1, "row_count": 1, "duration_ms": 2}\`.
+\`{"success": true, "rows_affected": 1, "size_bytes": 24576, "duration_ms": 2}\`.
 Every failure, on any endpoint, uses one envelope:
 
 \`\`\`json
@@ -3178,7 +3217,7 @@ Upload answers with the object — \`key\`, \`size_bytes\`, \`content_type\`,
 \`storage_used_bytes\` and \`quota_bytes\` — and three URL fields: \`url\` for your
 application (it needs the credential), \`preview_url\` for the dashboard, and
 \`public_url\`, which stays empty until the object is published. A published
-object is readable by anyone holding \`https://moogo.dev/pub/{project_id}/{key}\`;
+object is readable by anyone holding \`https://api.moogo.dev/pub/{project_id}/{key}\`;
 treat publishing as permanent, because anyone who recorded the URL keeps it.
 
 ## Limits
@@ -3193,7 +3232,7 @@ Every limit is enforced by the server, and most come back in the response.
 | Object size | The bucket's \`max_object_size_bytes\`, or 256 MB |
 | JSON request body | 1 MB (\`body_too_large\`) |
 | Statement | 64 KB (\`sql_too_long\`), 15 seconds (\`statement_timeout\`) |
-| Storage credentials | 5 per project (\`storage_credential_limit\`) |
+| Storage credentials | 5 per project (\`credential_limit\`) |
 | Sign-in endpoints | 10 requests/minute per client address, shared across them (\`rate_limited\`) |
 | Data plane | 300 requests/minute — queries per project, storage per address (\`rate_limited\`) |
 | Result rows | 1000 per response; \`truncated: true\` when the cap was hit |
