@@ -2,10 +2,10 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
 
-// The Contact page: one address for everything, plus the two channels that
-// must not be the address — public bugs on GitHub, security reports privately.
-// The wording matches the announcement page's contact card, so the two pages
-// never promise different things about replies.
+// The Contact page: one address for everything, plus the channels that must
+// not be the address — public bugs on GitHub, security reports privately,
+// posts on daily.dev. The wording matches the announcement page's contact
+// card, so the two pages never promise different things about replies.
 export default function Contact() {
   return (
     <SiteLayout>
@@ -88,6 +88,19 @@ export default function Contact() {
                 about page
               </Link>{" "}
               cover what the service is.
+            </Section>
+
+            <Section title="Elsewhere">
+              Releases, guides and announcements are posted to{" "}
+              <a
+                href="https://daily.dev/moogodev"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent-strong underline underline-offset-4 hover:text-accent"
+              >
+                daily.dev
+              </a>{" "}
+              — follow the profile there to read new posts in your feed.
             </Section>
           </div>
         </div>
