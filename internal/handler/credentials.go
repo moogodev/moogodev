@@ -221,13 +221,17 @@ const registrationConfirmation = "Check your email for a confirmation link. " +
 	"You can sign in once you have followed it."
 
 // sendVerification issues a confirmation token, emails it, and writes the
-// "check your inbox" response itself.
+// response itself.
 //
-// It is the single place that decides what register does with a mail failure:
-// a fresh account gets the accepted shape, and a taken address gets the same
-// shape. The message never changes, so the two branches cannot drift back into
-// revealing which addresses exist, and the status and the body stay the same
-// whether Resend accepts the recipient or not.
+// On success a freshly created account and one that was already registered
+// answer with the same accepted shape -- a taken address never enters this
+// function -- so register cannot be used to tell which addresses exist. What
+// this function adds is the failure path, and it is loud on purpose: the
+// account exists and cannot be used, so a quiet 202 would leave somebody
+// waiting on an inbox that will never receive anything. The Register page
+// documents that trade. The password-reset path takes the opposite one: it
+// promised the same answer whether or not an address exists, so it logs a
+// delivery failure instead of reporting it.
 func (handler *Credentials) sendVerification(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -325,8 +329,10 @@ var errMailFailed = errors.New("mail delivery failed")
 // answer and can only log it.
 //
 // The mail error is reported as 500 with the mail_failed code by the caller,
-// which is the same shape the password-reset path uses for an undeliverable
-// message.
+// which is loud because an account written without its confirmation email is
+// unusable. The password-reset path does the opposite: it promised the same
+// answer whether or not an address exists, so its caller logs the failure
+// instead of reporting it.
 func (handler *Credentials) issueVerification(
 	ctx context.Context,
 	user *dbcontrol.User,
@@ -528,10 +534,15 @@ func (handler *Credentials) ForgotPassword(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := handler.mailer.SendPasswordReset(r.Context(), user.Email, token); err != nil {
-		// The token is stored but the email did not go out. Report a generic
-		// failure; the user can simply request again.
+		// The token is stored but the email did not go out, and the answer has
+		// to stay identical to the unknown-email case above: a 500 could only
+		// come from an address that exists, because the unknown branch never
+		// tries to send, and that would turn the endpoint into a registration
+		// oracle for as long as delivery is broken. The failure goes to the
+		// log instead -- the same place an operator looks to see that Resend
+		// is down -- and the person simply retries.
 		handler.log.Error("send reset email", logger.Fields{"error": err.Error(), "user_id": user.ID.String()})
-		httpx.WriteError(w, http.StatusInternalServerError, "mail_failed", "could not send the reset email, try again")
+		httpx.WriteJSON(w, http.StatusOK, genericResponse{Message: confirmation})
 		return
 	}
 

@@ -138,6 +138,7 @@ success that did nothing.
 | `project_paused` | 403 | The project is paused. Resume it. |
 | `project_not_ready` | 403 | The project is still being created. |
 | `method_not_allowed` | 405 | Wrong HTTP method for this route. |
+| `mail_failed` | 500 | The account was created, but the confirmation email could not be sent. |
 
 ### When you get `rate_limited`
 
@@ -174,6 +175,23 @@ Two things worth knowing if you are seeing this when you did not expect it:
 
 For storage, also check that you are sending **both** headers:
 `X-Moogo-Access-Key-Id` and `Authorization: Bearer`.
+
+### When you get `mail_failed`
+
+`POST /auth/register` answers `500 mail_failed` when the account was written
+but the confirmation email could not be handed to the mail provider. The
+account exists and cannot be signed into until the link arrives, so the
+failure is reported rather than pretending it worked — see
+[Register](/docs/register#confirm-your-email-address).
+
+To recover, sign in with the address: the login page answers
+`403 email_not_verified` and offers **Send a new link**, which issues a fresh
+confirmation.
+
+Password reset and resend-verification never answer with `mail_failed`. Both
+promise the same response whether or not an address exists, so a delivery
+failure there would say "this account is registered" to anyone probing — it
+is written to the log for the operator instead.
 
 ### `project_not_found` when the project exists
 

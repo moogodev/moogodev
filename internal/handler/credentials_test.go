@@ -165,10 +165,12 @@ type credMailer struct {
 func (mailer *credMailer) Enabled() bool { return !mailer.disabled }
 
 func (mailer *credMailer) SendPasswordReset(ctx context.Context, to, token string) error {
+	// Recorded before the failure so a test can tell "attempted and refused"
+	// from "never called".
+	mailer.sentTo = to
 	if mailer.sentErr != nil {
 		return mailer.sentErr
 	}
-	mailer.sentTo = to
 	return nil
 }
 
@@ -587,16 +589,34 @@ func TestForgotPasswordNeverRevealsAccountExistence(t *testing.T) {
 	}
 }
 
-func TestForgotPasswordReportsMailFailure(t *testing.T) {
+func TestForgotPasswordSwallowsMailFailure(t *testing.T) {
+	// A 500 here can only come from an address that exists -- the unknown
+	// branch never tries to send -- so reporting the failure would turn the
+	// endpoint into a registration oracle for as long as delivery is broken,
+	// exactly what the test above promises not to do. The answer has to be
+	// byte-identical to the unknown-email case.
+	unknownStore := &credStore{byEmail: map[string]*dbcontrol.User{}}
+	unknownHandler := newCredHandler(t, unknownStore, &credMailer{})
+	unknown := doJSON(t, unknownHandler.ForgotPassword, http.MethodPost, "/auth/forgot-password",
+		`{"email":"ghost@example.com"}`)
+
 	known := &dbcontrol.User{ID: uuid.New(), Email: "ketut@example.com"}
 	store := &credStore{byEmail: map[string]*dbcontrol.User{"ketut@example.com": known}}
-	handler := newCredHandler(t, store, &credMailer{sentErr: errors.New("resend down")})
+	mailer := &credMailer{sentErr: errors.New("resend down")}
+	handler := newCredHandler(t, store, mailer)
 
 	recorder := doJSON(t, handler.ForgotPassword, http.MethodPost, "/auth/forgot-password",
 		`{"email":"ketut@example.com"}`)
 
-	if recorder.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when mail fails, got %d", recorder.Code)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 when mail fails, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.String() != unknown.Body.String() {
+		t.Errorf("mail failure changed the answer: got %s, want %s",
+			recorder.Body.String(), unknown.Body.String())
+	}
+	if mailer.sentTo != "ketut@example.com" {
+		t.Errorf("expected the delivery to be attempted anyway, sentTo = %q", mailer.sentTo)
 	}
 }
 
