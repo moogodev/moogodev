@@ -323,7 +323,7 @@ function SessionSection({ onSignOut }: { onSignOut: () => void }) {
       <button
         type="button"
         onClick={onSignOut}
-        className="cursor-pointer rounded-lg border border-error/30 bg-error/5 px-4 py-2 text-[0.85rem] font-medium text-error transition-colors hover:bg-error/10 hover:border-error"
+        className="cursor-pointer rounded-lg border border-red/30 bg-red/5 px-4 py-2 text-[0.85rem] font-medium text-red transition-colors hover:border-red hover:bg-red/10"
       >
         Sign out
       </button>
@@ -372,8 +372,8 @@ function DangerZone({ me }: { me: Me }) {
   }, [armed, needsPassword, password]);
 
   return (
-    <section className="mx-auto max-w-3xl rounded-lg border border-error/30 bg-error/5 p-5">
-      <h2 className="mb-1 text-[0.95rem] font-semibold text-error">Danger zone</h2>
+    <section className="mx-auto max-w-3xl rounded-lg border border-red/30 bg-red/5 p-5">
+      <h2 className="mb-1 text-[0.95rem] font-semibold text-red">Danger zone</h2>
       <p className="mb-4 max-w-[62ch] text-[0.82rem] font-medium leading-relaxed text-muted">
         Deleting your account removes every project, database, stored object,
         and key you have — it cannot be undone. Your sessions are signed out
@@ -398,7 +398,7 @@ function DangerZone({ me }: { me: Me }) {
           type="button"
           onClick={() => void click()}
           disabled={busy || (needsPassword && password === "")}
-          className="cursor-pointer rounded-lg bg-error px-4 py-2 text-[0.85rem] font-semibold text-white transition-colors hover:bg-error/90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="cursor-pointer rounded-lg bg-red px-4 py-2 text-[0.85rem] font-semibold text-white transition-colors hover:bg-red/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy
             ? "Deleting…"
@@ -410,7 +410,7 @@ function DangerZone({ me }: { me: Me }) {
           <button
             type="button"
             onClick={() => setArmed(false)}
-            className="cursor-pointer text-[0.82rem] font-medium text-muted hover:text-foreground transition-colors"
+            className="cursor-pointer rounded-lg border border-red/40 px-4 py-2 text-[0.82rem] font-medium text-red transition-colors hover:bg-red/10"
           >
             Cancel
           </button>
