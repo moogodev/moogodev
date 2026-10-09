@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -323,4 +324,38 @@ func Timeout(timeout time.Duration) func(http.Handler) http.Handler {
 		return http.TimeoutHandler(next, timeout,
 			`{"error":{"code":"timeout","message":"the request took too long"}}`)
 	}
+}
+
+// SameOrigin rejects state-changing requests whose Origin header names a
+// different host.
+//
+// Browsers attach Origin to every cross-origin POST, PUT, PATCH and DELETE, so
+// a mismatch is what a CSRF attempt looks like as it arrives. This is the
+// third layer, not the first: the session cookie is SameSite=Lax (not sent on
+// cross-site writes at all), and every mutating handler decodes
+// application/json, which HTML forms cannot send and a cross-origin fetch can
+// only obtain behind a CORS preflight this server never answers. The check
+// exists so that changing either of those -- an older cookie policy, a future
+// CORS route -- cannot silently open the hole again. Requests with no Origin
+// header (curl, tests, non-browser clients) pass: those are not browser CSRF,
+// and they would need a credential to do anything anyway.
+//
+// In local development the browser talks to the Vite dev server, which
+// forwards to this backend on another loopback port. vite.config.ts rewrites
+// Origin to the forwarding target, so a proxied request still names the host
+// the backend was addressed as.
+func SameOrigin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			if origin := r.Header.Get("Origin"); origin != "" {
+				parsed, err := url.Parse(origin)
+				if err != nil || !strings.EqualFold(parsed.Host, r.Host) {
+					WriteError(w, http.StatusForbidden, "forbidden", "cross-origin request rejected")
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }

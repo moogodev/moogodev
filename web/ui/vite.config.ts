@@ -1,7 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, type ProxyOptions } from "vite";
 
 // The Go backend the dev server proxies API calls to. It is read from the
 // environment so a different port can be used without editing this file.
@@ -32,8 +32,27 @@ export default defineConfig(({ command }) => {
   // The same proxy is used by `vite dev` and `vite preview`. Preview serves
   // the built files without it, so /auth and /api would 404 there and the sign
   // -in form could never reach the backend.
+  //
+  // The backend refuses a state-changing request whose Origin names a
+  // different host than the one it was addressed as. The browser legitimately
+  // sends this dev server's origin on every POST, so the proxy rewrites the
+  // header to the forwarding target: from the backend's point of view the
+  // request is same-origin, which is exactly what the proxy makes it.
   const proxy = Object.fromEntries(
-    apiPaths.map((path) => [path, { target: apiTarget, changeOrigin: true }]),
+    apiPaths.map(
+      (path): [string, ProxyOptions] => [
+        path,
+        {
+          target: apiTarget,
+          changeOrigin: true,
+          configure(proxy) {
+            proxy.on("proxyReq", (request) => {
+              request.setHeader("Origin", apiTarget);
+            });
+          },
+        },
+      ],
+    ),
   );
 
   return {

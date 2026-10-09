@@ -197,6 +197,11 @@ func New(deps Deps) http.Handler {
 	// so it is set rather than left to a reverse proxy that may not have it.
 	root.Use(SecurityHeaders)
 
+	// CSRF line three: the session cookie is SameSite=Lax and the mutating
+	// handlers demand application/json, and this refuses a write that names
+	// another origin outright so neither of those can be quietly relaxed.
+	root.Use(httpx.SameOrigin)
+
 	root.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
