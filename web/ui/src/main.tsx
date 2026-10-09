@@ -2,7 +2,9 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { createRoot } from "react-dom/client";
 import { StrictMode } from "react";
 import { AppShell } from "./components/AppShell";
+import About from "./routes/About";
 import Announcement from "./routes/Announcement";
+import Contact from "./routes/Contact";
 import Dashboard from "./routes/Dashboard";
 import Docs from "./routes/Docs";
 import ForgotPassword from "./routes/ForgotPassword";
@@ -43,9 +45,11 @@ createRoot(document.getElementById("root")!).render(
             answers a direct load with a 301 before the app boots; this covers
             a navigation that somehow still carries the old path. */}
         <Route path="/annoucement" element={<Navigate to="/announcement" replace />} />
-        {/* The legal pages are ordinary routes, declared like the others so a
-            direct link or a hard refresh renders them rather than the
-            catch-all below. */}
+        {/* About, Contact, and the legal pages are ordinary routes, declared
+            like the others so a direct link or a hard refresh renders them
+            rather than the catch-all below. */}
+        <Route path="/about" element={<About />} />
+        <Route path="/contact" element={<Contact />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/docs" element={<Docs />} />

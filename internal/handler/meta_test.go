@@ -46,8 +46,10 @@ func TestSitemapListsTheMarketingPagesAndDocs(t *testing.T) {
 
 	for _, want := range []string{
 		"https://moogo.dev/",
+		"https://moogo.dev/about",
 		"https://moogo.dev/plan",
 		"https://moogo.dev/announcement",
+		"https://moogo.dev/contact",
 		"https://moogo.dev/terms",
 		"https://moogo.dev/privacy",
 		"https://moogo.dev/docs",

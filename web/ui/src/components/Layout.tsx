@@ -254,6 +254,7 @@ const footerGroups: { title: string; links: { label: string; to: string }[] }[] 
   {
     title: "Product",
     links: [
+      { label: "About", to: "/about" },
       { label: "What is Moogo", to: "/docs/what-is-moogo" },
       { label: "Why Moogo", to: "/docs/why-moogo" },
       { label: "Comparison", to: "/docs/comparison" },
@@ -288,6 +289,7 @@ const footerGroups: { title: string; links: { label: string; to: string }[] }[] 
       { label: "Errors", to: "/docs/errors" },
       { label: "Troubleshooting", to: "/docs/errors#common-problems" },
       { label: "Feedback", to: "/docs/feedback" },
+      { label: "Contact", to: "/contact" },
       { label: "Terms", to: "/terms" },
       { label: "Privacy", to: "/privacy" },
       { label: "GitHub", to: "https://github.com/moogodev/moogodev" },

@@ -39,7 +39,7 @@ func NewMeta(publicURL string, docs SlugsProvider, log *logger.Logger) *Meta {
 // staticPages are the marketing pages every deployment has, in the order a
 // reader meets them. The dashboard is deliberately absent: it renders from a
 // session and a crawler sees an empty shell.
-var staticPages = []string{"/", "/plan", "/announcement", "/terms", "/privacy", "/docs"}
+var staticPages = []string{"/", "/about", "/plan", "/announcement", "/contact", "/terms", "/privacy", "/docs"}
 
 // Sitemap answers GET /sitemap.xml.
 //

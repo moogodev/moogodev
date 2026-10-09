@@ -862,9 +862,11 @@ func registerPages(root chi.Router, deps Deps) {
 	root.Get("/annoucement", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/announcement", http.StatusMovedPermanently)
 	})
-	// The legal pages, served like every other client route: a hard refresh
-	// on either has to render the page rather than fall through to the API's
-	// 404, and a crawler following the footer link has to get HTML.
+	// The site's content pages, served like every other client route: a hard
+	// refresh on any of them has to render the page rather than fall through
+	// to the API's 404, and a crawler following a footer link has to get HTML.
+	root.Get("/about", index)
+	root.Get("/contact", index)
 	root.Get("/terms", index)
 	root.Get("/privacy", index)
 	root.Get("/app", index)

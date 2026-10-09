@@ -59,10 +59,10 @@ export default function Announcement() {
                 all to the address below. Every message gets a reply.
               </p>
               <a
-                href="mailto:moogodev@gmail.com"
+                href="mailto:moogo.dev@gmail.com"
                 className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-5 py-2.5 font-semibold text-accent-ink transition-colors hover:bg-accent"
               >
-                moogodev@gmail.com
+                moogo.dev@gmail.com
               </a>
             </div>
           </div>
