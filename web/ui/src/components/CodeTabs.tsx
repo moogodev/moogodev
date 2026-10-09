@@ -4,16 +4,20 @@ interface Sample {
   id: string;
   label: string;
   code: string;
+  response: string;
 }
 
 // The three request shapes a new user copies first. Keeping them as plain
 // strings means the copy button and the rendered block always agree, and there
-// is no JSX whitespace to get wrong inside <pre>.
+// is no JSX whitespace to get wrong inside <pre>. Each sample carries the
+// response it actually produces, because a shared response under the Exec tab
+// would describe a read that never happened.
 const samples: Sample[] = [
   {
     id: "query",
     label: "Query",
-    code: `POST $MOOGO_PROJECT_URL/query
+    code: `# $MOOGO_PROJECT_URL = https://api.moogo.dev/p/<project_id>
+POST $MOOGO_PROJECT_URL/query
 Authorization: Bearer $MOOGO_SECRET_KEY
 Content-Type: application/json
 
@@ -21,11 +25,13 @@ Content-Type: application/json
   "query": "SELECT id, email FROM users WHERE plan = ?",
   "args": ["pro"]
 }`,
+    response: `{"success":true,"columns":["id","email"],"rows":[["7c1f…","ketut@example.com"]],"row_count":1,"truncated":false,"duration_ms":1}`,
   },
   {
     id: "exec",
     label: "Exec",
-    code: `POST $MOOGO_PROJECT_URL/exec
+    code: `# $MOOGO_PROJECT_URL = https://api.moogo.dev/p/<project_id>
+POST $MOOGO_PROJECT_URL/exec
 Authorization: Bearer $MOOGO_SECRET_KEY
 Content-Type: application/json
 
@@ -33,13 +39,17 @@ Content-Type: application/json
   "query": "INSERT INTO users (email) VALUES (?)",
   "args": ["ketut@example.com"]
 }`,
+    response: `{"success":true,"rows_affected":1,"size_bytes":24576,"duration_ms":1}`,
   },
   {
     id: "curl",
     label: "cURL",
-    code: `curl $MOOGO_PROJECT_URL/query \\
+    code: `# $MOOGO_PROJECT_URL = https://api.moogo.dev/p/<project_id>
+curl $MOOGO_PROJECT_URL/query \\
   -H "Authorization: Bearer $MOOGO_SECRET_KEY" \\
+  -H "Content-Type: application/json" \\
   -d '{"query":"SELECT count(*) FROM users"}'`,
+    response: `{"success":true,"columns":["count(*)"],"rows":[[7]],"row_count":1,"truncated":false,"duration_ms":1}`,
   },
 ];
 
@@ -102,7 +112,7 @@ export function CodeTabs() {
           <span className="h-[7px] w-[7px] flex-none rounded-full bg-accent-strong" />
           <span>Response</span>
           <code className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-muted">
-            {'{"success":true,"rows":[["7c1f…","ketut@example.com"]],"row_count":1}'}
+            {current.response}
           </code>
         </div>
       </div>
