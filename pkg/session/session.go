@@ -1,12 +1,12 @@
 // Package session issues and verifies stateless session cookies.
 //
 // The token is a signed payload with no server-side session table, so verifying
-// a session costs no database round trip. That matters because the session is
-// checked on every control plane request.
-//
-// The trade-off is deliberate: revoking a session before it expires is not
-// possible without a server-side record. Phase 1 has no need for it, since a
-// user can be signed out by rotating the session secret if it ever does.
+// a signature costs no cryptography beyond one HMAC and no database round trip.
+// The trade-off is that the token alone cannot be revoked before it expires --
+// which is why every token also carries the epoch it was issued under, and why
+// the auth layer checks that epoch against the account row on every control
+// plane request. Bumping the epoch on logout (or the row disappearing with the
+// account) is the revocation; this package only has to keep the claim intact.
 package session
 
 import (
@@ -45,6 +45,14 @@ type Claims struct {
 	// IssuedAt is a Unix timestamp, useful for debugging and for rotating
 	// sessions without invalidating every user at once.
 	IssuedAt int64 `json:"iat"`
+	// Epoch is the session revocation counter the token was issued under.
+	//
+	// It is carried in the token rather than looked up by it: the comparison
+	// against the account row happens in the auth layer, and this package only
+	// has to round-trip the value. omitempty keeps a zero epoch out of the
+	// payload, so tokens minted before the column existed read as 0 and still
+	// verify against the default the migration gave every existing account.
+	Epoch int64 `json:"ep,omitempty"`
 }
 
 // Token is the signed session payload.
@@ -96,7 +104,7 @@ func (signer *Signer) TTL() time.Duration {
 // The nonce is random rather than derived from the user ID or the current time.
 // Without it, two sessions for the same user within the same second would be
 // byte-identical, which leaks that fact to anyone holding two tokens.
-func (signer *Signer) Issue(userID string, email string, now time.Time) (string, error) {
+func (signer *Signer) Issue(userID string, email string, epoch int64, now time.Time) (string, error) {
 	if strings.TrimSpace(userID) == "" {
 		return "", fmt.Errorf("user id is required")
 	}
@@ -112,6 +120,7 @@ func (signer *Signer) Issue(userID string, email string, now time.Time) (string,
 			Email:     email,
 			ExpiresAt: now.Add(signer.ttl).Unix(),
 			IssuedAt:  now.Unix(),
+			Epoch:     epoch,
 		},
 		Nonce: nonce,
 	}

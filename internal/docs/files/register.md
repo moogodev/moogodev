@@ -42,9 +42,10 @@ or not an account exists, so it will not tell you whether your address is
 registered.
 
 > **If sending fails**, the registration is rejected with `mail_failed` rather
-> than accepted quietly. That is deliberate: the account exists but is unusable,
-> and silently returning success would leave you waiting on an inbox that will
-> never receive anything.
+> than accepted quietly. That is deliberate: accepting quietly would leave you
+> waiting on an inbox that will never receive anything. The half-finished
+> account is removed before the error is returned, so registering again with
+> the same address simply starts over.
 
 ## Sign in
 
@@ -61,9 +62,12 @@ the link instead of an error above the same form.
 
 ## Sign out
 
-Click your account in the top-right of the dashboard and choose **Sign out**. This
-clears the session cookie on this browser only. Because the key never lives in the
-browser, there is nothing else to revoke here.
+Click your account in the top-right of the dashboard and choose **Sign out**.
+The response clears the session cookie in this browser, and it also bumps an
+epoch on the account — every session issued before that bump stops verifying,
+on every device at once. One sign-out signs the other browsers out too: each
+token carries the epoch it was issued under, and after the bump it no longer
+matches. Nothing else has to be reached for.
 
 ## Forgotten password
 

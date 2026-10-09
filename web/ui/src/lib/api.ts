@@ -388,6 +388,18 @@ export const api = {
   databaseBackupUrl: (id: string) => `/api/projects/${id}/database-backup`,
   logout: () => request<void>("/auth/logout", { method: "POST" }),
 
+  // deleteAccount removes the account and everything under it: projects,
+  // their SQLite files, bucket objects, activity rows. The server refuses
+  // without a password on an account that has one (a stolen cookie must not
+  // be able to erase the account behind it) and needs no body for an account
+  // that only ever signed in with Google, which is why the argument is
+  // optional and the body may be an empty object.
+  deleteAccount: (password?: string) =>
+    request<void>("/api/account", {
+      method: "DELETE",
+      body: JSON.stringify({ password: password ?? "" }),
+    }),
+
   // Email/password credentials. These set or clear the session cookie on the
   // same origin, so the browser carries the session after a successful call.
   //

@@ -65,6 +65,11 @@ type fakeStore struct {
 	// credentialErr injects a failure on create, standing in for the
 	// per-project limit.
 	credentialErr error
+
+	// deletedUser and bumpedUser record the account-deletion and session
+	// revocation calls the tests assert on.
+	deletedUser uuid.UUID
+	bumpedUser  uuid.UUID
 }
 
 func newFakeStore(userID uuid.UUID) *fakeStore {
@@ -444,7 +449,13 @@ func testControlPlane(userID uuid.UUID) (*ControlPlane, *fakeStore, *fakeDatabas
 		DefaultMaxProjects: 5,
 	}
 
-	return NewControlPlane(store, plane, cfg, logger.Nop()), store, plane
+	signer, err := session.NewSigner("a-test-secret-that-is-definitely-long-enough", time.Hour)
+	if err != nil {
+		panic(err)
+	}
+	sessions := auth.NewSessionManager(signer, false)
+
+	return NewControlPlane(store, plane, sessions, cfg, logger.Nop()), store, plane
 }
 
 // signedIn returns a request carrying a valid session for the given user.
@@ -455,7 +466,7 @@ func signedIn(t *testing.T, userID uuid.UUID, path string) *http.Request {
 	if err != nil {
 		t.Fatalf("new signer: %v", err)
 	}
-	token, err := signer.Issue(userID.String(), "ketut@example.com", time.Now())
+	token, err := signer.Issue(userID.String(), "ketut@example.com", 0, time.Now())
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -1288,5 +1299,134 @@ func TestChangePasswordDoesNotClaimSuccessWhenTheWriteFails(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "success") {
 		t.Fatalf("the response claims a change that was lost: %q", recorder.Body.String())
+	}
+}
+
+func (store *fakeStore) DeleteUser(_ context.Context, userID uuid.UUID) error {
+	store.deletedUser = userID
+	if store.user != nil && store.user.ID == userID {
+		store.user = nil
+	}
+	return nil
+}
+
+func (store *fakeStore) BumpSessionEpoch(_ context.Context, userID uuid.UUID) error {
+	store.bumpedUser = userID
+	return nil
+}
+
+// Deleting the account is the one control-plane write that reaches past the
+// row itself: the projects' files go too, or the disk keeps what the cascade
+// just forgot.
+func TestDeleteAccountRemovesTheAccountProjectsAndFiles(t *testing.T) {
+	handler, store, plane := testControlPlane(testUserID)
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	store.user.PasswordHash = hash
+	first := createProject(t, handler, store, "first")
+	second := createProject(t, handler, store, "second")
+
+	request := signedIn(t, testUserID, "/api/account")
+	request.Method = http.MethodDelete
+	request.Body = io.NopCloser(strings.NewReader(`{"password":"correct horse battery"}`))
+	request.ContentLength = int64(len(`{"password":"correct horse battery"}`))
+	request.Header.Set("Content-Type", "application/json")
+
+	recorder := httptest.NewRecorder()
+	handler.DeleteAccount(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.deletedUser != testUserID {
+		t.Errorf("expected the account to be deleted, got %s", store.deletedUser)
+	}
+	if store.user != nil {
+		t.Error("expected the user row to be gone")
+	}
+	if len(plane.removed) != 2 {
+		t.Fatalf("expected 2 project files removed, got %d", len(plane.removed))
+	}
+	removed := map[uuid.UUID]bool{}
+	for _, id := range plane.removed {
+		removed[id] = true
+	}
+	if !removed[first.ID] || !removed[second.ID] {
+		t.Errorf("expected both project files removed, got %v", plane.removed)
+	}
+}
+
+// A password account must type the password. Without this, a stolen session
+// cookie -- enough to read the dashboard -- would also be enough to erase the
+// account behind the owner's back.
+func TestDeleteAccountRequiresThePassword(t *testing.T) {
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+
+	testCases := []struct {
+		name string
+		body string
+	}{
+		{"missing", `{}`},
+		{"wrong", `{"password":"not-the-password"}`},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			handler, store, plane := testControlPlane(testUserID)
+			store.user.PasswordHash = hash
+			createProject(t, handler, store, "precious")
+
+			request := signedIn(t, testUserID, "/api/account")
+			request.Method = http.MethodDelete
+			request.Body = io.NopCloser(strings.NewReader(testCase.body))
+			request.ContentLength = int64(len(testCase.body))
+			request.Header.Set("Content-Type", "application/json")
+
+			recorder := httptest.NewRecorder()
+			handler.DeleteAccount(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", recorder.Code, recorder.Body.String())
+			}
+			if code := errorCode(t, recorder); code != "invalid_password" {
+				t.Errorf("expected invalid_password, got %q", code)
+			}
+			if store.deletedUser != uuid.Nil {
+				t.Error("the account must survive a refused password")
+			}
+			if len(plane.removed) != 0 {
+				t.Error("no files may be removed while the password is refused")
+			}
+		})
+	}
+}
+
+// A Google-only account has no password to type: the session is the same
+// credential the rest of the dashboard already trusts, and there is no second
+// factor for it to hand over.
+func TestDeleteAccountNeedsNoPasswordForAGoogleOnlyAccount(t *testing.T) {
+	handler, store, plane := testControlPlane(testUserID)
+	store.user.PasswordHash = ""
+	createProject(t, handler, store, "theirs")
+
+	request := signedIn(t, testUserID, "/api/account")
+	request.Method = http.MethodDelete
+
+	recorder := httptest.NewRecorder()
+	handler.DeleteAccount(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.deletedUser != testUserID {
+		t.Error("expected the account to be deleted")
+	}
+	if len(plane.removed) != 1 {
+		t.Errorf("expected 1 project file removed, got %d", len(plane.removed))
 	}
 }

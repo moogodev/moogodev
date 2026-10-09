@@ -5,6 +5,9 @@ Documentation=https://github.com/moogodev/moogodev
 # up to bind its loopback address.
 After=network-online.target
 Wants=network-online.target
+# Never give up on restarts. systemd only honours this in [Unit]; in [Service]
+# it is an unknown key and the default start limit applies instead.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -12,7 +15,8 @@ User=moogo
 Group=moogo
 
 # Secrets live here, not in the unit and not in the working directory.
-# chmod 600, owned by root:moogo. Generate the password hash with:
+# chmod 0640, owned by root:moogo -- the same mode deploy.sh writes for the
+# main service's environment file. Generate the password hash with:
 #   /usr/local/bin/moogo-news -hash-password '...'
 EnvironmentFile=/etc/moogo/news.env
 
@@ -29,7 +33,6 @@ TimeoutStopSec=30s
 
 Restart=always
 RestartSec=5s
-StartLimitIntervalSec=0
 
 # --- Sandboxing ---
 # Same profile as moogo.service: everything the service writes is under

@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -343,4 +344,39 @@ type captureWriter struct {
 func (writer *captureWriter) Write(payload []byte) (int, error) {
 	*writer.store += string(payload)
 	return len(payload), nil
+}
+
+// Two body caps can be stacked: a group-wide JSON cap sitting above a route
+// that allows much larger uploads. The innermost one has to be the one that
+// binds, which means each middleware re-wraps the original body rather than
+// the wrapper the outer layer installed. Otherwise the smaller of the two
+// would win by accident and a 256 MB upload route mounted under a JSON-capped
+// group would die at 1 MB.
+func TestNestedBodyCapsLetTheInnermostWin(t *testing.T) {
+	drain := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	body := func() *strings.Reader { return strings.NewReader(strings.Repeat("x", 1024)) }
+
+	// The inner cap is the generous one: the body fits it, so the request
+	// lives even though the outer cap alone would have refused it.
+	outer, inner := MaxBodyBytes(64), MaxBodyBytes(4096)
+	recorder := httptest.NewRecorder()
+	outer(inner(drain)).ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/", body()))
+	if recorder.Code != http.StatusOK {
+		t.Errorf("generous inner cap: got %d, want 200 -- the outer cap bound instead", recorder.Code)
+	}
+
+	// And the strict inner cap still refuses: nesting must not become a way
+	// around the tighter limit.
+	outer, inner = MaxBodyBytes(4096), MaxBodyBytes(64)
+	recorder = httptest.NewRecorder()
+	outer(inner(drain)).ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/", body()))
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("strict inner cap: got %d, want 413", recorder.Code)
+	}
 }

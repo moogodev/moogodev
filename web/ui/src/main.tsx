@@ -11,11 +11,13 @@ import Login from "./routes/Login";
 import NotFound from "./routes/NotFound";
 import OAuthSetup from "./routes/OAuthSetup";
 import Plan from "./routes/Plan";
+import Privacy from "./routes/Privacy";
 import ProjectDetail from "./routes/ProjectDetail";
 import Projects from "./routes/Projects";
 import Register from "./routes/Register";
 import ResetPassword from "./routes/ResetPassword";
 import Settings from "./routes/Settings";
+import Terms from "./routes/Terms";
 import VerifyEmail from "./routes/VerifyEmail";
 import "./index.css";
 import { initializeTheme } from "./lib/theme";
@@ -39,6 +41,11 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/announcement" element={<Announcement />} />
         {/* Both spellings land on the page so neither URL 404s. */}
         <Route path="/annoucement" element={<Announcement />} />
+        {/* The legal pages are ordinary routes, declared like the others so a
+            direct link or a hard refresh renders them rather than the
+            catch-all below. */}
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route path="/docs" element={<Docs />} />
         <Route path="/docs/:slug" element={<Docs />} />
         {/* Guides are linked from the corpus as /docs/guides/<slug> but the page

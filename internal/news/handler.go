@@ -301,23 +301,61 @@ func (server *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		path = "index.html"
 	}
 	if info, err := fs.Stat(server.static, path); err == nil && !info.IsDir() {
+		setStaticCache(w, path)
 		http.ServeFileFS(w, r, server.static, path)
 		return
 	}
 	// Anything the filesystem does not have is a client-side route.
+	//
+	// no-cache, not no-store: the shell may be cached, it must be revalidated
+	// before reuse. ServeFileFS sends Last-Modified, so revalidation is a 304
+	// rather than a full re-download -- but without this header the browser is
+	// free to reuse a shell that names assets a redeploy has already rotated,
+	// and a reader gets a page whose JS 404s until they force-reload.
+	w.Header().Set("Cache-Control", "no-cache")
 	http.ServeFileFS(w, r, server.static, "index.html")
+}
+
+// setStaticCache picks a cache policy by what the file is.
+//
+// Vite fingerprints everything under assets/ with the content hash in the
+// name, so those URLs can be cached forever -- the name changes when the bytes
+// do, which is the whole point of the hash. HTML must revalidate every time
+// (it names those hashes), and anything else in the public root gets a short
+// window so a favicon or manifest edit does not outlive a redeploy.
+func setStaticCache(w http.ResponseWriter, path string) {
+	switch {
+	case strings.HasPrefix(path, "assets/"):
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	case strings.HasSuffix(path, ".html"):
+		w.Header().Set("Cache-Control", "no-cache")
+	default:
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+	}
 }
 
 // securityHeaders is one place for the headers the pages need. CSP first:
 // the app ships no inline scripts, so 'self' for scripts costs nothing and
 // rules out injected markup running even if a sanitizer were bypassed.
+// form-action is 'self' for the same reason the rest of the form surface is
+// locked down: the login form posts credentials, and a policy that lets it
+// post anywhere would hand a single injected attribute an exfiltration path.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+			"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+		// HSTS, gated on the scheme the proxy reports rather than on r.TLS:
+		// this process sits behind nginx, so r.TLS is nil on every request in
+		// production and a plain r.TLS check would never fire. nginx sets
+		// X-Forwarded-Proto from $scheme, overwriting anything a client sends,
+		// and a browser ignores an HSTS header that arrives over http anyway,
+		// so the header cannot pin a plain-text origin by spoofing this value.
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

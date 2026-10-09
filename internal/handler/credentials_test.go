@@ -41,6 +41,8 @@ type credStore struct {
 	// verificationTokens maps the raw token a test presents to the account it
 	// was issued for, so VerifyEmail can stand in for the real lookup.
 	verificationTokens map[string]*dbcontrol.User
+	// deletedUser records the account a rollback or deletion removed.
+	deletedUser uuid.UUID
 }
 
 func (store *credStore) UserByEmail(ctx context.Context, email string) (*dbcontrol.User, error) {
@@ -294,16 +296,24 @@ func TestRegisterReportsAFailedConfirmationEmail(t *testing.T) {
 	recorder := doJSON(t, handler.Register, http.MethodPost, "/auth/register",
 		`{"email":"undeliverable@example.com","password":"supersecret1"}`)
 
-	// The account exists and cannot be used, so reporting success here would
-	// leave somebody waiting on an email that will never arrive.
+	// The failure is reported rather than swallowed, and the half-made
+	// account is rolled back with it: a retry with the same address has to
+	// start from a clean slate instead of colliding with an unverified row
+	// nobody can use.
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 	if !strings.Contains(recorder.Body.String(), "mail_failed") {
 		t.Errorf("expected the mail_failed code, got %s", recorder.Body.String())
 	}
-	if store.createdUser == nil {
-		t.Error("expected the account to still have been created")
+	if store.createdUser != nil {
+		t.Error("expected the account to be rolled back, but it still exists")
+	}
+	if store.deletedUser == uuid.Nil {
+		t.Error("expected the rollback to delete the account")
+	}
+	if _, left := store.byEmail["undeliverable@example.com"]; left {
+		t.Error("expected the address to be free again after the rollback")
 	}
 }
 
@@ -722,6 +732,38 @@ func TestRegisterWithoutAPrividerInProductionPointsAtGoogle(t *testing.T) {
 		!strings.Contains(recorder.Body.String(), "email_unavailable") {
 		t.Errorf("expected the unavailable code, got %s", recorder.Body.String())
 	}
+
+	// The refusal rolls the account back: the next attempt is a Google
+	// sign-in, which has to find the address free rather than colliding with
+	// an unverified password row that was never usable.
+	if store.createdUser != nil {
+		t.Error("expected the refused registration to be rolled back")
+	}
+	if _, left := store.byEmail["prod@example.com"]; left {
+		t.Error("expected the address to be free again after the rollback")
+	}
+}
+
+// The other rollback: the account was written and the address was being
+// marked proven, and that write failed. The account is half-made, so it goes.
+func TestRegisterRollsBackWhenMarkingTheAddressFails(t *testing.T) {
+	store := &credStore{byEmail: map[string]*dbcontrol.User{}}
+	store.markVerifyErr = errors.New("connection lost")
+	mailer := &credMailer{disabled: true}
+	handler := newCredHandler(t, store, mailer)
+
+	recorder := doJSON(t, handler.Register, http.MethodPost, "/auth/register",
+		`{"email":"halfmade@example.com","password":"correct-horse-battery-staple"}`)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d (%s)", recorder.Code, recorder.Body.String())
+	}
+	if store.createdUser != nil {
+		t.Error("expected the account to be rolled back")
+	}
+	if store.deletedUser == uuid.Nil {
+		t.Error("expected the rollback to delete the account")
+	}
 }
 
 // With a provider configured nothing changed: the account waits for a link.
@@ -743,4 +785,17 @@ func TestRegisterWithAPrividerStillSendsTheConfirmation(t *testing.T) {
 	if verified {
 		t.Error("the account was marked verified without a mailed token")
 	}
+}
+
+func (store *credStore) DeleteUser(ctx context.Context, userID uuid.UUID) error {
+	for email, user := range store.byEmail {
+		if user.ID == userID {
+			delete(store.byEmail, email)
+		}
+	}
+	if store.createdUser != nil && store.createdUser.ID == userID {
+		store.createdUser = nil
+	}
+	store.deletedUser = userID
+	return nil
 }

@@ -365,7 +365,7 @@ func TestRequireSessionAcceptsValidCookie(t *testing.T) {
 	sessions := NewSessionManager(signer, false)
 
 	userID := uuid.New()
-	token, err := sessions.Issue(userID, "ketut@example.com")
+	token, err := sessions.Issue(userID, "ketut@example.com", 0)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestSetCookieCarriesSecurityFlags(t *testing.T) {
 	}
 	sessions := NewSessionManager(signer, true)
 
-	token, err := sessions.Issue(uuid.New(), "ketut@example.com")
+	token, err := sessions.Issue(uuid.New(), "ketut@example.com", 0)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -797,5 +797,130 @@ func TestRequireProjectKeyVerifiesTheKeyBeforeTheStateChecks(t *testing.T) {
 					testCase.name, recorder.Code)
 			}
 		})
+	}
+}
+
+// stubEpochs is the account's session counter, as SessionManager sees it.
+type stubEpochs struct {
+	epoch int64
+	err   error
+}
+
+func (store *stubEpochs) SessionEpoch(context.Context, uuid.UUID) (int64, error) {
+	return store.epoch, store.err
+}
+
+func (store *stubEpochs) BumpSessionEpoch(context.Context, uuid.UUID) error {
+	store.epoch++
+	return nil
+}
+
+// A token issued under epoch 3 must fail once the account has moved to 5 --
+// this is what signing out on one device does to every other device: the
+// tokens are never reached, their epoch simply no longer matches.
+func TestRequireSessionRejectsARevokedEpoch(t *testing.T) {
+	signer, err := session.NewSigner("a-test-secret-that-is-definitely-long-enough", time.Hour)
+	if err != nil {
+		t.Fatalf("create signer: %v", err)
+	}
+	sessions := NewSessionManager(signer, false)
+	sessions.SetEpochStore(&stubEpochs{epoch: 5})
+
+	userID := uuid.New()
+	token, err := sessions.Issue(userID, "ketut@example.com", 3)
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	handler := RequireSession(sessions)(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			t.Error("handler should not be reached")
+		}))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
+	request.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", recorder.Code)
+	}
+}
+
+// A bumped counter is the live mechanism, not only a mismatched value: the
+// request before the bump succeeds and the identical request after it does
+// not.
+func TestBumpingTheEpochRetiresAnExistingSession(t *testing.T) {
+	signer, err := session.NewSigner("a-test-secret-that-is-definitely-long-enough", time.Hour)
+	if err != nil {
+		t.Fatalf("create signer: %v", err)
+	}
+	sessions := NewSessionManager(signer, false)
+	epochs := &stubEpochs{epoch: 2}
+	sessions.SetEpochStore(epochs)
+
+	userID := uuid.New()
+	token, err := sessions.Issue(userID, "ketut@example.com", 2)
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	probe := RequireSession(sessions)(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+
+	request := func() *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
+		r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
+		return r
+	}
+
+	recorder := httptest.NewRecorder()
+	probe.ServeHTTP(recorder, request())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 before the bump, got %d", recorder.Code)
+	}
+
+	if err := epochs.BumpSessionEpoch(context.Background(), userID); err != nil {
+		t.Fatalf("bump: %v", err)
+	}
+
+	recorder = httptest.NewRecorder()
+	probe.ServeHTTP(recorder, request())
+	if recorder.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 after the bump, got %d", recorder.Code)
+	}
+}
+
+// Fail closed: if the account's counter cannot be read, the request is
+// refused rather than waved through. An unreachable database must not turn
+// into an authenticated request.
+func TestRequireSessionFailsClosedWhenTheEpochIsUnreadable(t *testing.T) {
+	signer, err := session.NewSigner("a-test-secret-that-is-definitely-long-enough", time.Hour)
+	if err != nil {
+		t.Fatalf("create signer: %v", err)
+	}
+	sessions := NewSessionManager(signer, false)
+	sessions.SetEpochStore(&stubEpochs{err: errors.New("connection lost")})
+
+	userID := uuid.New()
+	token, err := sessions.Issue(userID, "ketut@example.com", 0)
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	handler := RequireSession(sessions)(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			t.Error("handler should not be reached")
+		}))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
+	request.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", recorder.Code)
 	}
 }

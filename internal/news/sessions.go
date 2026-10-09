@@ -44,7 +44,7 @@ func NewSessions(secret string, secure bool) (*Sessions, error) {
 
 // Issue signs a session for the admin and writes the cookie.
 func (sessions *Sessions) Issue(w http.ResponseWriter, email string) error {
-	token, err := sessions.signer.Issue(adminUserID.String(), email, time.Now())
+	token, err := sessions.signer.Issue(adminUserID.String(), email, 0, time.Now())
 	if err != nil {
 		return err
 	}

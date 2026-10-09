@@ -44,6 +44,11 @@ type credentialStore interface {
 	VerifyEmail(ctx context.Context, tokenHash string) error
 	EmailVerified(ctx context.Context, userID uuid.UUID) (bool, error)
 	MarkEmailVerified(ctx context.Context, userID uuid.UUID) error
+
+	// DeleteUser removes an account outright. The credential handlers need it
+	// for one job: rolling back a registration whose confirmation email never
+	// went out, so a failed signup leaves no row behind to block the retry.
+	DeleteUser(ctx context.Context, userID uuid.UUID) error
 }
 
 // mailSender delivers the transactional links.
@@ -226,11 +231,13 @@ const registrationConfirmation = "Check your email for a confirmation link. " +
 // On success a freshly created account and one that was already registered
 // answer with the same accepted shape -- a taken address never enters this
 // function -- so register cannot be used to tell which addresses exist. What
-// this function adds is the failure path, and it is loud on purpose: the
-// account exists and cannot be used, so a quiet 202 would leave somebody
-// waiting on an inbox that will never receive anything. The Register page
-// documents that trade. The password-reset path takes the opposite one: it
-// promised the same answer whether or not an address exists, so it logs a
+// this function adds is the failure path, and the account is rolled back
+// before it is reported: an account that cannot receive its confirmation link
+// can never be signed into, and leaving the row behind would both strand the
+// person waiting on an inbox that will never answer and block the retry with
+// a taken address. The response is loud on purpose -- a quiet 202 would hide
+// that nothing was created. The password-reset path takes the opposite one:
+// it promised the same answer whether or not an address exists, so it logs a
 // delivery failure instead of reporting it.
 func (handler *Credentials) sendVerification(
 	w http.ResponseWriter,
@@ -239,8 +246,7 @@ func (handler *Credentials) sendVerification(
 ) {
 	// With no provider configured there is no address to deliver to. Issuing a
 	// token anyway writes a row nobody will read and answers "check your
-	// email" about an email that cannot exist, which leaves the account unable
-	// to sign in and the person waiting for nothing.
+	// email" about an email that cannot exist.
 	if !handler.mailer.Enabled() {
 		handler.completeWithoutMail(w, r, user)
 		return
@@ -249,25 +255,24 @@ func (handler *Credentials) sendVerification(
 	_, err := handler.issueVerification(r.Context(), user)
 	if err != nil {
 		// A token that never reached the inbox is a different problem from one
-		// that never reached the database, and the code tells the frontend which.
-		// Both are reported with the same sentence because from the person's side
-		// they are the same situation: the account exists and cannot be used.
-		//
-		// The id belongs in the log. The account is already written, so if the
-		// outage is long the only way somebody gets in is an operator clearing
-		// the flag, and that starts from knowing which account.
+		// that never reached the database, and the code tells the frontend
+		// which. Both roll the account back first, so "try again" in the
+		// message below is true: the address is free again by the time the
+		// caller reads it.
 		handler.log.Error("verification email not sent", logger.Fields{
 			"error":   err.Error(),
 			"user_id": user.ID.String(),
 			"email":   user.Email,
 		})
+		handler.rollbackRegistration(r.Context(), user)
 
-		code := "internal"
 		if errors.Is(err, errMailFailed) {
-			code = "mail_failed"
+			httpx.WriteError(w, http.StatusInternalServerError, "mail_failed",
+				"the confirmation email could not be sent, so the account was not created; try again in a few minutes")
+			return
 		}
-		httpx.WriteError(w, http.StatusInternalServerError, code,
-			"the account was created but the confirmation email could not be sent; try again in a few minutes")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal",
+			"could not create the account")
 		return
 	}
 
@@ -277,16 +282,35 @@ func (handler *Credentials) sendVerification(
 	})
 }
 
+// rollbackRegistration deletes the account a registration just created.
+//
+// It is called only on paths where the account exists but cannot be used, and
+// always before the failure is reported, so the answer and the database agree:
+// "not created" means the next attempt starts from an empty address. A
+// failure to roll back is logged loudly -- it is the one case where the
+// response and the row disagree, and the id in the log is what makes that
+// recoverable.
+func (handler *Credentials) rollbackRegistration(ctx context.Context, user *dbcontrol.User) {
+	if err := handler.store.DeleteUser(ctx, user.ID); err != nil {
+		handler.log.Error("rollback registration", logger.Fields{
+			"error":   err.Error(),
+			"user_id": user.ID.String(),
+			"email":   user.Email,
+		})
+	}
+}
+
 // completeWithoutMail finishes a registration when no provider is configured.
 //
 // In development it marks the address proven, because the alternative is an
 // account that cannot be opened and a developer with no way to test anything
 // that comes after signing up.
 //
-// In production it refuses. Configuration already refuses to boot without a
-// sign-in path, so reaching this means Google is configured and mail is not:
-// the account can still be opened through Google, and saying so is more use
-// than a promise about an email that is never sent.
+// In production it refuses and rolls the account back. Configuration already
+// refuses to boot without a sign-in path, so reaching this means Google is
+// configured and mail is not: the person can still open the account through
+// Google, and with the row gone that sign-in creates it fresh rather than
+// colliding with an unverified half-account nobody can use.
 func (handler *Credentials) completeWithoutMail(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -296,6 +320,7 @@ func (handler *Credentials) completeWithoutMail(
 		handler.log.Warn("password registration without email delivery", logger.Fields{
 			"user_id": user.ID.String(),
 		})
+		handler.rollbackRegistration(r.Context(), user)
 		httpx.WriteError(w, http.StatusServiceUnavailable, "email_unavailable",
 			"this deployment cannot send confirmation email; sign in with Google instead")
 		return
@@ -303,8 +328,10 @@ func (handler *Credentials) completeWithoutMail(
 
 	if err := handler.store.MarkEmailVerified(r.Context(), user.ID); err != nil {
 		handler.log.Error("mark email verified without mail", logger.Fields{
-			"error": err.Error(), "user_id": user.ID.String(),
+			"error":   err.Error(),
+			"user_id": user.ID.String(),
 		})
+		handler.rollbackRegistration(r.Context(), user)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal",
 			"could not create the account")
 		return
@@ -588,7 +615,7 @@ func (handler *Credentials) ResetPassword(w http.ResponseWriter, r *http.Request
 
 // signIn issues a session and sets the cookie, then reports success.
 func (handler *Credentials) signIn(w http.ResponseWriter, user *dbcontrol.User) {
-	token, err := handler.sessions.Issue(user.ID, user.Email)
+	token, err := handler.sessions.Issue(user.ID, user.Email, user.SessionEpoch)
 	if err != nil {
 		handler.log.Error("issue session", logger.Fields{"error": err.Error(), "user_id": user.ID.String()})
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not sign you in")

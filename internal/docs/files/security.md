@@ -129,6 +129,20 @@ This is not bureaucracy. A key scoped to running `SELECT` should not be able to
 overwrite every file in a project, and rotating the SQL key should not silently
 break every running application.
 
+## Sessions can be revoked
+
+A dashboard session is a signed token that carries an **epoch** — a counter
+stored on the account. Every authenticated request compares the token's epoch
+against the account's current one, and a mismatch fails closed: no matching
+row, no session.
+
+**Sign out bumps the epoch.** One click from any device retires every session
+the account holds, everywhere at once. The other browsers never need to be
+reached; their tokens simply stop verifying on the next request.
+
+Deleting the account is the same failure from the other direction: there is no
+account left to read an epoch from, so every session signed in to it fails.
+
 ## Public object URLs
 
 A published object is readable at `/pub/{project_id}/{key}` with no credential, no

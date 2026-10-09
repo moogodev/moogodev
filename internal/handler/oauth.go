@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/moogodev/moogodev/internal/auth"
 	"github.com/moogodev/moogodev/internal/config"
+	"github.com/moogodev/moogodev/internal/dbcontrol"
 	"github.com/moogodev/moogodev/pkg/httpx"
 	"github.com/moogodev/moogodev/pkg/logger"
 )
@@ -103,7 +105,7 @@ func (handler *OAuth) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := handler.sessions.Issue(user.ID, user.Email)
+	token, err := handler.sessions.Issue(user.ID, user.Email, user.SessionEpoch)
 	if err != nil {
 		handler.log.Error("issue session", logger.Fields{"error": err.Error()})
 		handler.redirectWithFailure(w, r, "failed")
@@ -119,7 +121,34 @@ func (handler *OAuth) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 //
 // POST rather than GET: a GET logout can be triggered by any image tag on any
 // page, which lets a third-party site sign the user out.
+//
+// It is a revocation, not just a cleared cookie: the account's session epoch
+// is bumped, so every token issued to the account before this moment stops
+// verifying -- the browser that asked, and any copy of the cookie somebody
+// else is holding. That retires sessions on other devices too, which is the
+// safer direction: the person who signed out meant "not signed in any more",
+// and a stolen token must not be the exception.
 func (handler *OAuth) Logout(w http.ResponseWriter, r *http.Request) {
+	if claims, err := handler.sessions.ClaimsFromRequest(r); err == nil {
+		userID, err := uuid.Parse(claims.UserID)
+		if err == nil {
+			if err := handler.store.BumpSessionEpoch(r.Context(), userID); err != nil &&
+				!errors.Is(err, dbcontrol.ErrNotFound) {
+				// A revocation that did not happen must not be reported as a
+				// success: the token is still good, and the caller would stop
+				// trying. The cookie is left alone so a retry has something to
+				// revoke with.
+				handler.log.Error("revoke session", logger.Fields{
+					"error":   err.Error(),
+					"user_id": userID.String(),
+				})
+				httpx.WriteError(w, http.StatusInternalServerError, "internal",
+					"could not sign out; try again")
+				return
+			}
+		}
+	}
+
 	handler.sessions.ClearCookie(w)
 	httpx.NoContent(w)
 }

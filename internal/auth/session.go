@@ -33,6 +33,20 @@ const (
 	ContextKeyCredentialID ContextKey = "moogo.credential_id"
 )
 
+// EpochStore reads and bumps the session revocation counter on the account
+// row. It is the one piece of server-side state behind a session token: the
+// signature proves the token was issued here, and the epoch proves the account
+// has not since signed out, changed its password situation, or been deleted.
+type EpochStore interface {
+	// SessionEpoch returns the account's current epoch. Any error -- including
+	// the account not existing -- is treated by the caller as a revoked
+	// session: a control plane that cannot read its own account table cannot
+	// vouch for anybody, and failing closed is the safe direction.
+	SessionEpoch(ctx context.Context, userID uuid.UUID) (int64, error)
+	// BumpSessionEpoch retires every token issued to the account before now.
+	BumpSessionEpoch(ctx context.Context, userID uuid.UUID) error
+}
+
 // SessionManager issues and reads session cookies.
 type SessionManager struct {
 	signer *session.Signer
@@ -44,6 +58,10 @@ type SessionManager struct {
 	// Empty keeps the default host-only cookie.
 	cookieDomain string
 	ttl          time.Duration
+	// epochs is the revocation store. It is optional so a test can exercise
+	// cookie handling without a database; when it is nil, tokens are only
+	// checked against their signature and expiry.
+	epochs EpochStore
 }
 
 // NewSessionManager creates a SessionManager.
@@ -62,14 +80,58 @@ func (manager *SessionManager) SetCookieDomain(domain string) {
 	manager.cookieDomain = domain
 }
 
-// Issue creates a session token for a user.
-func (manager *SessionManager) Issue(userID uuid.UUID, email string) (string, error) {
-	return manager.signer.Issue(userID.String(), email, time.Now())
+// SetEpochStore wires the revocation store. Call it before serving traffic;
+// without it a logout clears the browser's cookie but cannot retire the token.
+func (manager *SessionManager) SetEpochStore(epochs EpochStore) {
+	manager.epochs = epochs
 }
 
-// Verify checks a session token.
+// Issue creates a session token for a user under the given epoch.
+//
+// The epoch comes from the account row the sign-in just read: a token minted
+// after a logout carries the new number, which is what lets the previous
+// generation die without a session table.
+func (manager *SessionManager) Issue(userID uuid.UUID, email string, epoch int64) (string, error) {
+	return manager.signer.Issue(userID.String(), email, epoch, time.Now())
+}
+
+// Verify checks a session token's signature and expiry, without the epoch.
+//
+// It is the right check for a display-only reading of the claims. Anything
+// that authorises work goes through verifyChecked instead.
 func (manager *SessionManager) Verify(token string) (*session.Claims, error) {
 	return manager.signer.Verify(token, time.Now())
+}
+
+// verifyChecked verifies the token and, when an epoch store is configured,
+// that the account still holds the epoch the token was issued under.
+//
+// Every failure -- bad signature, expiry, a missing epoch store row, a
+// database that will not answer -- ends in the same error. Telling them apart
+// on the wire would hand a probe the difference between a forged token and an
+// account that was deleted, and a control plane that cannot read the account
+// table has no business vouching for anybody.
+func (manager *SessionManager) verifyChecked(ctx context.Context, token string) (*session.Claims, error) {
+	claims, err := manager.signer.Verify(token, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	if manager.epochs == nil {
+		return claims, nil
+	}
+
+	userID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, errors.New("session subject is not an account id")
+	}
+	epoch, err := manager.epochs.SessionEpoch(ctx, userID)
+	if err != nil {
+		return nil, errors.New("session epoch unavailable")
+	}
+	if epoch != claims.Epoch {
+		return nil, errors.New("session revoked")
+	}
+	return claims, nil
 }
 
 // SetCookie writes the session cookie.
@@ -130,7 +192,7 @@ func (manager *SessionManager) ClaimsFromRequest(r *http.Request) (*session.Clai
 	if err != nil {
 		return nil, ErrSessionMissing
 	}
-	return manager.Verify(cookie.Value)
+	return manager.verifyChecked(r.Context(), cookie.Value)
 }
 
 // UserIDFromContext returns the authenticated user's ID.
@@ -187,7 +249,9 @@ func CredentialIDFromContext(ctx context.Context) (uuid.UUID, bool) {
 // RequireSession rejects requests without a valid session and stores the user
 // ID in the context.
 //
-// Used on the control plane, where the caller is a signed-in person.
+// Used on the control plane, where the caller is a signed-in person. A token
+// whose account has signed out or been deleted fails here: the epoch check is
+// part of the gate, not an extra step a route can forget.
 func RequireSession(sessions *SessionManager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +261,7 @@ func RequireSession(sessions *SessionManager) func(http.Handler) http.Handler {
 				return
 			}
 
-			claims, err := sessions.Verify(cookie.Value)
+			claims, err := sessions.verifyChecked(r.Context(), cookie.Value)
 			if err != nil {
 				writeUnauthorized(w)
 				return

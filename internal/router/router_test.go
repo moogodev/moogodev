@@ -75,11 +75,36 @@ func (stub *stubCredentials) mark(w http.ResponseWriter, name string) {
 	_, _ = w.Write([]byte(name))
 }
 
+// readBody drains the request so a body cap becomes visible: a limit only
+// rejects a request once something reads past it, and the real handlers all
+// decode JSON. The two credential writes the tests send oversized bodies to
+// use it; the rest answer without reading.
+func (stub *stubCredentials) readBody(w http.ResponseWriter, r *http.Request) bool {
+	if r.Body != nil {
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			var maxBytesError *http.MaxBytesError
+			if errors.As(err, &maxBytesError) {
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				_, _ = w.Write([]byte("body too large"))
+				return false
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("bad body"))
+			return false
+		}
+	}
+	return true
+}
+
 func (stub *stubCredentials) Register(w http.ResponseWriter, r *http.Request) {
-	stub.mark(w, "Register")
+	if stub.readBody(w, r) {
+		stub.mark(w, "Register")
+	}
 }
 func (stub *stubCredentials) Login(w http.ResponseWriter, r *http.Request) {
-	stub.mark(w, "Login")
+	if stub.readBody(w, r) {
+		stub.mark(w, "Login")
+	}
 }
 func (stub *stubCredentials) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "ForgotPassword")
@@ -92,6 +117,19 @@ func (stub *stubCredentials) VerifyEmail(w http.ResponseWriter, r *http.Request)
 }
 func (stub *stubCredentials) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "ResendVerification")
+}
+
+// stubMeta stands in for the sitemap and robots handlers.
+type stubMeta struct{}
+
+func (stub *stubMeta) Sitemap(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Sitemap"))
+}
+
+func (stub *stubMeta) Robots(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Robots"))
 }
 
 // stubControl records which control plane route ran.
@@ -152,6 +190,9 @@ func (stub *stubControl) DeleteProject(w http.ResponseWriter, r *http.Request) {
 func (stub *stubControl) Activity(w http.ResponseWriter, r *http.Request) { stub.mark(w, "Activity") }
 func (stub *stubControl) DownloadDatabase(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "DownloadDatabase")
+}
+func (stub *stubControl) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "DeleteAccount")
 }
 func (stub *stubControl) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "ListBuckets")
@@ -353,6 +394,7 @@ func testRouter(t *testing.T, projectID uuid.UUID) (
 		Data:        dataStub,
 		Bucket:      bucketStub,
 		Docs:        docsStub,
+		Meta:        &stubMeta{},
 		Sessions:    auth.NewSessionManager(signer, false),
 		ProjectKeys: stubResolver{project: ready},
 		Projects:    stubAuthorizer{project: ready, owner: testRouterOwner},
@@ -456,7 +498,7 @@ func TestControlPlaneRoutesAcceptSession(t *testing.T) {
 	built, _, controlStub, _ := testRouter(t, uuid.New())
 
 	signer := mustSigner(t)
-	token, err := signer.Issue(uuid.NewString(), "ketut@example.com", time.Now())
+	token, err := signer.Issue(uuid.NewString(), "ketut@example.com", 0, time.Now())
 	if err != nil {
 		t.Fatalf("issue token: %v", err)
 	}
@@ -739,7 +781,7 @@ func TestDashboardBucketRefusesPausedProject(t *testing.T) {
 func issueTestToken(t *testing.T, userID uuid.UUID) string {
 	t.Helper()
 
-	token, err := mustSigner(t).Issue(userID.String(), "ketut@example.com", time.Now())
+	token, err := mustSigner(t).Issue(userID.String(), "ketut@example.com", 0, time.Now())
 	if err != nil {
 		t.Fatalf("issue token: %v", err)
 	}
@@ -994,6 +1036,22 @@ func TestHSTSSetOnTLS(t *testing.T) {
 
 	if got := recorder.Header().Get("Strict-Transport-Security"); got == "" {
 		t.Error("expected HSTS on a TLS request")
+	}
+}
+
+func TestHSTSSetOnForwardedHTTPS(t *testing.T) {
+	built, _, _, _ := testRouter(t, uuid.New())
+
+	// The production shape: nginx holds the certificate, r.TLS is nil, and
+	// the only evidence of HTTPS is the header the proxy sets from $scheme.
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("X-Forwarded-Proto", "https")
+
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, request)
+
+	if got := recorder.Header().Get("Strict-Transport-Security"); got == "" {
+		t.Error("expected HSTS when the proxy reports https")
 	}
 }
 
@@ -1392,4 +1450,79 @@ func TestUnknownPathServesErrorPageToBrowsers(t *testing.T) {
 			t.Errorf("expected the json error body, got %q", body)
 		}
 	})
+}
+
+// The credential writes have to carry the JSON body cap themselves: without
+// it, one unauthenticated POST hands the process an arbitrarily large body to
+// buffer before the decoder ever sees a byte. testRouter caps at 64 KB, so an
+// oversized login is 413 only if the route actually applies that cap.
+func TestCredentialWritesAreBodyCapped(t *testing.T) {
+	built, _, _, _ := testRouter(t, uuid.New())
+
+	t.Run("oversized", func(t *testing.T) {
+		body := strings.Repeat("x", 70*1024)
+		request := httptest.NewRequest(http.MethodPost, "/auth/login",
+			strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("expected 413, got %d", recorder.Code)
+		}
+	})
+
+	t.Run("within the cap", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodPost, "/auth/login",
+			strings.NewReader(`{"email":"a@b.c","password":"secret123"}`))
+		request.Header.Set("Content-Type", "application/json")
+
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+		}
+	})
+}
+
+// The legal pages and the crawler endpoints are routes like any other. The
+// SPA catch-all would answer 200 HTML for a missing path, so the assertions
+// check what came back, not only the status.
+func TestLegalAndCrawlerRoutesAreRegistered(t *testing.T) {
+	built, _, _, _ := testRouter(t, uuid.New())
+
+	htmlPages := []string{"/terms", "/privacy"}
+	for _, path := range htmlPages {
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+
+		if recorder.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", path, recorder.Code)
+		}
+		if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
+			t.Errorf("%s: content type = %q, want text/html", path, contentType)
+		}
+	}
+
+	crawler := []struct {
+		path string
+		want string
+	}{
+		{"/sitemap.xml", "Sitemap"},
+		{"/robots.txt", "Robots"},
+	}
+	for _, testCase := range crawler {
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, testCase.path, nil))
+
+		if recorder.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", testCase.path, recorder.Code)
+		}
+		if recorder.Body.String() != testCase.want {
+			t.Errorf("%s: body = %q, want the stub handler's answer %q",
+				testCase.path, recorder.Body.String(), testCase.want)
+		}
+	}
 }

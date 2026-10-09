@@ -59,6 +59,8 @@ export default function Settings() {
         <PlanSection me={me} loading={loading} />
 
         <SessionSection onSignOut={signOut} />
+
+        {me && <DangerZone me={me} />}
       </main>
     </div>
   );
@@ -325,6 +327,104 @@ function SessionSection({ onSignOut }: { onSignOut: () => void }) {
       >
         Sign out
       </button>
+    </section>
+  );
+}
+
+// DangerZone is account deletion, in its own section at the bottom where a
+// reader reaches it after everything else.
+//
+// Two guards match the two things that can go wrong. A password account must
+// re-enter the password: the endpoint refuses without it, so a stolen cookie
+// cannot erase the account behind the user's back. And the button arms before
+// it fires -- one click states the intent, the second one acts -- because a
+// single click on a red button is one click too few for something that cannot
+// be undone. A Google-only account has no password to re-enter and relies on
+// the session alone, which is the same credential the rest of the dashboard
+// already trusts.
+function DangerZone({ me }: { me: Me }) {
+  const [password, setPassword] = useState("");
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const needsPassword = me.has_password;
+
+  const click = useCallback(async () => {
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteAccount(needsPassword ? password : undefined);
+      // The server cleared the cookie; there is nothing left to render.
+      window.location.assign("/");
+    } catch (cause) {
+      setArmed(false);
+      setError(
+        cause instanceof ApiError ? cause.message : "Could not delete the account.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [armed, needsPassword, password]);
+
+  return (
+    <section className="mx-auto max-w-3xl rounded-lg border border-error/30 bg-error/5 p-5">
+      <h2 className="mb-1 text-[0.95rem] font-semibold text-error">Danger zone</h2>
+      <p className="mb-4 max-w-[62ch] text-[0.82rem] font-medium leading-relaxed text-muted">
+        Deleting your account removes every project, database, stored object,
+        and key you have — it cannot be undone. Your sessions are signed out
+        everywhere. Export anything you want to keep first.
+      </p>
+
+      {needsPassword && (
+        <div className="mb-4 max-w-[26rem]">
+          <Field label="Confirm with your password" id="delete-password">
+            <PasswordInput
+              id="delete-password"
+              value={password}
+              onChange={setPassword}
+              autoComplete="current-password"
+            />
+          </Field>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void click()}
+          disabled={busy || (needsPassword && password === "")}
+          className="cursor-pointer rounded-lg bg-error px-4 py-2 text-[0.85rem] font-semibold text-white transition-colors hover:bg-error/90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy
+            ? "Deleting…"
+            : armed
+              ? "Click again to delete everything"
+              : "Delete account"}
+        </button>
+        {armed && !busy && (
+          <button
+            type="button"
+            onClick={() => setArmed(false)}
+            className="cursor-pointer text-[0.82rem] font-medium text-muted hover:text-foreground transition-colors"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <p
+          role="alert"
+          className="mt-3 rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-[0.82rem] text-amber"
+        >
+          {error}
+        </p>
+      )}
     </section>
   );
 }

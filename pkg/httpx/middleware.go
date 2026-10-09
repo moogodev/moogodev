@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -152,16 +153,37 @@ func AccessLog(log *logger.Logger) func(http.Handler) http.Handler {
 	}
 }
 
+// originalBodyKey remembers the request body before any cap wrapped it.
+//
+// It is what lets two MaxBodyBytes middlewares nest: the innermost cap is the
+// one that should bind, and to apply it the original body has to be reachable
+// past the outer wrapper rather than stacked underneath it, where the smaller
+// of the two would silently win and a 256 MB upload route mounted under a
+// JSON-capped group would die at 1 MB.
+type originalBodyKey struct{}
+
 // MaxBodyBytes caps the request body size.
 //
 // http.MaxBytesReader stops the read at the limit rather than after it, which
 // is the difference between rejecting a 10 MB upload and buffering it first.
+//
+// When two of these middlewares nest, the one closest to the handler wins:
+// each re-wraps the original body rather than the wrapper the outer layer
+// already installed. See originalBodyKey for why stacking is wrong.
 func MaxBodyBytes(limit int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Body != nil {
-				r.Body = http.MaxBytesReader(w, r.Body, limit)
+			if r.Body == nil {
+				next.ServeHTTP(w, r)
+				return
 			}
+
+			original := r.Body
+			if stored, ok := r.Context().Value(originalBodyKey{}).(io.ReadCloser); ok {
+				original = stored
+			}
+			r = r.WithContext(context.WithValue(r.Context(), originalBodyKey{}, original))
+			r.Body = http.MaxBytesReader(w, original, limit)
 			next.ServeHTTP(w, r)
 		})
 	}

@@ -39,6 +39,11 @@ type User struct {
 	BillingCustomerID *string   `json:"billing_customer_id"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
+
+	// SessionEpoch is the revocation counter every session token is checked
+	// against. Bumping it retires every token the account has outstanding;
+	// it never reaches an API response.
+	SessionEpoch int64 `json:"-"`
 }
 
 // ProjectStatus is a stage in the project creation saga.

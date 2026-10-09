@@ -77,6 +77,11 @@ func Build(ctx context.Context, options Options) (*App, error) {
 
 	sessions := auth.NewSessionManager(signer, cfg.CookieSecure)
 	sessions.SetCookieDomain(cfg.CookieDomain)
+	// The epoch store is what turns a signed cookie into a revocable one:
+	// every control-plane request compares the token's epoch against this
+	// row, and logout bumps the row. Without it a copied cookie would keep
+	// working until it expired.
+	sessions.SetEpochStore(store)
 
 	google := auth.NewManager(auth.GoogleConfig{
 		ClientID:     cfg.GoogleClientID,
@@ -84,12 +89,13 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		RedirectURL:  cfg.PublicURL + "/auth/google/callback",
 	}, sessions, options.Log)
 
-	controlHandler := handler.NewControlPlane(store, databases, cfg, options.Log)
+	controlHandler := handler.NewControlPlane(store, databases, sessions, cfg, options.Log)
 	dataHandler := handler.NewDataPlane(databases, options.Log)
 	oauthHandler := handler.NewOAuth(google, sessions, store, cfg, options.Log)
 	bucketHandler := handler.NewBucketPlane(store, databases, cfg.MaxStorageBytes, cfg.PublicURL, options.Log)
 	docsHandler := handler.NewDocsHandler(handler.GetDocsFS(), options.Log)
 	updatesHandler := handler.NewUpdatesHandler(cfg.NewsURL, options.Log)
+	metaHandler := handler.NewMeta(cfg.PublicURL, docsHandler, options.Log)
 
 	mailer := mail.New(cfg.ResendAPIKey, cfg.MailFrom, cfg.PublicURL, options.Log, cfg.IsProduction())
 	credentialsHandler := handler.NewCredentials(store, sessions, mailer, cfg, options.Log)
@@ -110,6 +116,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		Bucket:         bucketHandler,
 		Docs:           docsHandler,
 		Updates:        updatesHandler,
+		Meta:           metaHandler,
 		Sessions:       sessions,
 		ProjectKeys:    store,
 		Projects:       store,
@@ -136,10 +143,28 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		Server: &http.Server{
 			Addr:    cfg.Addr,
 			Handler: built,
-			// ReadHeaderTimeout is set but ReadTimeout is not: a query response
-			// can legitimately take as long as the statement timeout plus
-			// encoding, and a write timeout shorter than that would cut off
-			// successful results.
+			// ReadHeaderTimeout is set; ReadTimeout and WriteTimeout are not,
+			// and both omissions are deliberate:
+			//
+			//   - ReadTimeout bounds reading the whole request, which includes
+			//     the body. An object upload is up to MaxObjectBytes over a
+			//     link the server does not control, so any ReadTimeout short
+			//     enough to matter would refuse large uploads from slow
+			//     clients. Bounded request reading is done where it can be
+			//     specific instead: MaxBodyBytes caps what is read on every
+			//     JSON route, and nginx in front sets client_body_timeout so
+			//     a stalled upload dies at the edge.
+			//   - WriteTimeout bounds writing the whole response, counted
+			//     from the end of the headers. A statement may legitimately
+			//     run for the whole query timeout before it writes a byte,
+			//     and a download may stream a 256 MB object over a slow
+			//     link; a WriteTimeout shorter than either would cut off
+			//     successful results. Slow readers die at nginx's
+			//     send_timeout instead.
+			//
+			// ReadHeaderTimeout still bounds the part that is pure overhead:
+			// a header flood stops after 15 seconds rather than holding a
+			// connection open forever.
 			ReadHeaderTimeout: cfg.ReadTimeout,
 			IdleTimeout:       cfg.IdleTimeout,
 			// Go's default header cap is 1 MB, which is far more than the

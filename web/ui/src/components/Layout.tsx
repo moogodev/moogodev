@@ -25,7 +25,14 @@ export function SiteLayout({ children }: { children: ReactNode }) {
 // whatever they find there can carry. It has to be read first. The amber is
 // the same token the auth pages use for notices, so the bar reads as a notice
 // in both themes instead of inventing a colour of its own.
+//
+// Development builds only. import.meta.env.DEV is compiled to false in a
+// production build, so this whole component compiles to null there: the bar
+// is a local-testing aid, and shipping an amber "not ready" banner on the
+// live site would contradict the announcement page it links to. The page
+// itself stays reachable either way.
 function AnnouncementBar() {
+  if (!import.meta.env.DEV) return null;
   return (
     <div className="border-b border-amber/30 bg-amber/10">
       <div className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-center gap-x-2 gap-y-1 px-6 py-2 text-center text-[0.84rem] text-muted">
@@ -252,7 +259,7 @@ const footerGroups: { title: string; links: { label: string; to: string }[] }[] 
       { label: "Why Moogo", to: "/docs/why-moogo" },
       { label: "Comparison", to: "/docs/comparison" },
       { label: "Pricing", to: "/plan" },
-      { label: "Limits", to: "/#limits" },
+      { label: "Limits", to: "/docs/limits" },
     ],
   },
   {
@@ -282,6 +289,8 @@ const footerGroups: { title: string; links: { label: string; to: string }[] }[] 
       { label: "Errors", to: "/docs/errors" },
       { label: "Troubleshooting", to: "/docs/errors#common-problems" },
       { label: "Feedback", to: "/docs/feedback" },
+      { label: "Terms", to: "/terms" },
+      { label: "Privacy", to: "/privacy" },
       { label: "GitHub", to: "https://github.com/moogodev/moogodev" },
     ],
   },

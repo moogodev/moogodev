@@ -264,10 +264,12 @@ Unquoted, the shell splits it into three words and the value is silently wrong.
 
 ## 6. The two proxy traps
 
-**HSTS is not sent.** The app sets `Strict-Transport-Security` only when
-`r.TLS != nil`. Behind a terminating proxy `r.TLS` is always `nil`, so no header
-is emitted. The nginx site config written by `deploy.sh` sets it with
-`add_header ... always`. Do not remove that line expecting the app to take over.
+**HSTS comes from two places.** The app sets `Strict-Transport-Security` when
+either its own socket is TLS (`r.TLS != nil`) or the proxy reports
+`X-Forwarded-Proto: https` -- the shape every production request has, since
+nginx terminates TLS and this app always sees cleartext. The nginx site config
+written by `deploy.sh` sets the header too, with `add_header ... always`.
+Redundancy is the point: removing either copy leaves the other in place.
 
 **Certificates are certbot's job.** `deploy.sh` obtains the first one and
 installs a deploy hook so `certbot renew` reloads nginx after each renewal. If

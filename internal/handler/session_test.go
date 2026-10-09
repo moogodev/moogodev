@@ -52,7 +52,7 @@ func TestSessionProbeReportsSignedOut(t *testing.T) {
 func TestSessionProbeReportsSignedIn(t *testing.T) {
 	handler, signer := newSessionProbe(t)
 
-	token, err := signer.Issue("11111111-1111-4111-8111-111111111111", "ketut@example.com", time.Now())
+	token, err := signer.Issue("11111111-1111-4111-8111-111111111111", "ketut@example.com", 0, time.Now())
 	if err != nil {
 		t.Fatalf("issue token: %v", err)
 	}

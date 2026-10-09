@@ -5,6 +5,11 @@ Documentation=https://github.com/moogodev/moogodev
 # /readyz, so it waits for the network to come up and retries on its own.
 After=network-online.target
 Wants=network-online.target
+# Do not give up on restarts: an unreachable Postgres is an outage that
+# resolves, and the alternative is a service that stays down until somebody
+# logs in. This belongs in [Unit] -- systemd rejects it in [Service], where it
+# used to sit, and a rejected key is a silent no-op at best.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -12,7 +17,8 @@ User=moogo
 Group=moogo
 
 # Secrets live here, not in the unit and not in the working directory.
-# chmod 600, owned by root:moogo.
+# chmod 0640, owned by root:moogo -- readable by the service account through
+# its group, and by root alone for writing. deploy.sh creates it this way.
 EnvironmentFile=/etc/moogo/moogo.env
 
 # WorkingDirectory only matters because config.Load() also reads a .env from
@@ -30,9 +36,6 @@ TimeoutStopSec=45s
 # A database that is unreachable is usually a database that is still starting.
 Restart=always
 RestartSec=5s
-# Do not give up: an unreachable Postgres is an outage that resolves, and the
-# alternative is a service that stays down until somebody logs in.
-StartLimitIntervalSec=0
 
 # One descriptor per open SQLite file plus buckets. The default 1024 runs out
 # on a node with many projects.

@@ -650,3 +650,19 @@ func TestProjectCountCountsOnlyLiveProjects(t *testing.T) {
 		t.Errorf("count = %d, want %d", after, before+1)
 	}
 }
+// A freshly created project must carry a real updated_at. The column is what
+// the dashboard's "last updated" reads, and the insert used to return only id
+// and created_at, leaving the field zero until the next write to the row.
+func TestCreateProjectCarriesUpdatedAt(t *testing.T) {
+	store := testStore(t)
+	user := newTestUser(t, store, 3)
+
+	project := newTestProject(t, store, user.ID)
+
+	if project.UpdatedAt.IsZero() {
+		t.Fatal("UpdatedAt is zero on a freshly created project")
+	}
+	if project.UpdatedAt.Before(project.CreatedAt) {
+		t.Errorf("UpdatedAt %v precedes CreatedAt %v", project.UpdatedAt, project.CreatedAt)
+	}
+}

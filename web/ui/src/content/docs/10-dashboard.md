@@ -161,14 +161,25 @@ in with Google would quietly create a second account.
   change or reset it, and it will not offer a form that would create a second
   credential Google does not know about.
 
-Changing your password does not sign out your other sessions. The session cookie
-is a signed token rather than a row in a table, so there is nothing to revoke;
-if you think a session is compromised, change the password at the provider you
-sign in with and sign out on the devices you still have.
+Changing your password does not sign out your other sessions. The password is
+the credential; sessions are tokens already issued, and changing one does not
+reach back into the others. **Signing out is what revokes**: it bumps an epoch
+on your account, and every session issued before that bump stops verifying —
+on every device, not only the browser that clicked sign out. If you think a
+session is compromised, sign out once from any device you still control, and
+change the password with the provider you sign in with if the account has one.
 
 **Plan** is read from your account, alongside what you are using against the
 limits. There are no billing controls in this version — every account is on the
 same plan — so **See plans** is there but inert.
+
+**Danger zone** is the last section. **Delete account** removes the account and
+everything under it — every project, database, stored object, and key — and
+signs out every session, because a session that names no account cannot verify.
+A password account must re-enter its password first, so a stolen cookie cannot
+erase the account; a Google-only account confirms with its session alone. It is
+a two-click confirmation with no undo: export anything you want to keep before
+using it.
 
 ## Access rules
 

@@ -39,8 +39,11 @@ func (store *Store) RecordActivity(
 
 // ListActivity returns recent audit entries for a project, newest first.
 func (store *Store) ListActivity(ctx context.Context, projectID uuid.UUID, limit int) ([]ActivityEntry, error) {
-	if limit <= 0 || limit > maxListLimit {
+	if limit <= 0 {
 		limit = defaultListLimit
+	}
+	if limit > maxListLimit {
+		limit = maxListLimit
 	}
 
 	const query = `

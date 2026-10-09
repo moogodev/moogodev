@@ -118,15 +118,16 @@ func (store *Store) CreateProject(
 	const insertQuery = `
 		INSERT INTO projects (user_id, name, status, secret_key_hash, secret_key_prefix)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, created_at`
+		RETURNING id, created_at, updated_at`
 
 	var (
 		projectID uuid.UUID
 		createdAt time.Time
+		updatedAt time.Time
 	)
 	if err := transaction.QueryRow(ctx, insertQuery,
 		userID, name, string(ProjectPending), key.Hash, key.Prefix,
-	).Scan(&projectID, &createdAt); err != nil {
+	).Scan(&projectID, &createdAt, &updatedAt); err != nil {
 		return nil, fmt.Errorf("insert project: %w", err)
 	}
 
@@ -142,6 +143,7 @@ func (store *Store) CreateProject(
 			Status:          ProjectPending,
 			SecretKeyPrefix: key.Prefix,
 			CreatedAt:       createdAt,
+			UpdatedAt:       updatedAt,
 		},
 		SecretKeyPlaintext: key.Plaintext,
 	}, nil
@@ -208,9 +210,15 @@ func (store *Store) ProjectByID(ctx context.Context, projectID uuid.UUID) (*Proj
 // ListProjects returns a user's active projects, newest first.
 func (store *Store) ListProjects(ctx context.Context, userID uuid.UUID, limit int, offset int) ([]Project, error) {
 	// Clamp rather than reject: this is a listing helper, and a page size
-	// outside this range is not worth failing a request over.
-	if limit <= 0 || limit > maxListLimit {
+	// outside this range is not worth failing a request over. A size above
+	// the ceiling becomes the ceiling, not the default: falling back to the
+	// default here would answer a request for 200 with 50 rows and a
+	// "limit": 200 in the body, which reads as a server that cannot count.
+	if limit <= 0 {
 		limit = defaultListLimit
+	}
+	if limit > maxListLimit {
+		limit = maxListLimit
 	}
 	if offset < 0 {
 		offset = 0
@@ -311,6 +319,9 @@ func (store *Store) ProjectsNeedingReconcile(ctx context.Context, limit int) ([]
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
+	if limit > maxListLimit {
+		limit = maxListLimit
+	}
 
 	query := selectProjectColumns + `
 		WHERE status IN ($1, $2) AND deleted_at IS NULL
@@ -359,5 +370,7 @@ func (store *Store) ProjectOwnedBy(ctx context.Context, projectID uuid.UUID, use
 // Listing limits shared by the paginated read paths.
 const (
 	defaultListLimit = 50
-	maxListLimit     = 100
+	// maxListLimit matches the handler's maxPageLimit: a request the handler
+	// accepts as 200 must not be quietly shrunk to something smaller here.
+	maxListLimit = 200
 )

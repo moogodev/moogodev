@@ -3,6 +3,7 @@ package dbcontrol
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -85,13 +86,22 @@ func (store *Store) CreateBucket(ctx context.Context, projectID uuid.UUID, name 
 	return bucket, nil
 }
 
+// maxBucketListLimit bounds one bucket listing.
+//
+// There is no quota on how many buckets a project may hold, so the list is not
+// bounded by a rule anywhere else. A thousand is far past anything a person
+// creates by hand and still keeps one pathological project from turning a
+// listing into an unbounded read.
+const maxBucketListLimit = 1000
+
 // ListBuckets returns all buckets belonging to a project.
 func (store *Store) ListBuckets(ctx context.Context, projectID uuid.UUID) ([]Bucket, error) {
-	const query = `
+	query := `
 		SELECT ` + bucketColumns + `
 		FROM buckets
 		WHERE project_id = $1
-		ORDER BY name ASC`
+		ORDER BY name ASC
+		LIMIT ` + strconv.Itoa(maxBucketListLimit)
 
 	rows, err := store.pool.Query(ctx, query, projectID)
 	if err != nil {
@@ -119,14 +129,15 @@ func (store *Store) ListBuckets(ctx context.Context, projectID uuid.UUID) ([]Buc
 // zeroes instead of disappearing from the list, which would make an empty bucket
 // indistinguishable from a deleted one.
 func (store *Store) ListBucketsWithStats(ctx context.Context, projectID uuid.UUID) ([]Bucket, error) {
-	const query = `
+	query := `
 		SELECT ` + bucketStatsColumns + `
 		FROM buckets b
 		LEFT JOIN bucket_objects o ON o.bucket_id = b.id
 		WHERE b.project_id = $1
 		GROUP BY b.id, b.project_id, b.name, b.created_at, b.is_public,
 		         b.allowed_types, b.max_object_size_bytes, b.quota_bytes
-		ORDER BY b.name ASC`
+		ORDER BY b.name ASC
+		LIMIT ` + strconv.Itoa(maxBucketListLimit)
 
 	rows, err := store.pool.Query(ctx, query, projectID)
 	if err != nil {

@@ -530,3 +530,67 @@ func errorOf(body map[string]any) string {
 func itoa(value int64) string {
 	return strconv.FormatInt(value, 10)
 }
+
+// The login form posts credentials, so the policy that allows the form to go
+// anywhere would be the policy that leaks them. And HSTS has to fire in
+// production, where the process only ever sees cleartext and the proxy's
+// X-Forwarded-Proto is the only evidence that TLS happened.
+func TestSecurityHeadersLockDownFormsAndForwardedHTTPS(t *testing.T) {
+	server := newTestServer(t, nil)
+
+	res, _ := call(t, server.Client(), http.MethodGet, server.URL+"/healthz", nil)
+	if got := res.Header.Get("Content-Security-Policy"); !strings.Contains(got, "form-action 'self'") {
+		t.Errorf("CSP = %q, want form-action 'self'", got)
+	}
+	// Plain HTTP with no forwarded scheme: HSTS would pin a browser to the
+	// origin for a year, so it must be absent.
+	if got := res.Header.Get("Strict-Transport-Security"); got != "" {
+		t.Errorf("HSTS on plain HTTP = %q, want empty", got)
+	}
+
+	request, err := http.NewRequest(http.MethodGet, server.URL+"/healthz", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	request.Header.Set("X-Forwarded-Proto", "https")
+	forwarded, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("forwarded request: %v", err)
+	}
+	defer forwarded.Body.Close()
+	if got := forwarded.Header.Get("Strict-Transport-Security"); got == "" {
+		t.Error("expected HSTS when the proxy reports https")
+	}
+}
+
+// A shell without a cache policy outlives the assets it names: ServeFileFS
+// sends Last-Modified, so the browser may reuse an index.html that points at
+// a hashed bundle a redeploy has already rotated.
+func TestStaticCachePolicyFollowsTheFileName(t *testing.T) {
+	static := fstest.MapFS{
+		"index.html":           {Data: []byte("<!doctype html>")},
+		"assets/app-abc123.js": {Data: []byte("js")},
+		"favicon.svg":          {Data: []byte("<svg/>")},
+	}
+	server := newTestServer(t, static)
+
+	testCases := []struct {
+		path string
+		want string
+	}{
+		{"/", "no-cache"},
+		{"/assets/app-abc123.js", "immutable"},
+		{"/favicon.svg", "max-age=3600"},
+		// A client-side route falls back to index.html and must carry the
+		// same policy as the shell it is.
+		{"/editor", "no-cache"},
+	}
+	for _, testCase := range testCases {
+		res, _ := call(t, server.Client(), http.MethodGet, server.URL+testCase.path, nil)
+		got := res.Header.Get("Cache-Control")
+		if !strings.Contains(got, testCase.want) {
+			t.Errorf("GET %s: Cache-Control = %q, want it to contain %q",
+				testCase.path, got, testCase.want)
+		}
+	}
+}

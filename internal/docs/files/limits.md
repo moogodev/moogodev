@@ -75,6 +75,7 @@ overrun the quota.
 |---|---|---|
 | Request body (JSON endpoints) | **1 MB** | `body_too_large` |
 | Request body (storage uploads) | Bucket cap or 256 MB | `object_too_large` |
+| List page size (`limit`) | **200** | Clamped down silently — a larger `limit` returns 200, it is not an error. |
 | Statement length | **64 KB** | `sql_too_long` |
 | Statement duration | **15 seconds** | `statement_timeout` |
 | Result payload (one read) | **16 MB** | `result_too_large` |

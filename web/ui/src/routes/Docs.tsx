@@ -37,6 +37,60 @@ const ADOPTION_PROMPT_SLUG = "ai-adoption-prompt";
 
 export default function Docs() {
   const { slug } = useParams();
+
+  // A slug that matches no document is a missing page, not a second chance
+  // at the quickstart. Falling back to the default page made every typo --
+  // and every retired document still in an old link -- render plausible,
+  // unrelated content under the URL that was asked for, which is the worst
+  // way to be wrong: quietly. The check lives above the real page so the
+  // hooks below still run in a stable order for every /docs render.
+  if (slug && !findDoc(slug)) {
+    return <DocsMissing slug={slug} />;
+  }
+  return <DocsPage />;
+}
+
+// DocsMissing is the docs 404: the same site chrome, an honest message, and
+// both ways out. It names the slug that failed so a typo is visible in what
+// comes back rather than inferred from a page that does not match.
+function DocsMissing({ slug }: { slug: string }) {
+  return (
+    <SiteLayout>
+      <div className="mx-auto flex w-full max-w-[720px] flex-col items-center px-6 py-24 text-center">
+        <p className="mb-3 text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-accent-strong">
+          Documentation
+        </p>
+        <h1 className="text-[clamp(1.6rem,3.4vw,2.2rem)] font-semibold tracking-tight">
+          Page not found
+        </h1>
+        <p className="mt-3 max-w-[46em] text-muted">
+          No documentation page matches{" "}
+          <code className="rounded bg-background-alt px-1.5 py-0.5 text-[0.9em]">
+            /docs/{slug}
+          </code>
+          . Check the address, or start from the index.
+        </p>
+        <div className="mt-7 flex flex-wrap justify-center gap-3">
+          <Link
+            to="/docs"
+            className="inline-flex items-center justify-center rounded-lg bg-accent-strong px-4 py-2 text-[0.86rem] font-semibold text-accent-ink transition-colors hover:bg-accent"
+          >
+            Browse documentation
+          </Link>
+          <Link
+            to="/"
+            className="inline-flex items-center justify-center rounded-lg border border-edge-strong px-4 py-2 text-[0.86rem] font-semibold transition-colors hover:border-hover-edge hover:bg-hover-bg"
+          >
+            Go to the home page
+          </Link>
+        </div>
+      </div>
+    </SiteLayout>
+  );
+}
+
+function DocsPage() {
+  const { slug } = useParams();
   const navigate = useNavigate();
 
   const page = findDoc(slug) ?? findDoc(DEFAULT_SLUG)!;

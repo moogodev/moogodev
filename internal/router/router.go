@@ -63,6 +63,7 @@ type ControlPlaneHandlers interface {
 	DeleteProject(http.ResponseWriter, *http.Request)
 	Activity(http.ResponseWriter, *http.Request)
 	DownloadDatabase(http.ResponseWriter, *http.Request)
+	DeleteAccount(http.ResponseWriter, *http.Request)
 }
 
 // DataPlaneHandlers are the SQL endpoints.
@@ -104,6 +105,16 @@ type UpdatesHandlers interface {
 	Updates(http.ResponseWriter, *http.Request)
 }
 
+// MetaHandlers are the crawler endpoints: the sitemap and robots.txt.
+//
+// They exist on the API binary because that is what serves the marketing
+// origin in the single-node deployment -- there is no second web server that
+// could answer for them.
+type MetaHandlers interface {
+	Sitemap(http.ResponseWriter, *http.Request)
+	Robots(http.ResponseWriter, *http.Request)
+}
+
 // ProjectAuthorizer checks that a project belongs to the signed-in user.
 //
 // It is the slice of the store the dashboard routes need, declared here so the
@@ -128,7 +139,10 @@ type Deps struct {
 	// Updates is the dashboard's "What's new" list, read from the news
 	// service. Nil in tests that do not care, and a nil handler leaves the
 	// route unregistered rather than failing to build, like Metrics.
-	Updates     UpdatesHandlers
+	Updates UpdatesHandlers
+	// Meta serves /sitemap.xml and /robots.txt. Nil leaves both routes
+	// unregistered, the same convention as Metrics and Updates.
+	Meta        MetaHandlers
 	Sessions    *auth.SessionManager
 	ProjectKeys auth.ProjectResolver
 	// Projects authorizes the dashboard's per-project routes by ownership.
@@ -254,6 +268,24 @@ func New(deps Deps) http.Handler {
 	credentials := ratelimit.New(ratelimit.DefaultCredentialLimit)
 	limited := credentials.Middleware
 
+	// Every write on the credential routes reads a JSON body, so each of them
+	// carries the JSON body cap and the request timeout alongside the rate
+	// limit. The cap matters most here: without it a single unauthenticated
+	// POST could hand the process an arbitrarily large body to buffer before
+	// it ever reaches the decoder. The timeout is the same one the data plane
+	// uses, sized off the query timeout, and these handlers never run longer
+	// than a bcrypt compare or an email provider call.
+	//
+	// The body cap is a middleware rather than a per-handler read because
+	// http.MaxBytesReader stops the read at the limit instead of buffering to
+	// the end first, which is the difference between rejecting a 50 MB body
+	// and absorbing it.
+	credentialWrite := chi.Middlewares{
+		limited,
+		httpx.MaxBodyBytes(deps.MaxBodyBytes),
+		httpx.Timeout(deps.RequestTimeout),
+	}
+
 	// The data plane gets two ceilings of its own, both deliberately
 	// generous: they exist to stop a runaway client or a stolen key from
 	// saturating the host, not to shape ordinary use.
@@ -290,23 +322,29 @@ func New(deps Deps) http.Handler {
 	// handler's minute-long cache expires.
 	updatesLimited := ratelimit.New(ratelimit.Config{Limit: 60, Window: time.Minute}).Plane("updates").Middleware
 
-	root.With(limited).Post("/auth/register", deps.Credentials.Register)
-	root.With(limited).Post("/auth/login", deps.Credentials.Login)
-	root.With(limited).Post("/auth/forgot-password", deps.Credentials.ForgotPassword)
-	root.With(limited).Post("/auth/reset-password", deps.Credentials.ResetPassword)
+	root.With(credentialWrite...).Post("/auth/register", deps.Credentials.Register)
+	root.With(credentialWrite...).Post("/auth/login", deps.Credentials.Login)
+	root.With(credentialWrite...).Post("/auth/forgot-password", deps.Credentials.ForgotPassword)
+	root.With(credentialWrite...).Post("/auth/reset-password", deps.Credentials.ResetPassword)
 	// Address confirmation. POST rather than a GET on the token itself: a token
 	// in a query string is recorded in browser history and in the Referer of any
 	// link followed from the page, so the frontend reads it and posts it.
 	//
 	// verify-email is limited as well: it is unauthenticated and takes a token,
 	// so without a ceiling it is a free oracle for guessing one.
-	root.With(limited).Post("/auth/verify-email", deps.Credentials.VerifyEmail)
-	root.With(limited).Post("/auth/resend-verification", deps.Credentials.ResendVerification)
+	root.With(credentialWrite...).Post("/auth/verify-email", deps.Credentials.VerifyEmail)
+	root.With(credentialWrite...).Post("/auth/resend-verification", deps.Credentials.ResendVerification)
 
 	// --- Control plane: a signed-in person, session cookie ---
 
 	root.Group(func(private chi.Router) {
 		private.Use(auth.RequireSession(deps.Sessions))
+		// The control plane takes JSON bodies and nothing else, so the JSON
+		// cap applies to the whole group. It is safe under the nested bucket
+		// routes below because the innermost cap wins: their own
+		// MaxObjectBytes re-wraps the original body, so a 256 MB upload is
+		// still a 256 MB upload while every settings body stops at 1 MB.
+		private.Use(httpx.MaxBodyBytes(deps.MaxBodyBytes))
 
 		private.Get("/api/me", deps.Control.Me)
 
@@ -315,6 +353,12 @@ func New(deps Deps) http.Handler {
 		// password is never part of a returned account document.
 		private.Post("/api/account/password", deps.Control.ChangePassword)
 		private.Patch("/api/account/profile", deps.Control.UpdateProfile)
+
+		// Account deletion, beside the other account routes rather than among
+		// the projects: it removes the account, not one thing the account
+		// owns. DELETE, because that is what the method is for, with the
+		// re-authentication password in the body.
+		private.Delete("/api/account", deps.Control.DeleteAccount)
 
 		private.Route("/api/projects", func(projects chi.Router) {
 			projects.Get("/", deps.Control.ListProjects)
@@ -548,6 +592,16 @@ func New(deps Deps) http.Handler {
 		root.With(updatesLimited).Get("/api/updates", deps.Updates.Updates)
 	}
 
+	// --- Crawler endpoints ---
+	//
+	// The sitemap names every page a crawler should index and robots.txt
+	// keeps it off the API and the dashboard, where a session cookie decides
+	// what renders and a crawler sees nothing useful anyway.
+	if deps.Meta != nil {
+		root.Get("/sitemap.xml", deps.Meta.Sitemap)
+		root.Get("/robots.txt", deps.Meta.Robots)
+	}
+
 	// --- Pages and static files ---
 
 	registerPages(root, deps)
@@ -721,9 +775,16 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		header.Set("X-Frame-Options", "DENY")
 		header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
-		// HSTS only over HTTPS. On plain HTTP in local development a browser
-		// would remember the header and refuse to reach the site afterwards.
-		if r.TLS != nil {
+		// HSTS only over HTTPS -- either the socket this process holds, or the
+		// scheme the proxy in front of it reports. A plain r.TLS check would
+		// never fire in production, where nginx terminates TLS and this app
+		// always sees cleartext, and nginx sets X-Forwarded-Proto from $scheme,
+		// overwriting anything a client sends. On plain HTTP in local
+		// development neither signal is present, so a browser never remembers
+		// the header and refuses to reach localhost afterwards; a spoofed
+		// X-Forwarded-Proto over plain http buys nothing either, because a
+		// browser ignores HSTS arriving on a non-secure origin.
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 			header.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 
@@ -786,6 +847,11 @@ func registerPages(root chi.Router, deps Deps) {
 	root.Get("/plan", index)
 	root.Get("/announcement", index)
 	root.Get("/annoucement", index)
+	// The legal pages, served like every other client route: a hard refresh
+	// on either has to render the page rather than fall through to the API's
+	// 404, and a crawler following the footer link has to get HTML.
+	root.Get("/terms", index)
+	root.Get("/privacy", index)
 	root.Get("/app", index)
 	root.Get("/app/*", index)
 

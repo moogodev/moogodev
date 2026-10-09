@@ -441,6 +441,19 @@ EOF
 	client_max_body_size 256m;
 	server_tokens off;
 
+	# Timeouts that bound the connection, not the work. client_body_timeout
+	# and send_timeout measure gaps between byte transfers, not the whole
+	# transfer, so a slow upload or a slow client stream is allowed as long
+	# as it keeps moving -- what gets cut is a peer that has stalled. This
+	# is the network floor under the app's own MOOGO_REQUEST_TIMEOUT: the
+	# Go server deliberately has no ReadTimeout/WriteTimeout because one
+	# would kill a large upload mid-flight, so these are what refuse to
+	# hold a connection open forever at the edge.
+	client_body_timeout 300s;
+	client_header_timeout 60s;
+	send_timeout 300s;
+	keepalive_timeout 65s;
+
 	# Plain HTTP exists only for the ACME challenge that obtains the
 	# certificate, and from then on for redirecting to https. Serving the
 	# site over it would put every session cookie on the wire in clear.
@@ -482,8 +495,10 @@ EOF
 		cat <<'EOF'
 	ssl_protocols TLSv1.2 TLSv1.3;
 
-	# HSTS belongs at this layer: the app only sends it when r.TLS != nil,
-	# which is never true behind a terminating proxy.
+	# HSTS belongs at this layer as the authoritative copy. The app now
+	# sends it too when X-Forwarded-Proto reports https, so the two agree;
+	# keeping both means removing either one cannot silently downgrade the
+	# site's transport policy to no HSTS at all.
 	add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
 	# The app sets X-Content-Type-Options, X-Frame-Options, Referrer-Policy
@@ -497,6 +512,15 @@ EOF
 	# 256 MB is StorageCeilingBytes, the largest upload the app itself allows.
 	client_max_body_size 256m;
 	server_tokens off;
+
+	# Gap-based timeouts, same rationale as the port-80 block: a transfer in
+	# progress survives as long as bytes keep moving, a stalled peer does
+	# not. The app has no ReadTimeout/WriteTimeout by design (uploads and
+	# long queries), so the edge is where a frozen connection gets refused.
+	client_body_timeout 300s;
+	client_header_timeout 60s;
+	send_timeout 300s;
+	keepalive_timeout 65s;
 EOF
 		printf '	access_log %s;\n' "$logfile"
 		cat <<'EOF'
@@ -513,6 +537,14 @@ EOF
 	location / {
 EOF
 		printf '		proxy_pass http://127.0.0.1:%s;\n' "$port"
+		cat <<'EOF'
+		# Gap between reads from the app, not a total response time: a
+		# streamed backup or a long query stays open while it keeps
+		# producing bytes, and 300s sits above the app's own QueryTimeout
+		# so nginx never cuts a request the app would still finish.
+		proxy_read_timeout 300s;
+		proxy_send_timeout 300s;
+EOF
 		nginx_proxy_headers
 		cat <<'EOF'
 	}
@@ -537,12 +569,13 @@ EOF
 # Written by moogo deploy.sh: re-running the script overwrites this file.
 #
 # TLS terminates here; the binary only speaks plain HTTP. HSTS is set at this
-# layer because the app sends it only when r.TLS != nil, which is never true
-# behind a proxy. X-Forwarded-For is overwritten instead of appended because
-# the app reads its leftmost entry, and an appended chain would carry the
-# client's own value in that position. /etc/moogo/moogo.env must keep
-# 127.0.0.1 in MOOGO_TRUSTED_PROXIES, or every client collapses into the
-# proxy address and the per-client rate limit stops counting clients.
+# layer as the authoritative copy; the app sends its own when X-Forwarded-Proto
+# reports https, so both agree and removing either leaves the other. X-Forwarded-
+# For is overwritten instead of appended because the app reads its leftmost entry,
+# and an appended chain would carry the client's own value in that position.
+# /etc/moogo/moogo.env must keep 127.0.0.1 in MOOGO_TRUSTED_PROXIES, or every
+# client collapses into the proxy address and the per-client rate limit stops
+# counting clients.
 EOF
 			nginx_site_80 "$DOMAIN" "$main_mode" 8080 /var/log/nginx/moogo-access.log
 			if [[ "$main_mode" == "tls" ]]; then

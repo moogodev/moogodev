@@ -143,7 +143,7 @@ success that did nothing.
 | `method_not_allowed` | 405 | Wrong HTTP method for this route. |
 | `forbidden` | 403 | A browser POST whose `Origin` does not match the request host. Direct API clients are unaffected. |
 | `email_not_verified` | 403 | The account has not followed its confirmation link. The login page offers **Send a new link**. |
-| `mail_failed` | 500 | The account was created, but the confirmation email could not be sent. |
+| `mail_failed` | 500 | The confirmation email could not be sent. The registration was rolled back — no account was created. |
 
 ### When you get `rate_limited`
 
@@ -184,15 +184,16 @@ For storage, also check that you are sending **both** headers:
 
 ### When you get `mail_failed`
 
-`POST /auth/register` answers `500 mail_failed` when the account was written
-but the confirmation email could not be handed to the mail provider. The
-account exists and cannot be signed into until the link arrives, so the
-failure is reported rather than pretending it worked — see
-[Register](/docs/register#confirm-your-email-address).
+`POST /auth/register` answers `500 mail_failed` when the confirmation email
+could not be handed to the mail provider. The registration is rolled back
+before the error is returned: the account row and anything created with it are
+removed, so **no account exists** for that address. Registering again with the
+same address is safe and is the way to recover — nothing is left over to
+conflict, and there is no half-made account to verify or sign into.
 
-To recover, sign in with the address: the login page answers
-`403 email_not_verified` and offers **Send a new link**, which issues a fresh
-confirmation.
+If the second attempt fails the same way, the mail provider is down or
+misconfigured. The provider's error is written to the operator's log; from
+your side, retrying later is all there is to do.
 
 Password reset and resend-verification never answer with `mail_failed`. Both
 promise the same response whether or not an address exists, so a delivery

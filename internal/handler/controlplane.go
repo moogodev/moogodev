@@ -87,6 +87,16 @@ SetPasswordHash(ctx context.Context, userID uuid.UUID, passwordHash string) erro
 		key bucketkey.Generated,
 	) (*dbcontrol.StorageCredential, error)
 	RevokeStorageCredential(ctx context.Context, projectID uuid.UUID, credentialID uuid.UUID) error
+
+	// DeleteUser removes an account and, by cascade, everything it owns in
+	// Postgres. The files on disk are the caller's second step: the database
+	// cannot reach them, and a project id is needed to find them.
+	DeleteUser(ctx context.Context, userID uuid.UUID) error
+
+	// BumpSessionEpoch retires every session token the account holds. It is
+	// what makes logout a revocation rather than only a cookie cleared in one
+	// browser.
+	BumpSessionEpoch(ctx context.Context, userID uuid.UUID) error
 }
 
 // Databases is the data plane surface the control plane handlers need.
@@ -108,16 +118,21 @@ type Databases interface {
 type ControlPlane struct {
 	store     Store
 	databases Databases
+	sessions  *auth.SessionManager
 	sql       sqlRunner
 	cfg       config.Config
 	log       *logger.Logger
 }
 
 // NewControlPlane creates a ControlPlane handler.
-func NewControlPlane(store Store, databases Databases, cfg config.Config, log *logger.Logger) *ControlPlane {
+//
+// sessions is what lets account deletion expire the cookie it no longer has
+// any use for, in the same response that removes the account behind it.
+func NewControlPlane(store Store, databases Databases, sessions *auth.SessionManager, cfg config.Config, log *logger.Logger) *ControlPlane {
 	return &ControlPlane{
 		store:     store,
 		databases: databases,
+		sessions:  sessions,
 		sql:       sqlRunner{databases: databases, log: log},
 		cfg:       cfg,
 		log:       log,
@@ -276,6 +291,100 @@ func (handler *ControlPlane) UpdateProfile(w http.ResponseWriter, r *http.Reques
 		"success": true,
 		"message": "Profile updated.",
 	})
+}
+
+// DeleteAccount handles DELETE /api/account.
+//
+// The body carries the password for an account that has one. A live session
+// proves the browser, not the person at it, and the dashboard already treats
+// re-entering the password as the bar for changing the account itself. A
+// Google-only account has no password to re-enter, so for it the session is
+// the whole bar: SameSite=Lax cookie, JSON content type, same-origin check.
+//
+// The order mirrors DeleteProject -- rows first, files second. The delete is a
+// single statement: every control-plane row that hangs off the account
+// (projects, buckets, objects, credentials, tokens, activity) is ON DELETE
+// CASCADE, so there is no window where a project survives its owner. The
+// files on disk are the second step and are collected before the cascade
+// runs, because afterwards nothing names them. A crash between the two
+// leaves orphaned files, which is the same direction DeleteProject already
+// fails in, and both leave nothing that can serve data.
+func (handler *ControlPlane) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "sign in required")
+		return
+	}
+
+	user, err := handler.store.UserByID(r.Context(), userID)
+	if err != nil {
+		handler.writeStoreError(w, r, err, "load account for deletion")
+		return
+	}
+
+	// An empty body is accepted so a client that has already proved the
+	// session (a Google-only account) need not invent a JSON object to be
+	// allowed to delete itself. Anything present must parse as JSON: a body
+	// the handler does not understand is refused rather than ignored.
+	var request struct {
+		Password string `json:"password"`
+	}
+	if r.ContentLength != 0 {
+		if err := decodeJSON(w, r, &request); err != nil {
+			return
+		}
+	}
+
+	if user.PasswordHash != "" {
+		if request.Password == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_password",
+				"enter your password to delete the account")
+			return
+		}
+		if !auth.VerifyPassword(request.Password, user.PasswordHash) {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_password",
+				"the password is wrong")
+			return
+		}
+	}
+
+	// The project ids have to be read while the rows still exist: after the
+	// delete the cascade has taken them and nothing can name the files.
+	const pageSize = 100
+	var projectIDs []uuid.UUID
+	for offset := 0; ; offset += pageSize {
+		projects, err := handler.store.ListProjects(r.Context(), userID, pageSize, offset)
+		if err != nil {
+			handler.writeStoreError(w, r, err, "list projects for deletion")
+			return
+		}
+		for index := range projects {
+			projectIDs = append(projectIDs, projects[index].ID)
+		}
+		if len(projects) < pageSize {
+			break
+		}
+	}
+
+	if err := handler.store.DeleteUser(r.Context(), userID); err != nil {
+		handler.writeStoreError(w, r, err, "delete account")
+		return
+	}
+
+	// Same failure shape as DeleteProject: the rows are gone, so a file that
+	// refuses to go is an orphan with nothing pointing at it. It is logged
+	// and nothing retries, which is why the log line carries the id.
+	for _, projectID := range projectIDs {
+		if err := handler.databases.RemoveProject(projectID); err != nil {
+			handler.log.Error("remove project files after account deletion", logger.Fields{
+				"project_id": projectID.String(),
+				"error":      err.Error(),
+			})
+		}
+	}
+
+	handler.sessions.ClearCookie(w)
+	httpx.NoContent(w)
 }
 
 // Usage reports current consumption against the limits.

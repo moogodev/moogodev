@@ -22,7 +22,7 @@ func TestIssueAndVerifyRoundTrip(t *testing.T) {
 	signer := newTestSigner(t, time.Hour)
 	now := time.Now()
 
-	token, err := signer.Issue("user-123", "ketut@example.com", now)
+	token, err := signer.Issue("user-123", "ketut@example.com", 0, now)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestVerifyRejectsTamperedPayload(t *testing.T) {
 	signer := newTestSigner(t, time.Hour)
 	now := time.Now()
 
-	token, err := signer.Issue("user-123", "ketut@example.com", now)
+	token, err := signer.Issue("user-123", "ketut@example.com", 0, now)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestVerifyRejectsWrongSecret(t *testing.T) {
 	signer := newTestSigner(t, time.Hour)
 	now := time.Now()
 
-	token, err := signer.Issue("user-123", "ketut@example.com", now)
+	token, err := signer.Issue("user-123", "ketut@example.com", 0, now)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestVerifyRejectsExpiredToken(t *testing.T) {
 	signer := newTestSigner(t, time.Hour)
 	issuedAt := time.Now()
 
-	token, err := signer.Issue("user-123", "ketut@example.com", issuedAt)
+	token, err := signer.Issue("user-123", "ketut@example.com", 0, issuedAt)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -127,11 +127,11 @@ func TestTokensAreUniquePerIssue(t *testing.T) {
 
 	// Without a nonce, two tokens for the same user in the same second would be
 	// byte-identical, which reveals that two sessions were issued together.
-	first, err := signer.Issue("user-123", "ketut@example.com", now)
+	first, err := signer.Issue("user-123", "ketut@example.com", 0, now)
 	if err != nil {
 		t.Fatalf("issue first: %v", err)
 	}
-	second, err := signer.Issue("user-123", "ketut@example.com", now)
+	second, err := signer.Issue("user-123", "ketut@example.com", 0, now)
 	if err != nil {
 		t.Fatalf("issue second: %v", err)
 	}
@@ -155,7 +155,28 @@ func TestNewSignerRejectsZeroTTL(t *testing.T) {
 
 func TestIssueRejectsEmptyUserID(t *testing.T) {
 	signer := newTestSigner(t, time.Hour)
-	if _, err := signer.Issue("  ", "ketut@example.com", time.Now()); err == nil {
+	if _, err := signer.Issue("  ", "ketut@example.com", 0, time.Now()); err == nil {
 		t.Error("expected an error for a blank user id")
+	}
+}
+
+// The epoch rides in the token so verification can compare it against the
+// account's current counter without a second lookup: logout bumps the counter,
+// and every token minted under the old one stops verifying.
+func TestIssueCarriesTheEpoch(t *testing.T) {
+	signer := newTestSigner(t, time.Hour)
+	now := time.Now()
+
+	token, err := signer.Issue("user-123", "ketut@example.com", 7, now)
+	if err != nil {
+		t.Fatalf("issue: %err", err)
+	}
+
+	claims, err := signer.Verify(token, now)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if claims.Epoch != 7 {
+		t.Errorf("epoch = %d, want 7", claims.Epoch)
 	}
 }

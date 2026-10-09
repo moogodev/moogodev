@@ -18,7 +18,8 @@ import (
 const selectUserColumns = `
 	SELECT id, email, name, avatar_url, password_hash, email_verified_at,
 	       quota_max_projects, quota_max_db_bytes, quota_max_storage_bytes,
-	       billing_plan, billing_customer_id, created_at, updated_at
+	       billing_plan, billing_customer_id, created_at, updated_at,
+	       session_epoch
 	FROM users`
 
 // returningUserColumns is the same projection spelled for RETURNING.
@@ -28,7 +29,8 @@ const selectUserColumns = `
 const returningUserColumns = `
 	RETURNING id, email, name, avatar_url, password_hash, email_verified_at,
 	          quota_max_projects, quota_max_db_bytes, quota_max_storage_bytes,
-	          billing_plan, billing_customer_id, created_at, updated_at`
+	          billing_plan, billing_customer_id, created_at, updated_at,
+	          session_epoch`
 
 // scanUser reads one user row produced by selectUserColumns or
 // returningUserColumns.
@@ -52,6 +54,7 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 		&user.BillingCustomerID,
 		&user.CreatedAt,
 		&user.UpdatedAt,
+		&user.SessionEpoch,
 	)
 	if err != nil {
 		return nil, err
@@ -367,6 +370,66 @@ func (store *Store) UpdateUserName(ctx context.Context, userID uuid.UUID, name s
 	tag, err := store.pool.Exec(ctx, query, strings.TrimSpace(name), userID)
 	if err != nil {
 		return fmt.Errorf("update user name: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteUser removes an account and everything that belongs to it.
+//
+// Every control-plane row that hangs off a user -- projects, buckets, objects,
+// storage credentials, verification and reset tokens, activity rows -- is
+// declared ON DELETE CASCADE, so one statement is the whole deletion and
+// there is no window where a project survives its owner. The files on disk
+// are not covered by the database: the caller removes them with the project
+// ids it collected before this call.
+//
+// It is also what rolls back a registration whose confirmation email could
+// not be sent: the account is deleted rather than left behind, so a retry
+// starts from an empty address instead of finding it taken by a row nobody
+// can ever use.
+func (store *Store) DeleteUser(ctx context.Context, userID uuid.UUID) error {
+	const query = `DELETE FROM users WHERE id = $1`
+
+	tag, err := store.pool.Exec(ctx, query, userID)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SessionEpoch reads the session revocation counter for an account.
+//
+// ErrNotFound means the account no longer exists, which is a revoked session
+// for every token that ever named it: a deleted account has no valid epoch.
+func (store *Store) SessionEpoch(ctx context.Context, userID uuid.UUID) (int64, error) {
+	const query = `SELECT session_epoch FROM users WHERE id = $1`
+
+	var epoch int64
+	if err := store.pool.QueryRow(ctx, query, userID).Scan(&epoch); err != nil {
+		if isNoRows(err) {
+			return 0, ErrNotFound
+		}
+		return 0, fmt.Errorf("load session epoch: %w", err)
+	}
+	return epoch, nil
+}
+
+// BumpSessionEpoch retires every session token issued to an account.
+//
+// The next sign-in reads the new number and issues against it, so the account
+// itself is unaffected: only tokens minted before the bump stop verifying.
+func (store *Store) BumpSessionEpoch(ctx context.Context, userID uuid.UUID) error {
+	const query = `UPDATE users SET session_epoch = session_epoch + 1 WHERE id = $1`
+
+	tag, err := store.pool.Exec(ctx, query, userID)
+	if err != nil {
+		return fmt.Errorf("bump session epoch: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

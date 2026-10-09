@@ -7,7 +7,37 @@
       name="description"
       content="Built with Go for serverless apps. Each project gets its own SQLite file and key — SQL over HTTP, no connection string, no driver. A moogo.md lets AI use your DB directly. No pause, no cold starts, no credit card."
     />
-    <link rel="icon" type="image/svg+xml" href="%BASE_URL%img/favicon.svg" />
+    <!-- One PNG serves as favicon and social preview for every route this
+         shell renders: the favicon URL is reused as og:image, so a share of
+         any page — landing, app, docs, terms — previews the same mark. Both
+         are absolute, which the og:image spec requires and which a favicon
+         accepts. -->
+    <link
+      rel="icon"
+      type="image/png"
+      href="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/moogo_logo.png"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Moogo" />
+    <meta property="og:title" content="A True Database for Serverless Apps — Moogo" />
+    <meta
+      property="og:description"
+      content="Built with Go for serverless apps. Each project gets its own SQLite file and key — SQL over HTTP, no connection string, no driver."
+    />
+    <meta
+      property="og:image"
+      content="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/moogo_logo.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="A True Database for Serverless Apps — Moogo" />
+    <meta
+      name="twitter:description"
+      content="Built with Go for serverless apps. Each project gets its own SQLite file and key — SQL over HTTP, no connection string, no driver."
+    />
+    <meta
+      name="twitter:image"
+      content="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/moogo_logo.png"
+    />
     <title>A True Database for Serverless Apps — Moogo</title>
   </head>
   <body>
