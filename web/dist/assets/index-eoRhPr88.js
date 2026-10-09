@@ -1584,10 +1584,11 @@ Response:
 }
 \`\`\`
 
-Bucket names must be unique within a project. Creating one with a name that
-already exists does not error — it returns the existing bucket with \`201\`,
-applying any upload-policy settings you sent. To start from a clean slate, delete
-the bucket first.
+Bucket names must be unique **within a project**. A second create with a name
+you already hold returns \`409 bucket_exists\` — the bucket is already yours, so
+delete it first if you want a fresh one. Uniqueness stops at the project:
+another project, yours or anyone else's, can use the same name, because every
+bucket lives under its own project id.
 
 ## The \`default\` bucket
 
@@ -2917,6 +2918,7 @@ looks like.
 | \`invalid_prefix\` | 400 | The prefix for a folder delete is not valid. |
 | \`key_taken\` | 409 | An object with that key already exists. |
 | \`quota_below_usage\` | 409 | A PATCH tried to set \`quota_bytes\` below what the bucket already holds. |
+| \`bucket_exists\` | 409 | A bucket with that name already exists in this project. |
 | \`not_found\` | 404 | No such object or bucket. |
 | \`object_too_large\` | 413 | Over the bucket's per-object cap. |
 | \`quota_exceeded\` | 507 | The project storage total is full. |

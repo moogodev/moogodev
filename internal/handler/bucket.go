@@ -967,6 +967,10 @@ func (handler *BucketPlane) ListBuckets(w http.ResponseWriter, r *http.Request) 
 }
 
 // CreateBucket handles POST /buckets/{project_id}.
+//
+// Names are unique per project, so a duplicate is the caller's own bucket and
+// is reported as a conflict rather than answered as if a second one existed:
+// returning the existing bucket silently hid a repeated or typo'd request.
 func (handler *BucketPlane) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
@@ -1002,6 +1006,15 @@ func (handler *BucketPlane) CreateBucket(w http.ResponseWriter, r *http.Request)
 			httpx.WriteError(w, http.StatusBadRequest, "invalid_quota_bytes", err.Error())
 			return
 		}
+	}
+
+	if _, err := handler.store.BucketByName(r.Context(), projectID, name); err == nil {
+		httpx.WriteError(w, http.StatusConflict, "bucket_exists",
+			"a bucket with this name already exists in this project")
+		return
+	} else if !errors.Is(err, dbcontrol.ErrNotFound) {
+		handler.writeStoreError(w, r, projectID, err, "check bucket name")
+		return
 	}
 
 	bucket, err := handler.store.CreateBucket(r.Context(), projectID, name)

@@ -53,10 +53,11 @@ Response:
 }
 ```
 
-Bucket names must be unique within a project. Creating one with a name that
-already exists does not error — it returns the existing bucket with `201`,
-applying any upload-policy settings you sent. To start from a clean slate, delete
-the bucket first.
+Bucket names must be unique **within a project**. A second create with a name
+you already hold returns `409 bucket_exists` — the bucket is already yours, so
+delete it first if you want a fresh one. Uniqueness stops at the project:
+another project, yours or anyone else's, can use the same name, because every
+bucket lives under its own project id.
 
 ## The `default` bucket
 

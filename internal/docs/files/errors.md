@@ -215,6 +215,7 @@ looks like.
 | `invalid_prefix` | 400 | The prefix for a folder delete is not valid. |
 | `key_taken` | 409 | An object with that key already exists. |
 | `quota_below_usage` | 409 | A PATCH tried to set `quota_bytes` below what the bucket already holds. |
+| `bucket_exists` | 409 | A bucket with that name already exists in this project. |
 | `not_found` | 404 | No such object or bucket. |
 | `object_too_large` | 413 | Over the bucket's per-object cap. |
 | `quota_exceeded` | 507 | The project storage total is full. |

@@ -1990,6 +1990,37 @@ func TestCreateBucketDefaultsToAcceptingAnything(t *testing.T) {
 	}
 }
 
+func TestDuplicateBucketNameReportsConflict(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+
+	create := func(name string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/buckets/x",
+			strings.NewReader(`{"name":"`+name+`"}`),
+		).WithContext(requestContext(store.projectID, ""))
+		request.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		plane.CreateBucket(recorder, request)
+		return recorder
+	}
+
+	recorder := create("avatars")
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("first create status = %d, want 201 (body %q)", recorder.Code, recorder.Body.String())
+	}
+
+	// The name is already the caller's own: reporting it as a conflict tells
+	// them the bucket exists without pretending a second one was created.
+	recorder = create("avatars")
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("second create status = %d, want 409 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if code := errorCode(t, recorder); code != "bucket_exists" {
+		t.Fatalf("code = %q, want bucket_exists", code)
+	}
+}
+
 // --- bucket visibility ---
 
 func TestSetBucketPublicAlsoSetsTheBucketDefault(t *testing.T) {
