@@ -91,7 +91,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 	docsHandler := handler.NewDocsHandler(handler.GetDocsFS(), options.Log)
 	updatesHandler := handler.NewUpdatesHandler(cfg.NewsURL, options.Log)
 
-	mailer := mail.New(cfg.ResendAPIKey, cfg.MailFrom, cfg.PublicURL, options.Log)
+	mailer := mail.New(cfg.ResendAPIKey, cfg.MailFrom, cfg.PublicURL, options.Log, cfg.IsProduction())
 	credentialsHandler := handler.NewCredentials(store, sessions, mailer, cfg, options.Log)
 
 	var staticFS http.FileSystem

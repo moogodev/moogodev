@@ -5,7 +5,8 @@
 // path so they cannot drift apart on headers, error handling, or logging. When
 // no API key is configured the sender writes the message to the log instead of
 // calling Resend, so local development works without an account and the links
-// are still visible.
+// are still visible -- except in production, where the link is redacted so a
+// live token never lands in a log file.
 package mail
 
 import (
@@ -29,16 +30,20 @@ type Sender struct {
 	publicURL  string
 	log        *logger.Logger
 	httpClient *http.Client
+	production bool
 }
 
 // New creates a Sender. An empty apiKey switches it to log-only mode.
-func New(apiKey, from, publicURL string, log *logger.Logger) *Sender {
+//
+// production only changes what the log-only mode writes: see send.
+func New(apiKey, from, publicURL string, log *logger.Logger, production bool) *Sender {
 	return &Sender{
 		apiKey:     apiKey,
 		from:       from,
 		publicURL:  publicURL,
 		log:        log,
 		httpClient: &http.Client{Timeout: 15 * time.Second},
+		production: production,
 	}
 }
 
@@ -100,11 +105,26 @@ func (sender *Sender) send(
 	token string,
 ) error {
 	if sender.apiKey == "" {
-		sender.log.Info("mail: resend not configured, logging instead of sending", logger.Fields{
+		fields := logger.Fields{
 			"to":      to,
 			"subject": subject,
-			"link":    linkFromHTML(html),
-		})
+		}
+		if sender.production {
+			// Production reaches this line when Google sign-in is configured
+			// and Resend is not, and forgot-password/resend-verification do
+			// not gate on Enabled(). The link carries a live token, so it is
+			// redacted: only the same short prefix the sent path records is
+			// kept, which correlates the line with a request without leaving
+			// a working credential in the log file.
+			fields["link"] = "[redacted]"
+			fields["token"] = tokenPrefix(token)
+		} else {
+			// Development depends on the link being visible: there is no
+			// Resend account, and the URL is the only way to complete the
+			// flow locally.
+			fields["link"] = linkFromHTML(html)
+		}
+		sender.log.Info("mail: resend not configured, logging instead of sending", fields)
 		return nil
 	}
 
@@ -161,9 +181,10 @@ func (sender *Sender) send(
 
 // linkFromHTML pulls the href back out of a rendered message.
 //
-// Only used on the log-only path, where printing the link is the entire point:
-// without a Resend account the link is the only way a developer can complete
-// the flow locally.
+// Only used on the development branch of the log-only path, where printing the
+// link is the entire point: without a Resend account the link is the only way a
+// developer can complete the flow locally. Production takes the redacted branch
+// and never calls this.
 func linkFromHTML(html string) string {
 	const open = `href="`
 	start := indexOf(html, open)
