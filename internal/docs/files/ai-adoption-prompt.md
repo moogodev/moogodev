@@ -109,7 +109,7 @@ With `ENDPOINT=$MOOGO_PROJECT_URL/bucket`:
 
 | Action | Request |
 |---|---|
-| Upload | `POST $ENDPOINT/{key}` — the body is the file bytes and the `Content-Type` is the file's own type, **not** `application/json`. `?bucket=NAME` picks a bucket; no bucket means `default`. |
+| Upload | `POST $ENDPOINT/{key}` — the body is the raw file bytes and the `Content-Type` is the file's own type: never a JSON wrapper around the bytes, and never `application/json` by default (it is correct only when the file really is JSON). `?bucket=NAME` picks a bucket; no bucket means `default`. |
 | Download | `GET $ENDPOINT/{key}` — returns the bytes with the object's `Content-Type`. |
 | Delete | `DELETE $ENDPOINT/{key}` |
 | List | `GET $ENDPOINT/?limit=100&order=key&dir=asc` — add `?bucket=NAME` to pick a bucket. |
@@ -156,8 +156,9 @@ Reads report `truncated` and `duration_ms`; storage reports
 - Don't concatenate user input into SQL — the placeholder syntax exists for
   that.
 - Don't send stacked statements, file functions, or statements over 64 KB.
-- Don't send `Content-Type: application/json` on a file upload: the body is
-  raw bytes with the file's own type.
+- Don't JSON-wrap an upload or send its `Content-Type: application/json` out
+  of habit: the body is raw bytes with the file's own type — `application/json`
+  is right only when the file really is JSON.
 - Don't put a private object's `url` in an `<img>` tag — a browser carries no
   storage credential.
 - Don't assume a different error shape somewhere: it is always
