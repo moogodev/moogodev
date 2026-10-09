@@ -11,7 +11,7 @@ export default function Terms() {
   return (
     <SiteLayout>
       <article className="py-16 sm:py-20">
-        <div className="mx-auto w-full max-w-[720px] px-6">
+        <div className="mx-auto w-full max-w-[880px] px-6">
           <p className="mb-3 text-center text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-accent-strong">
             Legal
           </p>
@@ -110,9 +110,12 @@ export default function Terms() {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section>
+    // The section is one centered block so heading and prose share a left
+    // edge with balanced space on both sides: left-aligned inside a wider
+    // container, the column used to sit visibly left of center.
+    <section className="mx-auto max-w-[68ch]">
       <h2 className="mb-2 text-[1.05rem] font-semibold text-foreground">{title}</h2>
-      <div className="max-w-[62ch]">{children}</div>
+      <div>{children}</div>
     </section>
   );
 }
