@@ -38,7 +38,7 @@ interface TableDataGridProps {
   // null when the table has no way to name a single row, which makes editing
   // impossible; the grid then renders read-only.
   identity: TableIdentity | null;
-  /** Bumped after a write elsewhere in the tab, so the page reloads. */
+  /** Bumped after a write elsewhere in the tab, or by the Reload button. */
   refreshKey: number;
   onChanged: () => void;
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import {
   buildDropTable,
@@ -52,12 +53,29 @@ export default function TableBrowser({
 }) {
   const [state, setState] = useState<LoadState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [builderOpen, setBuilderOpen] = useState(false);
   const [tableFilter, setTableFilter] = useState("");
   const [localRefresh, setLocalRefresh] = useState(0);
   // Bumped after any write so the table detail re-reads its own schema too.
   const [detailRefresh, setDetailRefresh] = useState(0);
+
+  // The open table lives in the query string ("?table=todo") and is derived
+  // from it rather than stored: a reload keeps it open, the view is linkable,
+  // and a back or forward step moves the selection with it.
+  const selected = searchParams.get("table");
+
+  // replace: a table click is a view change, not a step the back button
+  // should have to undo.
+  const selectTable = useCallback(
+    (name: string | null) => {
+      const next = new URLSearchParams(searchParams);
+      if (name === null) next.delete("table");
+      else next.set("table", name);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
 
   const load = useCallback(async () => {
     setError(null);
@@ -99,10 +117,10 @@ export default function TableBrowser({
   const handleCreated = useCallback(
     (table: string) => {
       setBuilderOpen(false);
-      setSelected(table);
+      selectTable(table);
       handleChanged();
     },
-    [handleChanged],
+    [handleChanged, selectTable],
   );
 
   const tables = useMemo(
@@ -194,7 +212,7 @@ export default function TableBrowser({
                       object={object}
                       active={object.name === activeObject?.name}
                       count={state?.counts[object.name]}
-                      onSelect={() => setSelected(object.name)}
+                      onSelect={() => selectTable(object.name)}
                     />
                   ))}
               </SidebarGroup>
@@ -211,7 +229,7 @@ export default function TableBrowser({
                       key={object.name}
                       object={object}
                       active={object.name === activeObject?.name}
-                      onSelect={() => setSelected(object.name)}
+                      onSelect={() => selectTable(object.name)}
                     />
                   ))}
               </SidebarGroup>
@@ -229,13 +247,14 @@ export default function TableBrowser({
               refreshKey={detailRefresh}
               onChanged={handleChanged}
               onGone={() => {
-                setSelected(null);
+                selectTable(null);
                 handleChanged();
               }}
               onRenamed={(name) => {
-                setSelected(name);
+                selectTable(name);
                 handleChanged();
               }}
+              onReload={() => setLocalRefresh((current) => current + 1)}
             />
           ) : (
             <div className="rounded-lg border border-dashed border-edge-strong px-6 py-16 text-center">
@@ -348,6 +367,7 @@ function TableDetail({
   onChanged,
   onGone,
   onRenamed,
+  onReload,
 }: {
   projectId: string;
   object: SchemaObject;
@@ -360,8 +380,13 @@ function TableDetail({
   onGone: () => void;
   /** The object still exists under a new name. */
   onRenamed: (name: string) => void;
+  /** The user asked for a fresh read, so the sidebar counts re-read too. */
+  onReload: () => void;
 }) {
   const [pane, setPane] = useState<Pane>("rows");
+  // Bumped by the Reload button: the grid re-reads its rows while the schema
+  // stays untouched, so there is no "Reading …" flash over the detail pane.
+  const [rowsRefresh, setRowsRefresh] = useState(0);
   const [columns, setColumns] = useState<SchemaColumn[]>([]);
   const [indexes, setIndexes] = useState<TableIndex[]>([]);
   const [foreignKeys, setForeignKeys] = useState<ForeignKey[]>([]);
@@ -598,33 +623,44 @@ function TableDetail({
         </p>
       </header>
 
-      <div
-        role="tablist"
-        aria-label={`Views of ${object.name}`}
-        className="mb-4 flex gap-1 border-b border-edge"
-      >
-        {tabs.map((tab, index) => (
+      <div className="mb-4 flex items-end gap-1 border-b border-edge">
+        <div role="tablist" aria-label={`Views of ${object.name}`} className="flex gap-1">
+          {tabs.map((tab, index) => (
+            <button
+              key={tab.id}
+              ref={(element) => {
+                tabRefs.current[index] = element;
+              }}
+              role="tab"
+              id={`${tabGroupId}-tab-${tab.id}`}
+              aria-selected={tab.id === activeTab}
+              aria-controls={`${tabGroupId}-panel-${tab.id}`}
+              tabIndex={tab.id === activeTab ? 0 : -1}
+              onClick={() => setPane(tab.id)}
+              onKeyDown={(event) => onTabKeyDown(event, index)}
+              className={`-mb-px cursor-pointer border-b-2 px-3 py-2 text-[0.85rem] font-semibold transition-colors ${
+                tab.id === activeTab
+                  ? "border-accent-strong text-foreground"
+                  : "border-transparent text-muted hover:text-foreground"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {!isView && (
           <button
-            key={tab.id}
-            ref={(element) => {
-              tabRefs.current[index] = element;
+            type="button"
+            onClick={() => {
+              setRowsRefresh((current) => current + 1);
+              onReload();
             }}
-            role="tab"
-            id={`${tabGroupId}-tab-${tab.id}`}
-            aria-selected={tab.id === activeTab}
-            aria-controls={`${tabGroupId}-panel-${tab.id}`}
-            tabIndex={tab.id === activeTab ? 0 : -1}
-            onClick={() => setPane(tab.id)}
-            onKeyDown={(event) => onTabKeyDown(event, index)}
-            className={`-mb-px cursor-pointer border-b-2 px-3 py-2 text-[0.85rem] font-semibold transition-colors ${
-              tab.id === activeTab
-                ? "border-accent-strong text-foreground"
-                : "border-transparent text-muted hover:text-foreground"
-            }`}
+            title="Re-read the rows and the row counts from the database"
+            className="-mb-px ml-auto cursor-pointer border-b-2 border-transparent px-3 py-2 text-[0.85rem] font-semibold text-muted transition-colors hover:text-foreground"
           >
-            {tab.label}
+            Reload
           </button>
-        ))}
+        )}
       </div>
 
       {actionError && (
@@ -647,7 +683,7 @@ function TableDetail({
             table={object.name}
             columns={columns}
             identity={identity}
-            refreshKey={refreshKey}
+            refreshKey={refreshKey + rowsRefresh}
             onChanged={onChanged}
           />
         ) : activeTab === "structure" ? (

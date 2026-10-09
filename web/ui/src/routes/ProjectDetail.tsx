@@ -45,9 +45,15 @@ export default function ProjectDetail() {
   const selectDatabaseTab = useCallback(
     (tab: DatabaseTab) => {
       setDatabaseTab(tab);
-      setSearchParams(tab === "sql" ? {} : { tab }, { replace: true });
+      // Other query keys — today "?table=" — are carried across the switch:
+      // leaving Tables and coming back should restore the open table. The SQL
+      // editor keeps its clean URL by dropping only the tab key itself.
+      const next = new URLSearchParams(searchParams);
+      if (tab === "sql") next.delete("tab");
+      else next.set("tab", tab);
+      setSearchParams(next, { replace: true });
     },
-    [setSearchParams],
+    [searchParams, setSearchParams],
   );
 
   useEffect(() => {
