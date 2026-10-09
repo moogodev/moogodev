@@ -33,14 +33,14 @@ const (
 	secretKeyPrefix = "moogo_sk_"
 
 	// accessKeyBytes adalah panjang entropi ID. ID ini muncul di header tiap
-	// request, jadi dibuat pendek tapi tetap cukup untuk tidak踩 tebakan.
+	// request, jadi dibuat pendek tapi tetap cukup untuk tidak mudah ditebak.
 	accessKeyBytes = 15
 	// secretKeyBytes adalah panjang entropi secret, sama dengan secret key
 	// proyek.
 	secretKeyBytes = 32
 
 	// previewLength adalah berapa karakter secret yang disimpan untuk
-	//identifikasi di daftar credential.
+	// identifikasi di daftar credential.
 	previewLength = 6
 )
 
@@ -55,7 +55,7 @@ type Generated struct {
 	SecretKeyPlaintext string
 	// SecretKeyHash adalah yang disimpan di database.
 	SecretKeyHash string
-	// SecretKeyPreview adalah-awal secret, aman ditampilkan.
+	// SecretKeyPreview adalah beberapa karakter awal secret, aman ditampilkan.
 	SecretKeyPreview string
 }
 
@@ -103,7 +103,7 @@ func Hash(plaintext string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Preview mengembalikan-awal secret untuk identificação di daftar credential.
+// Preview mengembalikan awalan secret untuk identifikasi di daftar credential.
 func Preview(plaintext string) string {
 	trimmed := strings.TrimPrefix(plaintext, secretKeyPrefix)
 	if len(trimmed) <= previewLength {
@@ -123,8 +123,8 @@ func Verify(plaintext, storedHash string) bool {
 
 // LooksLikeAccessKeyID melaporkan apakah sebuah string berbentuk access key ID.
 //
-// Hanya untukZsuru pesan error yang lebih jelas, bukan untuk validasi:
-// Entscheidanya tetap dibuat oleh lookup di database.
+// Hanya untuk menyusun pesan error yang lebih jelas, bukan untuk validasi:
+// Keputusannya tetap dibuat oleh lookup di database.
 func LooksLikeAccessKeyID(value string) bool {
 	return strings.HasPrefix(value, accessKeyPrefix)
 }
