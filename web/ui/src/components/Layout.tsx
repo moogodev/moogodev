@@ -26,13 +26,12 @@ export function SiteLayout({ children }: { children: ReactNode }) {
 // the same token the auth pages use for notices, so the bar reads as a notice
 // in both themes instead of inventing a colour of its own.
 //
-// Development builds only. import.meta.env.DEV is compiled to false in a
-// production build, so this whole component compiles to null there: the bar
-// is a local-testing aid, and shipping an amber "not ready" banner on the
-// live site would contradict the announcement page it links to. The page
-// itself stays reachable either way.
+// It ships in every build, production included: the product is in its
+// development phase, and a visitor on the live site needs that sentence more
+// than a visitor on localhost does. The bar is the short form; /announcement,
+// which it links to, is the long one. Both come out together when the phase
+// ends.
 function AnnouncementBar() {
-  if (!import.meta.env.DEV) return null;
   return (
     <div className="border-b border-amber/30 bg-amber/10">
       <div className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-center gap-x-2 gap-y-1 px-6 py-2 text-center text-[0.84rem] text-muted">
