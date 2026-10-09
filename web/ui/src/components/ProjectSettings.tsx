@@ -7,8 +7,10 @@
 // dashboard itself authenticates with the session cookie.
 
 import { useCallback, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type Project } from "../lib/api";
-import { appOrigin, apiOrigin } from "../lib/origin";
+import { rawDoc } from "../lib/docs";
+import { apiOrigin } from "../lib/origin";
 import ConfirmDialog from "./ConfirmDialog";
 import StorageCredentials from "./StorageCredentials";
 
@@ -53,71 +55,20 @@ export default function ProjectSettings({
     { name: "MOOGO_BUCKET_ENDPOINT", value: `${projectUrl}/bucket` },
   ];
 
-  // generatePrompt tells the assistant where to find the secret rather than
-  // carrying it. Pasting a live key into a chat window hands it to a third
-  // party, where it can be logged and retained, so the prompt points at the
-  // environment instead.
+  // The docs page is the reference, so the button hands over its raw
+  // Markdown out of the same bundle the page renders from: prompt and
+  // page cannot drift, and the assistant reads the project values from
+  // the environment rows above rather than from a pasted key.
   const generatePrompt = useCallback((): string => {
-    // Every claim below is the server's actual behaviour, in the same words
-    // the AI adoption prompt page uses: an assistant that has just read this
-    // and an assistant that has just read /docs/ai-adoption-prompt should
-    // never disagree about a method, a header, or a response field.
-    return `You are helping me build with Moogo — a hosted SQLite database and object storage for each project, reached over plain HTTP. There is no connection string and no database driver: SQL travels as JSON in a POST request, and files travel as raw request bodies. One account holds up to two projects, and the service is in development. This is the Moogo project I am working on:
-
-PROJECT_URL: ${projectUrl}
-PROJECT_ID: ${project.id}
-
-These live in my project's environment already:
-  MOOGO_PROJECT_URL=${projectUrl}
-  MOOGO_PROJECT_ID=${project.id}
-  MOOGO_BUCKET_ENDPOINT=${projectUrl}/bucket
-  MOOGO_SECRET_KEY=...             (SQL only; read it from the environment, never ask me to paste it, never print it)
-  MOOGO_BUCKET_ACCESS_KEY_ID=...   (object storage only)
-  MOOGO_BUCKET_SECRET_KEY=...      (object storage only)
-
-SQL — endpoints relative to PROJECT_URL, authorized with MOOGO_SECRET_KEY:
-  POST ${projectUrl}/query  — reads only (SELECT, VALUES, PRAGMA, EXPLAIN, WITH that selects). Returns columns and rows.
-  POST ${projectUrl}/exec   — writes only (INSERT, UPDATE, DELETE, CREATE, ALTER, DROP). Returns rows_affected and the database size after the write.
-    Headers: Authorization: Bearer $MOOGO_SECRET_KEY
-             Content-Type: application/json     (required — any other type is refused with 415 unsupported_media_type)
-    Body:    {"query": "SELECT id, email FROM users WHERE plan = ?", "args": ["pro"]}
-
-Object storage — endpoints relative to MOOGO_BUCKET_ENDPOINT, authorized with the bucket credential, NOT the SQL key:
-  POST   {ENDPOINT}/{key}   upload — the body is the raw file bytes; the Content-Type is the file's own type. Do not JSON-wrap the file, and do not default the header to application/json out of habit: it belongs there only when the file really is JSON.
-  GET    {ENDPOINT}/{key}   download — returns the bytes with the object's Content-Type
-  DELETE {ENDPOINT}/{key}   delete
-  GET    {ENDPOINT}/?limit=100&order=key&dir=asc   list — paged; the listing route is the endpoint root, not an object key
-  Every storage route also takes ?bucket=NAME; without it the bucket is "default".
-    Headers: X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID
-             Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY
-
-Rules the server enforces, not conventions:
-  - The two credentials are not interchangeable: the SQL key on a bucket request gets 401, and the bucket credential on SQL gets 401.
-  - SQL values bind through ? placeholders and an args array — never concatenated into the query text.
-  - One statement per request; stacked statements (a; b) are rejected.
-  - File functions (readfile, writefile, load_extension) are rejected.
-  - Statements are capped at 64 KB and cancelled after 15 seconds.
-  - Results cap at 1000 rows: truncated: true means page the query and re-fetch rather than treat it as the whole table.
-  - Read credentials from the environment. Do not ask me to paste them.
-
-Response format:
-  query: {"success": true, "columns": [...], "rows": [[...]], "row_count": N, "truncated": bool, "duration_ms": N}
-         — rows are arrays aligned with columns, not objects.
-  exec:  {"success": true, "rows_affected": N, "size_bytes": N, "duration_ms": N}
-  error: {"error": {"code": "...", "message": "...", "detail": "..."}} — one envelope for every failure on every endpoint; branch on code, never on message text.
-
-An upload answers with the object: key, size_bytes, content_type, storage_used_bytes, quota_bytes, and three URLs — url (for my application, requires the credential), preview_url (dashboard), public_url (empty until the object is published; publishing makes that URL world-readable, permanently).
-
-The dashboard (/app) runs on a session cookie, for humans. Never call it from application code.
-
-Full reference, written for agents — save it as moogo.md and read it before writing code:
-  ${appOrigin()}/docs/ai-adoption-prompt
-
-What I want to do:`;
-  }, [project.id, projectUrl]);
+    return rawDoc("ai-adoption-prompt") ?? "";
+  }, []);
 
   const handleUsePrompt = useCallback(async () => {
     const prompt = generatePrompt();
+    if (!prompt) {
+      alert("The AI adoption prompt could not be loaded. Open /docs/ai-adoption-prompt instead.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(prompt);
       setPromptCopied(true);
@@ -297,9 +248,13 @@ What I want to do:`;
           </button>
         </div>
         <p className="mt-2 max-w-[62ch] text-[0.8rem] font-medium leading-relaxed text-muted">
-          Copies a prompt describing the endpoints, the request format, and the environment
-          variables. It points the assistant at your environment instead of carrying the
-          secret key, so the key never leaves your machine.
+          Copies the{" "}
+          <Link to="/docs/ai-adoption-prompt" className="text-accent-strong underline underline-offset-4 hover:text-accent">
+            AI adoption prompt
+          </Link>{" "}
+          verbatim — the same text as the reference page — ready to paste into an
+          assistant or save as moogo.md. It points the assistant at your environment
+          instead of carrying the secret key, so the key never leaves your machine.
         </p>
       </section>
 
