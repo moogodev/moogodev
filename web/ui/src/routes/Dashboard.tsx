@@ -8,18 +8,7 @@ import {
   type Project,
   type UpdateItem,
 } from "../lib/api";
-
-// newsOrigin is where the changelog lives: news.<domain> in production, the
-// local news binary on :8081 when the dashboard runs on localhost. The news
-// service is always a separate origin, so every link below is an <a>, never
-// a client-side route.
-function newsOrigin(): string {
-  const { protocol, hostname } = window.location;
-  if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return `${protocol}//${hostname}:8081`;
-  }
-  return "https://news.moogo.dev";
-}
+import { newsOrigin } from "../lib/origin";
 
 export default function Dashboard() {
   const [me, setMe] = useState<Me | null>(null);

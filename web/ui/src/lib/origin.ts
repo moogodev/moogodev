@@ -67,3 +67,15 @@ export function homeHref(pathname = "/"): string {
 
   return `https://moogo.dev${pathname}`;
 }
+
+// Where the changelog lives: news.<domain> in production, the local news
+// binary on :8081 when the page runs on localhost. The news service is always
+// a separate origin, so every link to it is a plain <a> rather than a
+// client-side route — SPA routing does not apply across origins.
+export function newsOrigin(): string {
+  const { protocol, hostname } = window.location;
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return `${protocol}//${hostname}:8081`;
+  }
+  return "https://news.moogo.dev";
+}

@@ -310,11 +310,16 @@ echo "==> building"
 # have to be rebuilt alongside the Go code. A fresh clone has both dist
 # directories committed; rebuilding them is what keeps an edit in web/ui from
 # shipping an old UI.
+#
+# npm ci, not npm install: install re-resolves the tree with whatever npm the
+# server runs and rewrites the lockfiles in passing, which dirties a clean
+# checkout on every deploy. ci installs exactly what the committed lockfiles
+# say and never writes them.
 if [[ -d "$REPO_ROOT/web/dist" ]]; then
-	(cd "$REPO_ROOT/web/ui" && npm install --no-audit --no-fund && npm run build)
+	(cd "$REPO_ROOT/web/ui" && npm ci --no-audit --no-fund && npm run build)
 fi
 if [[ -d "$REPO_ROOT/news/dist" ]]; then
-	(cd "$REPO_ROOT/news" && npm install --no-audit --no-fund && npm run build)
+	(cd "$REPO_ROOT/news" && npm ci --no-audit --no-fund && npm run build)
 fi
 
 # dist is committed and embedded: a binary built from a dirty dist would

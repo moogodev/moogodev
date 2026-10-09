@@ -124,6 +124,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		Log:            options.Log,
 		StaticFS:       staticFS,
 		IndexFS:        options.Frontend,
+		PublicURL:      cfg.PublicURL,
 		TrustedProxies: trustedProxies,
 		MaxBodyBytes:   cfg.MaxBodyBytes,
 		MaxObjectBytes: cfg.MaxObjectBytes,
@@ -152,15 +153,20 @@ func Build(ctx context.Context, options Options) (*App, error) {
 			//     enough to matter would refuse large uploads from slow
 			//     clients. Bounded request reading is done where it can be
 			//     specific instead: MaxBodyBytes caps what is read on every
-			//     JSON route, and nginx in front sets client_body_timeout so
-			//     a stalled upload dies at the edge.
+			//     JSON route, and a stalled transfer dies at the edge, where
+			//     the timeouts are gap-based — nginx's client_body_timeout,
+			//     written by deploy.sh. On a machine behind a Cloudflare
+			//     Tunnel deploy.sh writes no nginx config at all, so the
+			//     operator sets those timeouts in the loopback config the
+			//     tunnel setup owns; deploy-guide.md carries the checklist.
 			//   - WriteTimeout bounds writing the whole response, counted
 			//     from the end of the headers. A statement may legitimately
 			//     run for the whole query timeout before it writes a byte,
 			//     and a download may stream a 256 MB object over a slow
 			//     link; a WriteTimeout shorter than either would cut off
-			//     successful results. Slow readers die at nginx's
-			//     send_timeout instead.
+			//     successful results. Slow readers die at the same edge
+			//     timeouts — send_timeout at the site that manages nginx,
+			//     the operator's own value behind a tunnel.
 			//
 			// ReadHeaderTimeout still bounds the part that is pure overhead:
 			// a header flood stops after 15 seconds rather than holding a

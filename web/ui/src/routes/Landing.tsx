@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
 import { CodeTabs } from "../components/CodeTabs";
+import { newsOrigin } from "../lib/origin";
 import "../landing.css";
 
 // The feature copy is kept next to the section that renders it rather than in a
@@ -816,6 +817,16 @@ function Closing() {
           >
             Read the docs
           </Link>
+          {/* Cross-origin on purpose: the changelog lives on news.moogo.dev
+              (or the local news binary in development), so this is a plain
+              <a> — SPA routing does not apply across origins, and pretending
+              otherwise would render the landing page instead of the news. */}
+          <a
+            href={newsOrigin()}
+            className="inline-flex items-center justify-center rounded-lg border border-edge-strong px-5 py-3 font-semibold transition-colors hover:border-hover-edge hover:bg-hover-bg"
+          >
+            What&apos;s new in Moogo — Moogo News
+          </a>
         </div>
       </div>
     </section>

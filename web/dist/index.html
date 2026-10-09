@@ -9,14 +9,12 @@
     />
     <!-- One PNG serves as favicon and social preview for every route this
          shell renders: the favicon URL is reused as og:image, so a share of
-         any page — landing, app, docs, terms — previews the same mark. Both
-         are absolute, which the og:image spec requires and which a favicon
-         accepts. -->
-    <link
-      rel="icon"
-      type="image/png"
-      href="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/moogo_logo.png"
-    />
+         any page — landing, app, docs, terms — previews the same mark. The
+         file lives on this site's own origin (public/img, served under
+         /static/), so neither the favicon nor a crawler fetching the preview
+         depends on a third party. The og and twitter forms are absolute,
+         which the og:image spec requires. -->
+    <link rel="icon" type="image/png" href="/static/img/moogo_logo.png" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Moogo" />
     <meta property="og:title" content="A True Database for Serverless Apps — Moogo" />
@@ -26,7 +24,7 @@
     />
     <meta
       property="og:image"
-      content="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/moogo_logo.png"
+      content="https://moogo.dev/static/img/moogo_logo.png"
     />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="A True Database for Serverless Apps — Moogo" />
@@ -36,10 +34,10 @@
     />
     <meta
       name="twitter:image"
-      content="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/moogo_logo.png"
+      content="https://moogo.dev/static/img/moogo_logo.png"
     />
     <title>A True Database for Serverless Apps — Moogo</title>
-    <script type="module" crossorigin src="/static/assets/index-CQqPmqbZ.js"></script>
+    <script type="module" crossorigin src="/static/assets/index-DEIQNPv8.js"></script>
     <link rel="stylesheet" crossorigin href="/static/assets/index-CcaNFYj2.css">
   </head>
   <body>

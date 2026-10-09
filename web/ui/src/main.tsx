@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { createRoot } from "react-dom/client";
 import { StrictMode } from "react";
 import { AppShell } from "./components/AppShell";
@@ -39,8 +39,10 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/auth/setup" element={<OAuthSetup />} />
         <Route path="/plan" element={<Plan />} />
         <Route path="/announcement" element={<Announcement />} />
-        {/* Both spellings land on the page so neither URL 404s. */}
-        <Route path="/annoucement" element={<Announcement />} />
+        {/* The published typo redirects to the correct spelling. The server
+            answers a direct load with a 301 before the app boots; this covers
+            a navigation that somehow still carries the old path. */}
+        <Route path="/annoucement" element={<Navigate to="/announcement" replace />} />
         {/* The legal pages are ordinary routes, declared like the others so a
             direct link or a hard refresh renders them rather than the
             catch-all below. */}

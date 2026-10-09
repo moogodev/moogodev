@@ -321,7 +321,7 @@ func (stub stubAuthorizer) ProjectOwnedBy(
 // testFrontend stands in for the built single-page app: one index.html that
 // every page route returns, plus hashed assets under assets/.
 var testFrontend = fstest.MapFS{
-	"index.html":      {Data: []byte("<!doctype html><title>home</title>")},
+	"index.html":      {Data: []byte("<!doctype html><html><head><title>home</title></head><body></body></html>")},
 	"assets/app.css":  {Data: []byte("body{color:#fff}")},
 	"img/favicon.svg": {Data: []byte("<svg/>")},
 }
@@ -407,6 +407,7 @@ func testRouter(t *testing.T, projectID uuid.UUID) (
 		Log:            logger.Nop(),
 		StaticFS:       http.FS(testFrontend),
 		IndexFS:        testFrontend,
+		PublicURL:      "https://moogo.dev",
 		MaxBodyBytes:   64 * 1024,
 		MaxObjectBytes: 8 * 1024 * 1024,
 		RequestTimeout: 5 * time.Second,
@@ -906,7 +907,7 @@ func TestPagesAreServed(t *testing.T) {
 	// app shell for them so a hard refresh matches in-app navigation. The
 	// split with the /api/docs document endpoints is asserted in the docs
 	// tests instead.
-	for _, path := range []string{"/", "/app", "/login", "/register", "/plan", "/announcement", "/annoucement", "/app/settings/profile", "/docs", "/docs/quickstart"} {
+	for _, path := range []string{"/", "/app", "/login", "/register", "/plan", "/announcement", "/app/settings/profile", "/docs", "/docs/quickstart"} {
 		t.Run(path, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
@@ -1177,7 +1178,6 @@ func TestEveryPageRouteServesTheApp(t *testing.T) {
 		"/verify-email",
 		"/plan",
 		"/announcement",
-		"/annoucement",
 		"/app",
 		"/docs",
 		"/docs/quickstart",
@@ -1191,6 +1191,53 @@ func TestEveryPageRouteServesTheApp(t *testing.T) {
 		if !strings.Contains(recorder.Body.String(), "<title>home</title>") {
 			t.Errorf("%s: expected the app shell, got %q", path, recorder.Body.String())
 		}
+	}
+}
+
+// The shell is identical for every path, so a canonical tag baked into
+// index.html would claim every page is the same page. The tag is composed per
+// request instead: PublicURL plus the path, query string dropped.
+func TestCanonicalTagFollowsTheRequestPath(t *testing.T) {
+	built, _, _, _ := testRouter(t, uuid.New())
+
+	for _, path := range []string{"/", "/terms", "/privacy", "/plan", "/docs/quickstart"} {
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+
+		want := `rel="canonical" href="https://moogo.dev` + path + `"`
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Errorf("%s: canonical tag missing, body %q", path, recorder.Body.String())
+		}
+	}
+
+	t.Run("query string is not part of the canonical URL", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/plan?ref=newsletter", nil))
+
+		body := recorder.Body.String()
+		if !strings.Contains(body, `rel="canonical" href="https://moogo.dev/plan"`) {
+			t.Errorf("expected /plan canonicalized without the query, body %q", body)
+		}
+		if strings.Contains(body, "newsletter") {
+			t.Errorf("query string leaked into the canonical tag, body %q", body)
+		}
+	})
+}
+
+// /annoucement is a published typo: links to it exist, so it keeps answering,
+// but with a permanent redirect rather than a second copy of the page that
+// would make the canonical tag ambiguous.
+func TestLegacyAnnoucementRedirectsToTheCorrectSpelling(t *testing.T) {
+	built, _, _, _ := testRouter(t, uuid.New())
+
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/annoucement", nil))
+
+	if recorder.Code != http.StatusMovedPermanently {
+		t.Errorf("expected %d, got %d", http.StatusMovedPermanently, recorder.Code)
+	}
+	if location := recorder.Header().Get("Location"); location != "/announcement" {
+		t.Errorf("expected Location /announcement, got %q", location)
 	}
 }
 

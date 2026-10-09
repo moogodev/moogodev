@@ -80,6 +80,26 @@ Tunnel (`/etc/cloudflared/config.yml` present) none of this runs at all:
 `deploy.sh` skips the nginx site, certificates and certbot entirely and leaves
 that machine's own loopback-only configuration alone.
 
+**Checklist for a tunnel machine — the three request timeouts.** The Go
+process deliberately sets no `ReadTimeout`/`WriteTimeout` (a total-time bound
+would cut legitimate 256 MB uploads), so a stalled transfer is meant to die at
+the edge instead. `deploy.sh` installs the three gap-based timeouts only in the
+nginx site it writes, which on a tunnel machine is never. Copy them into the
+loopback config the tunnel setup owns:
+
+```nginx
+client_body_timeout 300s;
+send_timeout 300s;
+proxy_read_timeout 300s;
+```
+
+With them, a transfer that stops mid-flight is cut after five minutes of
+silence while a healthy slow transfer — a large upload, a long query, a big
+download — is unaffected, because each timeout counts only the gap since the
+last byte. Left unset, the nginx defaults (60 seconds between reads) apply:
+tighter, and the reason to check this box before the first large upload on a
+tunnel machine.
+
 PostgreSQL must already exist and be reachable. `deploy.sh` does not install or
 configure a database.
 

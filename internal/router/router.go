@@ -7,8 +7,10 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"html"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -156,6 +158,12 @@ type Deps struct {
 	// fields because one is a file server and the other is read as a document.
 	StaticFS http.FileSystem
 	IndexFS  fs.FS
+	// PublicURL is the origin the dashboard is served from, without a trailing
+	// slash. It is the base of the per-request rel=canonical tag the page
+	// routes inject: the SPA serves one shell for every path, so the canonical
+	// URL cannot be baked into index.html and has to be composed per request.
+	// Empty in tests that do not care, and then no tag is written.
+	PublicURL string
 	// TrustedProxies lists the addresses allowed to set X-Forwarded-For. Empty
 	// means the header is ignored, which is the safe default.
 	TrustedProxies []string
@@ -846,7 +854,14 @@ func registerPages(root chi.Router, deps Deps) {
 	root.Get("/verify-email", index)
 	root.Get("/plan", index)
 	root.Get("/announcement", index)
-	root.Get("/annoucement", index)
+	// The typo is a real published URL: links to it exist, so it answers with
+	// a permanent redirect instead of rendering the page a second time. Two
+	// URLs serving identical content would make the canonical tag ambiguous —
+	// one of them has to lose, and a redirect keeps the old links working
+	// while handing every share to /announcement.
+	root.Get("/annoucement", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/announcement", http.StatusMovedPermanently)
+	})
 	// The legal pages, served like every other client route: a hard refresh
 	// on either has to render the page rather than fall through to the API's
 	// 404, and a crawler following the footer link has to get HTML.
@@ -886,6 +901,21 @@ func (deps Deps) spa() http.HandlerFunc {
 			httpx.WriteError(w, http.StatusInternalServerError, "frontend_missing",
 				"the frontend is not available")
 			return
+		}
+
+		// One shell serves every path, so a canonical URL cannot live in
+		// index.html — it would claim every page is the same page. Compose it
+		// here instead: the public origin plus the path of this request, with
+		// the query string dropped, so /plan?ref=x canonicalizes to /plan.
+		// The tag is a hint rather than a directive, and only crawlers that
+		// follow it ever see it, so the per-request string work costs nothing
+		// a page load would notice.
+		if deps.PublicURL != "" {
+			canonical := html.EscapeString(deps.PublicURL + r.URL.Path)
+			contents = bytes.Replace(contents,
+				[]byte("</head>"),
+				[]byte(`<link rel="canonical" href="`+canonical+`" />`+"\n  </head>"),
+				1)
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -109,6 +109,15 @@ Worth knowing explicitly, because these are common assumptions:
 - **No idle timeout.** A project does not pause after inactivity. No cold start.
 - **No automatic backup schedule.** Download one from the project settings when
   you want it.
+- **No bucket count limit.** A project may create as many buckets as it wants;
+  the dashboard lists the first 1000.
+- **No bandwidth or egress limit.** Storage is metered by what is stored, not
+  by how much travels in or out.
+- **No daily quota.** Nothing resets at midnight — the storage and database
+  ceilings are cumulative.
+- **No table-count limit.** The database ceiling is bytes, not objects: rows,
+  tables and indexes all draw from the same space, in whatever shape you
+  choose.
 
 ## If you hit a limit
 
