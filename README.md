@@ -9,11 +9,12 @@
 
 A true database for serverless apps. Every project gets its own SQLite file and
 its own key, and you talk to it over HTTP — no connection string, no driver, no
-connection pool to manage. Object storage lives under the same project and the
-same credentials.
+connection pool to manage. Object storage lives under the same project, behind
+its own credential.
 
-This repository is the whole service: a Go API and the React dashboard that it
-serves from the same origin.
+This repository is the whole service: a Go API, the React dashboard that it
+serves from the same origin, and the small news service behind the dashboard's
+update feed.
 
 ## What you get
 
@@ -23,8 +24,8 @@ serves from the same origin.
 - **One database per project** — a real SQLite file you can back up, with its
   own secret key and its own quota (100 MB per database, 15 seconds per
   statement, 64 KB per statement text).
-- **Object storage** — buckets under the same project and the same credentials:
-  upload, preview, public/private objects, storage credentials.
+- **Object storage** — buckets under the same project, with their own storage
+  credential: upload, preview, public/private objects.
 - **Dashboard** — projects, a table browser with a visual table builder, a SQL
   console that runs pasted multi-statement scripts in order (with an examples
   shelf), a read-only schema visualizer with relationship edges, bucket
@@ -44,6 +45,9 @@ serves from the same origin.
 - **Dashboard** — table browser, SQL console, schema visualizer and bucket
   browser, served from the same origin as the API so there is no CORS and one
   cookie jar.
+- **News service** — a second binary (`cmd/news`, frontend in `news/`) behind
+  the dashboard's announcement feed `GET /api/updates` and its own site.
+  Separate process, separate database.
 
 The two planes share no tables. A client on the data plane never learns whether
 a project exists on the control plane; a signed-in user never holds a secret
@@ -64,7 +68,7 @@ Frontend scripts (in `web/ui`):
 
 | Script | What it does |
 |---|---|
-| `npm run dev` | Vite dev server — files only, the API still runs separately |
+| `npm run dev` | Vite dev server — serves files and proxies `/auth` and `/api` to the Go API, which still runs separately |
 | `npm run build` | `tsc -b && vite build` → `web/dist`, embedded by `go build` |
 | `npm run lint` | oxlint |
 | `npm run verify:docs` | renders every docs page outside a browser and checks links |
@@ -79,10 +83,10 @@ export MOOGO_DATA_DIR=./data
 ./api
 ```
 
-`dev.sh` wires up a local Postgres and the rest of the defaults if you would
-rather not do it by hand. It is development only — the session secret it
-defaults to is published in this repository, and production refuses to start
-with it.
+`dev.sh` exports the local defaults and starts the API if you would rather not
+do it by hand. It expects a local Postgres to already be running (it prints the
+command if not). It is development only — the session secret it defaults to is
+published in this repository, and production refuses to start with it.
 
 Every other setting has a default; `internal/config/config.go` is the list.
 
@@ -90,7 +94,7 @@ Every other setting has a default; `internal/config/config.go` is the list.
 
 | Endpoint | Accepts | Rejects |
 |---|---|---|
-| `/query` | Reads — `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN` | Writes, with `not_a_read` |
+| `/query` | Reads — `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN`, `WITH` that selects | Writes, with `not_a_read` |
 | `/exec` | Writes — `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP` | Reads, with `not_a_write` |
 
 Sending the wrong kind of statement is rejected rather than quietly accepted, so
@@ -100,7 +104,8 @@ you find out immediately instead of after it has written something.
 
 - [Deployment guide](deploy-guide.md) — every step, every setting, every failure
   mode, written for an agent operating the VPS
-- [Quickstart](quickstart.md) — an account to a working query in two minutes
+- [Quickstart](https://moogo.dev/docs/quickstart) — an account to a working
+  query in two minutes (source: [`internal/docs/files/quickstart.md`](internal/docs/files/quickstart.md))
 - [Architecture decisions](DECISIONS.md) — what is locked in, and why
 - [`prd_moogo.md`](prd_moogo.md) — the product requirements this was built from
 - [`deploy/README.md`](deploy/README.md) — systemd unit, nginx site, backup and
