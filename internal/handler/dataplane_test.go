@@ -409,6 +409,21 @@ func TestIsReadStatement(t *testing.T) {
 		{"DROP TABLE t", false},
 		{"CREATE TABLE t (a INT)", false},
 		{"-- a comment\nINSERT INTO t VALUES (1)", false},
+		// Whitespace and comments must not hide the statement type: SQLite
+		// treats \v, \f and comments as ordinary separators, so the router
+		// has to as well or a write would be classified from the wrong word.
+		{"\vSELECT 1", true},
+		{"\f\n\r\t UPDATE t SET a = 1", false},
+		{"\v-- leading comment\nPRAGMA table_info(users)", true},
+		{"/* c */\vVALUES (1)", true},
+		{"/* c */\vINSERT INTO t VALUES (1)", false},
+		{"WITH c AS (\vSELECT 1) \vINSERT INTO t VALUES (1)", false},
+		{"WITH -- note\n c AS (SELECT 1) SELECT 1", true},
+		{"WITH c AS (SELECT 1) -- done\n INSERT INTO t VALUES (1)", false},
+		// Conservative answers for text with no statement keyword: routing a
+		// write to the exec endpoint costs nothing, the sanitizer still runs.
+		{"'delete'", false},
+		{"-- just a comment", false},
 		{"", false},
 	}
 

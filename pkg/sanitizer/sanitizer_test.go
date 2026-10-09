@@ -452,3 +452,56 @@ func TestPragmaFunctionsAreUnderTheSameAllowlist(t *testing.T) {
 		}
 	}
 }
+
+// TestWhitespaceAndCommentsDoNotHideChecks: SQLite treats \v, \f and comments
+// as ordinary separators, so every check has to see through them. A forbidden
+// pragma behind a vertical tab, a keyword split from its tail by a comment, a
+// second statement behind a comment -- all of them have to keep the answer the
+// plain spelling gets. The other half pins the harmless spellings: an allowed
+// pragma behind a comment stays usable, and a trailing comment after the final
+// semicolon is not a second statement.
+func TestWhitespaceAndCommentsDoNotHideChecks(t *testing.T) {
+	testCases := []struct {
+		name      string
+		statement string
+		wantCode  string // "" means the statement must pass.
+	}{
+		{"vertical tab before pragma", "\vPRAGMA journal_mode = WAL", CodeForbiddenPragma},
+		{"comment glued after pragma", "PRAGMA/* c */journal_mode = WAL", CodeForbiddenPragma},
+		{"line comment before name", "PRAGMA -- note\n key = 'secret'", CodeForbiddenPragma},
+		{"form feeds before pragma", "\f\fPRAGMA page_size = 65536", CodeForbiddenPragma},
+		{"leading block comment", "/* lead */ PRAGMA rekey = 'x'", CodeForbiddenPragma},
+		{"comment-only pragma body", "PRAGMA /* c */", CodeForbiddenPragma},
+		{"vertical tab before attach", "\vATTACH DATABASE '/etc/passwd' AS leak", CodeForbiddenKeyword},
+		{"comment after vacuum", "VACUUM/* c */", CodeForbiddenKeyword},
+		{"line comment then vacuum", "\n-- note\n\tVACUUM", CodeForbiddenKeyword},
+		{"comment inside function name", "SELECT readfile/* c */('/etc/passwd')", CodeForbiddenFunction},
+		{"comment between statements", "SELECT 1; /* c */ DELETE FROM t", CodeMultipleStatements},
+		{"allowed pragma behind line comment", "PRAGMA -- introspect\n table_info(users)", ""},
+		{"allowed pragma behind block comment", "/* schema */ PRAGMA table_info(users)", ""},
+		{"vertical tab before allowed pragma", "\vPRAGMA table_info(users)", ""},
+		{"vertical tab before pragma function", "\vpragma_table_info('users')", ""},
+		{"trailing line comment after semicolon", "SELECT 1; -- done", ""},
+		{"trailing block comment after semicolon", "SELECT 1; /* end */", ""},
+		{"vertical tab before select", "\vSELECT 1", ""},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := Validate(testCase.statement)
+			if testCase.wantCode == "" {
+				if err != nil {
+					t.Fatalf("statement was rejected: %q: %v", testCase.statement, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("statement was accepted but must be rejected: %q", testCase.statement)
+			}
+			var validationErr *Error
+			if !errors.As(err, &validationErr) || validationErr.Code != testCase.wantCode {
+				t.Errorf("%q: err = %v, want code %s", testCase.statement, err, testCase.wantCode)
+			}
+		})
+	}
+}
