@@ -1,0 +1,335 @@
+var e=`# Go
+
+Native HTTP client, zero dependencies, compiles to single binary.
+
+## Setup
+
+\`\`\`bash
+# Go 1.21+ (stdlib only)
+go mod init myapp
+\`\`\`
+
+**Environment variables:**
+
+\`\`\`bash
+export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
+export MOOGO_SECRET_KEY="moogo_..."
+export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
+export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
+\`\`\`
+
+## Client (\`moogo/moogo.go\`)
+
+\`\`\`go
+// moogo/moogo.go
+package moogo
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"os"
+	"regexp"
+)
+
+var (
+	projectURL     = os.Getenv("MOOGO_PROJECT_URL")
+	secretKey      = os.Getenv("MOOGO_SECRET_KEY")
+	bucketEndpoint = os.Getenv("MOOGO_BUCKET_ENDPOINT")
+	bucketAccessKeyID = os.Getenv("MOOGO_BUCKET_ACCESS_KEY_ID")
+	bucketSecretKey = os.Getenv("MOOGO_BUCKET_SECRET_KEY")
+
+	readRe = regexp.MustCompile(\`^\\s*(?i:SELECT|VALUES|PRAGMA|EXPLAIN)\\b\`)
+	httpClient = &http.Client{Timeout: 30 * 1e9} // 30s
+)
+
+type Error struct {
+	Code    string \`json:"code"\`
+	Message string \`json:"message"\`
+	Detail  string \`json:"detail"\`
+	Status  int
+}
+
+func (e *Error) Error() string { return e.Message }
+
+func do(method, url string, headers map[string]string, body any) (map[string]any, error) {
+	var buf bytes.Buffer
+	if body != nil {
+		json.NewEncoder(&buf).Encode(body)
+	}
+	req, _ := http.NewRequest(method, url, &buf)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if resp.StatusCode >= 400 {
+		err := &Error{Status: resp.StatusCode}
+		if e := result["error"].(map[string]any); e != nil {
+			err.Code = e["code"].(string)
+			err.Message = e["message"].(string)
+			err.Detail = e["detail"].(string)
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// ── SQL ──────────────────────────────────────────────────────────────
+func Query(sql string, args ...any) (map[string]any, error) {
+	return do("POST", projectURL+"/query", map[string]string{
+		"Authorization": "Bearer " + secretKey,
+	}, map[string]any{"query": sql, "args": args})
+}
+
+func Exec(sql string, args ...any) (map[string]any, error) {
+	return do("POST", projectURL+"/exec", map[string]string{
+		"Authorization": "Bearer " + secretKey,
+	}, map[string]any{"query": sql, "args": args})
+}
+
+func SQL(sql string, args ...any) (map[string]any, error) {
+	if readRe.MatchString(sql) {
+		return Query(sql, args...)
+	}
+	return Exec(sql, args...)
+}
+
+func ToObjects(result map[string]any) []map[string]any {
+	cols := result["columns"].([]any)
+	rows := result["rows"].([]any)
+	out := make([]map[string]any, len(rows))
+	for i, row := range rows {
+		rowArr := row.([]any)
+		m := make(map[string]any, len(cols))
+		for j, col := range cols {
+			m[col.(string)] = rowArr[j]
+		}
+		out[i] = m
+	}
+	return out
+}
+
+// ── Bucket ───────────────────────────────────────────────────────────
+func BucketUpload(key string, content []byte, contentType string) (map[string]any, error) {
+	return do("POST", bucketEndpoint+"/"+key, map[string]string{
+		"X-Moogo-Access-Key-Id": bucketAccessKeyID,
+		"Authorization": "Bearer " + bucketSecretKey,
+		"Content-Type": contentType,
+	}, bytes.NewReader(content))
+}
+
+func BucketDownload(key string) ([]byte, error) {
+	req, _ := http.NewRequest("GET", bucketEndpoint+"/"+key, nil)
+	req.Header.Set("X-Moogo-Access-Key-Id", bucketAccessKeyID)
+	req.Header.Set("Authorization", "Bearer "+bucketSecretKey)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+func BucketDelete(key string) (map[string]any, error) {
+	return do("DELETE", bucketEndpoint+"/"+key, map[string]string{
+		"X-Moogo-Access-Key-Id": bucketAccessKeyID,
+		"Authorization": "Bearer " + bucketSecretKey,
+	}, nil)
+}
+
+func BucketList(prefix string) (map[string]any, error) {
+	url := bucketEndpoint
+	if prefix != "" {
+		url += "?prefix=" + prefix
+	}
+	return do("GET", url, map[string]string{
+		"X-Moogo-Access-Key-Id": bucketAccessKeyID,
+		"Authorization": "Bearer " + bucketSecretKey,
+	}, nil)
+}
+
+func BucketPublicUrl(key string) string {
+	return bucketEndpoint + "/" + key
+}
+\`\`\`
+
+## Usage
+
+\`\`\`go
+// main.go
+package main
+
+import (
+	"fmt"
+	"os"
+	"your/module/moogo"
+)
+
+func main() {
+	// Create table
+	moogo.Must(moogo.SQL(\`
+		CREATE TABLE IF NOT EXISTS users (
+			id TEXT PRIMARY KEY,
+			email TEXT NOT NULL,
+			plan TEXT DEFAULT 'free'
+		)
+	\`))
+
+	// Insert
+	moogo.Must(moogo.SQL("INSERT INTO users (id, email, plan) VALUES (?, ?, ?)",
+		"u1", "ketut@example.com", "pro"))
+
+	// Query
+	users := moogo.ToObjects(moogo.Must(moogo.SQL("SELECT id, email, plan FROM users WHERE plan = ?", "pro")))
+	fmt.Println(users)
+
+	// Bucket upload
+	content, _ := os.ReadFile("avatar.png")
+	moogo.Must(moogo.BucketUpload("avatars/kit.png", content, "image/png"))
+
+	// Public URL
+	fmt.Println(moogo.BucketPublicUrl("public/logo.png"))
+}
+
+// Helper for examples
+func Must[T any](v T, err error) T {
+	if err != nil {
+		var e *moogo.Error
+		if errors.As(err, &e) {
+			fmt.Fprintf(os.Stderr, "Moogo error [%s]: %s\\n", e.Code, e.Message)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: %v\\n", err)
+		}
+		os.Exit(1)
+	}
+	return v
+}
+\`\`\`
+
+## HTTP Server (stdlib)
+
+\`\`\`go
+// server.go
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"your/module/moogo"
+)
+
+func main() {
+	http.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			users := moogo.ToObjects(moogo.Must(moogo.SQL("SELECT id, email, plan FROM users")))
+			json.NewEncoder(w).Encode(users)
+		case http.MethodPost:
+			var in struct{ Email, Plan string }
+			json.NewDecoder(r.Body).Decode(&in)
+			id := "u_" + randomID()
+			moogo.Must(moogo.SQL("INSERT INTO users (id, email, plan) VALUES (?, ?, ?)", id, in.Email, in.Plan))
+			json.NewEncoder(w).Encode(map[string]string{"id": id})
+		}
+	})
+
+	http.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
+		file, _, _ := r.FormFile("file")
+		defer file.Close()
+		content, _ := io.ReadAll(file)
+		moogo.Must(moogo.BucketUpload("uploads/"+file.Filename, content, r.Header.Get("Content-Type")))
+		json.NewEncoder(w).Encode(map[string]string{"url": moogo.BucketPublicUrl("uploads/" + file.Filename)})
+	})
+
+	http.ListenAndServe(":8080", nil)
+}
+
+func randomID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+\`\`\`
+
+## Gin / Echo / Chi
+
+\`\`\`go
+// Gin example
+import "github.com/gin-gonic/gin"
+
+func main() {
+	r := gin.Default()
+	r.GET("/users", func(c *gin.Context) {
+		users := moogo.ToObjects(moogo.Must(moogo.SQL("SELECT id, email, plan FROM users")))
+		c.JSON(200, users)
+	})
+	r.Run()
+}
+\`\`\`
+
+## Error handling
+
+\`\`\`go
+result, err := moogo.SQL("SELECT * FROM nonexistent")
+var e *moogo.Error
+if errors.As(err, &e) {
+	switch e.Code {
+	case "sql_error":
+		log.Printf("SQLite: %s", e.Detail)
+	case "database_too_large":
+		log.Println("Quota exceeded")
+	case "statement_timeout":
+		log.Println("Query too slow")
+	}
+}
+\`\`\`
+
+## Testing
+
+\`\`\`go
+// moogo_test.go
+func TestSQL(t *testing.T) {
+	// Use httptest.Server to mock Moogo API
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(map[string]any{
+			"success": true, "columns": []string{"id"}, "rows": [][]any{{"u1"}}, "row_count": 1,
+		})
+	}))
+	defer server.Close()
+
+	os.Setenv("MOOGO_PROJECT_URL", server.URL)
+	os.Setenv("MOOGO_SECRET_KEY", "test")
+
+	users := moogo.ToObjects(moogo.Must(moogo.SQL("SELECT id FROM users")))
+	assert.Equal(t, []map[string]any{{"id": "u1"}}, users)
+}
+\`\`\`
+
+## Cross-compile
+
+\`\`\`bash
+GOOS=linux GOARCH=amd64 go build -o myapp-linux
+GOOS=windows GOARCH=amd64 go build -o myapp.exe
+\`\`\`
+
+## Next
+
+- [Python guide](/docs/guides/python-vanilla)
+- [Java/Kotlin guide](/docs/guides/java-kotlin)
+- [SQL API reference](/docs/sql-api)
+- [Object storage](/docs/object-storage)`;export{e as default};

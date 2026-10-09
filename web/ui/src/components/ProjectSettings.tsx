@@ -9,6 +9,7 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Project } from "../lib/api";
+import { copyToClipboard } from "../lib/clipboard";
 import { rawDoc } from "../lib/docs";
 import { apiOrigin } from "../lib/origin";
 import ConfirmDialog from "./ConfirmDialog";
@@ -25,7 +26,11 @@ export default function ProjectSettings({
   onProjectUpdated,
   onProjectDeleted,
 }: ProjectSettingsProps) {
-  const [promptCopied, setPromptCopied] = useState(false);
+  const [promptStatus, setPromptStatus] = useState<"idle" | "copied" | "failed">("idle");
+  // Set when the clipboard refused the prompt: the text goes on screen,
+  // selectable, rather than into an alert() that blocks the page or a
+  // dialog the user has to read past.
+  const [promptFallback, setPromptFallback] = useState<string | null>(null);
   const [isPausing, setIsPausing] = useState(false);
   const [isResuming, setIsResuming] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
@@ -66,16 +71,27 @@ export default function ProjectSettings({
   const handleUsePrompt = useCallback(async () => {
     const prompt = generatePrompt();
     if (!prompt) {
-      alert("The AI adoption prompt could not be loaded. Open /docs/ai-adoption-prompt instead.");
+      // Nothing to copy: the button says so instead of stopping the page
+      // with an alert. The reference page link below is the fallback.
+      setPromptStatus("failed");
+      window.setTimeout(() => setPromptStatus("idle"), 3000);
       return;
     }
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setPromptCopied(true);
-      setTimeout(() => setPromptCopied(false), 3000);
-    } catch {
-      alert("Could not copy to clipboard. Copy the prompt manually:\n\n" + prompt);
-    }
+    await copyToClipboard(prompt, {
+      onSuccess: () => {
+        setPromptFallback(null);
+        setPromptStatus("copied");
+        window.setTimeout(() => setPromptStatus("idle"), 3000);
+      },
+      onFail: () => {
+        // The clipboard can be blocked by permissions or an insecure
+        // origin. No dialog: the prompt itself goes on screen, selectable,
+        // so it can be taken from the panel by hand.
+        setPromptStatus("failed");
+        setPromptFallback(prompt);
+        window.setTimeout(() => setPromptStatus("idle"), 3000);
+      },
+    });
   }, [generatePrompt]);
 
   const handleCopyRotated = useCallback(async () => {
@@ -244,7 +260,11 @@ export default function ProjectSettings({
             onClick={handleUsePrompt}
             className="cursor-pointer rounded-lg border border-edge-strong px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
           >
-            {promptCopied ? "✓ Prompt copied" : "Use prompt for AI"}
+            {promptStatus === "copied"
+              ? "✓ Prompt copied"
+              : promptStatus === "failed"
+                ? "Failed"
+                : "Use prompt for AI"}
           </button>
         </div>
         <p className="mt-2 max-w-[62ch] text-[0.8rem] font-medium leading-relaxed text-muted">
@@ -256,6 +276,27 @@ export default function ProjectSettings({
           assistant or save as moogo.md. It points the assistant at your environment
           instead of carrying the secret key, so the key never leaves your machine.
         </p>
+        {promptFallback && (
+          <div className="mt-3 max-w-[70ch] rounded-lg border border-amber/40 bg-amber/10 px-3 py-2.5">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-[0.8rem] text-amber">
+                The clipboard is blocked — select the prompt below and copy it
+                yourself.
+              </p>
+              <button
+                type="button"
+                onClick={() => setPromptFallback(null)}
+                aria-label="Dismiss the prompt"
+                className="cursor-pointer text-[0.8rem] text-amber hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+            <pre className="mt-2 max-h-64 cursor-text select-all overflow-auto whitespace-pre-wrap rounded-md bg-background p-3 font-mono text-[0.72rem] leading-relaxed text-foreground">
+              {promptFallback}
+            </pre>
+          </div>
+        )}
       </section>
 
       {/* Project actions */}

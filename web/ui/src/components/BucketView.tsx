@@ -11,6 +11,7 @@ import {
   type ObjectQuery,
 } from "../lib/api";
 import { acceptFor, describePolicy, policyAllows } from "../lib/media";
+import { copyToClipboard } from "../lib/clipboard";
 import { describeSize } from "../lib/sizes";
 import ConfirmDialog from "./ConfirmDialog";
 import ObjectPreview from "./ObjectPreview";
@@ -93,6 +94,10 @@ export default function BucketView({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Set when the clipboard refused a copy: the value itself goes on screen,
+  // selectable, rather than into window.prompt — whose editable field reads
+  // as somewhere to type, not somewhere to take from.
+  const [copyFallback, setCopyFallback] = useState<{ label: string; value: string } | null>(null);
   const [preview, setPreview] = useState<BucketObject | null>(null);
   const [newBucket, setNewBucket] = useState("");
   const [dragging, setDragging] = useState(false);
@@ -357,15 +362,16 @@ export default function BucketView({
 
   const copy = useCallback(
     async (label: string, value: string) => {
-      try {
-        await navigator.clipboard.writeText(value);
+      const copied = await copyToClipboard(value);
+      if (copied) {
+        setCopyFallback(null);
         announce(`${label} copied.`);
-      } catch {
-        // Clipboard access needs a secure context, and the dashboard is
-        // reachable over plain HTTP in local development. Falling back to a
-        // selectable prompt beats silently doing nothing.
-        window.prompt("Copy this:", value);
+        return;
       }
+      // Clipboard access needs a secure context, and the dashboard is
+      // reachable over plain HTTP in local development. The value goes on
+      // screen, selectable, instead of into a dialog.
+      setCopyFallback({ label, value });
     },
     [announce],
   );
@@ -515,6 +521,28 @@ export default function BucketView({
                 {selectedBucket.is_public && <> · new uploads are public</>}
               </p>
             )}
+
+        {copyFallback && (
+          <div className="mb-4 rounded-lg border border-amber/40 bg-amber/10 px-3 py-2">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm text-amber">
+                {copyFallback.label} could not be copied — the clipboard is
+                blocked. Select it here:
+              </p>
+              <button
+                type="button"
+                onClick={() => setCopyFallback(null)}
+                aria-label="Dismiss the copied value"
+                className="cursor-pointer text-sm text-amber hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mt-1.5 cursor-text select-all break-all font-mono text-[0.8rem] text-foreground">
+              {copyFallback.value}
+            </p>
+          </div>
+        )}
 
         {notice && (
           <p

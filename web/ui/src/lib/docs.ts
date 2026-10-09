@@ -1,13 +1,21 @@
 // The documentation source.
 //
-// Every page is a Markdown file under content/docs/, bundled into the app at
-// build time by the glob import below. That means the docs ship inside the same
-// Go binary as the rest of the frontend, are versioned with the code they
-// describe, and cost no request at runtime.
+// Every page is a Markdown file under content/docs/, compiled into the app at
+// build time by the glob imports below — but as lazy chunks, not as part of
+// the first bundle: the documents are over a quarter of it, and a visitor who
+// never opens /docs should not download them. The chunks still ship with the
+// binary and version with the code they describe; the browser loads them from
+// the same origin as the rest of the bundle, under content-hashed names, with
+// no endpoint of their own.
 //
-// The alternative -- fetching markdown from the server -- was rejected because
-// it makes a documentation page depend on a second network call, and a docs site
-// that shows a spinner because an API is restarting is a bad first impression.
+// The alternative -- serving markdown from an API -- was rejected because it
+// makes a documentation page depend on a second kind of backend, and a docs
+// site that shows a spinner because an API is restarting is a bad first
+// impression. Lazy chunks are a loading detail of the same static files.
+//
+// One document is deliberately NOT lazy: Project Settings reads the AI
+// adoption prompt synchronously for its "Use prompt for AI" button, so that
+// file is in the main bundle (promptSources below).
 //
 // Rendering is marked for Markdown, then DOMPurify for sanitizing. Both run once
 // per page per session and the result is memoized in the page component.
@@ -40,12 +48,48 @@ export interface DocHeading {
   id: string;
 }
 
-/** Raw Markdown keyed by file path. */
-const sources = import.meta.glob("/src/content/docs/**/*.md", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-}) as Record<string, string>;
+// Raw Markdown keyed by file path.
+//
+// These are dynamic imports: each value is a function returning the promise
+// of that file's text. ensureDocs() runs them as one batch and fills
+// sourceCache, after which every export below is synchronous again. The prompt
+// file is excluded here because it is eager below — listing it twice would
+// make the build warn that the dynamic copy cannot split it off.
+const sources = import.meta.glob(
+  [
+    "/src/content/docs/**/*.md",
+    "!/src/content/docs/**/*ai-adoption-prompt.md",
+  ],
+  {
+    query: "?raw",
+    import: "default",
+  },
+) as Record<string, () => Promise<string>>;
+
+// The one file that stays in the main bundle, matched by slug suffix so a
+// renumbered file (15-ai-adoption-prompt.md) still matches. The eager glob
+// yields the same path key the lazy glob would have, so the two key sets
+// join without duplication.
+const promptSources = import.meta.glob(
+  "/src/content/docs/**/*ai-adoption-prompt.md",
+  {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  },
+) as Record<string, string>;
+
+// Every document path, the eager file included: the manifest builder needs
+// the full set to know which slugs have a file behind them, and sourceFor
+// has to resolve the prompt through the same lookup as any other page.
+const documentPaths = [
+  ...new Set([...Object.keys(sources), ...Object.keys(promptSources)]),
+];
+
+// Paths already read: the prompt file now, every document after
+// ensureDocs(). sourceFor() answers only from this map, so it stays
+// synchronous and rawDoc() can never hand a Promise to a caller.
+const sourceCache = new Map<string, string>(Object.entries(promptSources));
 
 // The sidebar is declared here rather than derived from the filesystem, because
 // grouping is an editorial decision and filenames are not an editorial format.
@@ -115,10 +159,8 @@ function slugFromPath(path: string): string {
 }
 
 function sourceFor(slug: string): string | undefined {
-  const match = Object.keys(sources).find(
-    (path) => slugFromPath(path) === slug,
-  );
-  return match ? sources[match] : undefined;
+  const match = documentPaths.find((path) => slugFromPath(path) === slug);
+  return match ? sourceCache.get(match) : undefined;
 }
 
 /** Slugify a heading into a stable anchor id. */
@@ -378,7 +420,7 @@ export function loadDoc(slug: string): LoadedDoc | undefined {
 function buildPages(): DocPage[] {
   const titles = new Map<string, { title: string; description: string }>();
 
-  for (const path of Object.keys(sources)) {
+  for (const path of documentPaths) {
     const slug = slugFromPath(path);
     const loaded = loadDoc(slug);
     if (loaded) titles.set(slug, { title: loaded.title, description: loaded.description });
@@ -433,10 +475,45 @@ function buildPages(): DocPage[] {
   });
 }
 
-// Built once at module load. The manifest is small and every page needs it for
-// the sidebar, the pager and the prev/next links.
-const pages = buildPages();
-const bySlug = new Map(pages.map((page) => [page.slug, page]));
+// Built by ensureDocs() once the chunks are in sourceCache. Before that both
+// are empty and the Docs route shows a loading state instead of an empty
+// sidebar: there is no page manifest to draw until every title is known.
+let pages: DocPage[] = [];
+let bySlug = new Map<string, DocPage>();
+let ready = false;
+let ensurePromise: Promise<void> | null = null;
+
+/**
+ * Read every document into the cache and build the page manifest.
+ *
+ * The sidebar needs every page's title and description, so the chunks load as
+ * one parallel batch — once per session, from the same origin as the JS that
+ * asked for them. The promise is memoized; a failed attempt clears it so a
+ * retry starts over instead of inheriting a rejected promise.
+ */
+export function ensureDocs(): Promise<void> {
+  ensurePromise ??= Promise.all(
+    Object.entries(sources).map(async ([path, load]) => {
+      if (sourceCache.has(path)) return;
+      sourceCache.set(path, await load());
+    }),
+  )
+    .then(() => {
+      pages = buildPages();
+      bySlug = new Map(pages.map((page) => [page.slug, page]));
+      ready = true;
+    })
+    .catch((cause) => {
+      ensurePromise = null;
+      throw cause;
+    });
+  return ensurePromise;
+}
+
+/** Whether the chunks are loaded and the manifest can be read. */
+export function docsReady(): boolean {
+  return ready;
+}
 
 /** Every page, in reading order. */
 export function allDocs(): DocPage[] {

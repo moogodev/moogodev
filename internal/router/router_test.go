@@ -321,9 +321,10 @@ func (stub stubAuthorizer) ProjectOwnedBy(
 // testFrontend stands in for the built single-page app: one index.html that
 // every page route returns, plus hashed assets under assets/.
 var testFrontend = fstest.MapFS{
-	"index.html":      {Data: []byte("<!doctype html><html><head><title>home</title></head><body></body></html>")},
-	"assets/app.css":  {Data: []byte("body{color:#fff}")},
-	"img/favicon.svg": {Data: []byte("<svg/>")},
+	"index.html":               {Data: []byte("<!doctype html><html><head><title>home</title></head><body></body></html>")},
+	"assets/app.css":           {Data: []byte("body{color:#fff}")},
+	"assets/index-Ab12Cd34.js": {Data: []byte("console.log(0)")},
+	"img/favicon.svg":          {Data: []byte("<svg/>")},
 }
 
 // testProjectKey is the plaintext key the test project accepts.

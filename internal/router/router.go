@@ -13,6 +13,7 @@ import (
 	"html"
 	"io/fs"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -834,6 +835,36 @@ func NoCacheForAPI(next http.Handler) http.Handler {
 	})
 }
 
+// hashedAssetPattern matches the names a content-hashed build produces
+// (index-4YjdGg86.js): a dash, the hash, a JavaScript or stylesheet
+// extension. A changed build ships under a different name, which is what
+// makes the name a promise about the bytes behind it.
+var hashedAssetPattern = regexp.MustCompile(`-[A-Za-z0-9_-]{8,}\.(?:js|css)$`)
+
+// withStaticCache sets the caching rules those filenames promise.
+//
+// A hashed asset is immutable for a year: the file that changes comes back
+// under a new name, so a cached copy can never be the wrong code, and the
+// shell that names it must not be cached — which is why the shell is served
+// by spa() on the page routes rather than from /static/, and this handler
+// never sees it. Everything else under /static/ is revalidated, so a
+// replaced logo or favicon is picked up on the next use instead of waiting
+// out a cache.
+//
+// One header, set here, before the file server runs: nothing else in the
+// stack adds Cache-Control for these paths on the origin, and nginx only
+// adds one for text/html.
+func withStaticCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hashedAssetPattern.MatchString(r.URL.Path) {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // registerPages serves the single-page frontend and its static assets.
 //
 // The frontend is a React app, so every page route returns the same index.html
@@ -842,7 +873,7 @@ func NoCacheForAPI(next http.Handler) http.Handler {
 // specific pattern first.
 func registerPages(root chi.Router, deps Deps) {
 	if deps.StaticFS != nil {
-		root.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(deps.StaticFS)))
+		root.Handle("/static/*", withStaticCache(http.StripPrefix("/static/", http.FileServer(deps.StaticFS))))
 	}
 
 	index := deps.spa()

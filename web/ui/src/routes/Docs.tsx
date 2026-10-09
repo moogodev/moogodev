@@ -11,6 +11,8 @@ import { appOrigin } from "../lib/origin";
 import {
   allDocs,
   docGroups,
+  docsReady,
+  ensureDocs,
   findDoc,
   rawDoc,
   renderDoc,
@@ -38,6 +40,44 @@ const ADOPTION_PROMPT_SLUG = "ai-adoption-prompt";
 export default function Docs() {
   const { slug } = useParams();
 
+  // The page manifest is built from lazy Markdown chunks; until they arrive
+  // there is no sidebar to draw and no title to fall back on, so nothing of
+  // the docs renders before they do — a sidebar without content is worse than
+  // a loader. The state starts ready when a previous visit already loaded the
+  // chunks, so navigating back into the docs does not flash the loader.
+  const [ready, setReady] = useState(docsReady);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    if (ready) return undefined;
+    let cancelled = false;
+    ensureDocs().then(
+      () => {
+        if (!cancelled) setReady(true);
+      },
+      () => {
+        if (!cancelled) setFailed(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, attempt]);
+
+  if (failed) {
+    return (
+      <DocsLoadFailed
+        onRetry={() => {
+          setFailed(false);
+          setAttempt((current) => current + 1);
+        }}
+      />
+    );
+  }
+
+  if (!ready) return <DocsLoading />;
+
   // A slug that matches no document is a missing page, not a second chance
   // at the quickstart. Falling back to the default page made every typo --
   // and every retired document still in an old link -- render plausible,
@@ -48,6 +88,62 @@ export default function Docs() {
     return <DocsMissing slug={slug} />;
   }
   return <DocsPage />;
+}
+
+// DocsLoading is the docs shell while its chunks load: the site chrome, the
+// section label, and one honest line. It renders no sidebar, because the
+// sidebar is the list of pages and the list is exactly what is not here yet.
+function DocsLoading() {
+  return (
+    <SiteLayout>
+      <div
+        role="status"
+        className="mx-auto flex w-full max-w-[720px] flex-col items-center px-6 py-24 text-center"
+      >
+        <p className="mb-3 text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-accent-strong">
+          Documentation
+        </p>
+        <p className="text-[0.95rem] text-muted">Loading the documentation…</p>
+      </div>
+    </SiteLayout>
+  );
+}
+
+// DocsLoadFailed is what a chunk that did not arrive looks like. Retrying
+// re-runs the load from scratch: ensureDocs clears its memoized promise when
+// it fails, so the retry is a real attempt rather than the same rejection.
+function DocsLoadFailed({ onRetry }: { onRetry: () => void }) {
+  return (
+    <SiteLayout>
+      <div className="mx-auto flex w-full max-w-[720px] flex-col items-center px-6 py-24 text-center">
+        <p className="mb-3 text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-accent-strong">
+          Documentation
+        </p>
+        <h1 className="text-[clamp(1.6rem,3.4vw,2.2rem)] font-semibold tracking-tight">
+          The documentation could not be loaded
+        </h1>
+        <p className="mt-3 max-w-[46em] text-muted">
+          The pages are part of this deployment, so this is a loading problem
+          rather than a missing one. Try again, or start from the home page.
+        </p>
+        <div className="mt-7 flex flex-wrap justify-center gap-3">
+          <button
+            type="button"
+            onClick={onRetry}
+            className="cursor-pointer rounded-lg bg-accent-strong px-4 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent"
+          >
+            Try again
+          </button>
+          <Link
+            to="/"
+            className="inline-flex items-center justify-center rounded-lg border border-edge-strong px-4 py-2 text-sm font-semibold transition-colors hover:border-hover-edge hover:bg-hover-bg"
+          >
+            Go to the home page
+          </Link>
+        </div>
+      </div>
+    </SiteLayout>
+  );
 }
 
 // DocsMissing is the docs 404: the same site chrome, an honest message, and
