@@ -17,8 +17,8 @@ start at [step 2](#2-create-a-project).
 ## 1. Register
 
 Go to [moogo.dev/register](/register) and create an account with an email and a
-password. One email is one account, and you are signed in immediately — there is
-no confirmation email to wait for.
+password. One email is one account. Registration sends a confirmation link and
+does not sign you in — follow the link first, then sign in.
 
 Full detail: [Register](/docs/register).
 
