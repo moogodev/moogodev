@@ -54,6 +54,7 @@ paste them, and never print them.
 |---|---|---|
 | `/query` | Reads — `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN`, `WITH` that selects | Writes, with `not_a_read` |
 | `/exec` | Writes — `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP` | Reads, with `not_a_write` |
+| `/transaction` | Several writes as one atomic batch | Reads, with `not_a_write` |
 
 Request, authorized with the SQL key:
 
@@ -85,14 +86,60 @@ Every failure, on any endpoint, uses one envelope:
 { "error": { "code": "not_a_read", "message": "...", "detail": "..." } }
 ```
 
+## Transactions
+
+When one logical change is several writes, send them to `/transaction` as one
+batch. They commit together or not at all:
+
+```json
+POST /transaction
+{
+  "statements": [
+    { "query": "INSERT INTO users (id, email) VALUES (?, ?)", "args": ["7c1f", "ketut@example.com"] },
+    { "query": "INSERT INTO activity (user_id, action) VALUES (?, ?)", "args": ["7c1f", "created"] }
+  ]
+}
+```
+
+```json
+{
+  "success": true,
+  "statements": [
+    { "rows_affected": 1, "last_insert_rowid": 1 },
+    { "rows_affected": 1 }
+  ],
+  "rows_affected": 2,
+  "size_bytes": 24576,
+  "duration_ms": 3
+}
+```
+
+- `statements[i]` is the outcome of `statements[i]` from the request, in order.
+- **`last_insert_rowid`** is present only on a statement that inserted a row —
+  an `INSERT` or a `REPLACE`. It is the new row's id, so creating a record does
+  not need a `SELECT` to learn it. It is omitted, not zeroed, on every other
+  statement: an `UPDATE` right after an `INSERT` would otherwise report the id
+  the `INSERT` created.
+- A failure rolls the whole batch back and names the position:
+  `"detail": "statement 2: execute statement: constraint failed: ..."`. Nothing
+  partial is left behind, so a retry is safe.
+- Up to 100 statements, one statement per entry, and one 15-second budget for
+  the whole batch.
+- Reads stay on `/query`. A write that seems to need a read first usually does
+  not: `UPDATE counters SET signups = signups + 1 WHERE id = ?` needs no read.
+
 Rules the engine enforces, not conventions:
 
 - `?` placeholders with an `args` array — values are bound as
   prepared-statement arguments, never concatenated into SQL.
-- One statement per request. Stacked statements (`a; b`) are rejected.
+- One statement per entry. Stacked statements (`a; b`) are rejected. Several
+  statements belong in a `/transaction` batch.
 - File functions (`readfile`, `writefile`, `load_extension`) are rejected.
 - Statements are capped at 64 KB and cancelled after 15 seconds.
 - Results cap at 1000 rows; `truncated: true` means there is more to fetch.
+- `foreign_keys` is **on** for every connection, so a `REFERENCES` clause is
+  enforced — an orphan insert fails. Declare it explicitly; a column without
+  `REFERENCES` is a plain column.
 
 ## Object storage (buckets)
 
@@ -150,6 +197,10 @@ Reads report `truncated` and `duration_ms`; storage reports
 - Send `Content-Type: application/json` on JSON requests — it is enforced.
 - Page storage listings, and re-fetch when a read returns `truncated: true`.
 - Use `/query` for reads and `/exec` for writes; each refuses the other.
+- Group writes that must not half-apply into one `/transaction` batch, and read
+  `last_insert_rowid` instead of running a `SELECT` for a new id.
+- Run each migration file as one `/transaction` batch, so a failure applies
+  nothing.
 
 ## Don't
 

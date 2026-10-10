@@ -133,6 +133,11 @@ row, logging it, and updating a counter is one change to the world, so it is one
 request. Two requests means a window where a crash, a timeout, or a retry leaves
 the world in a state your code never intended.
 
+**Reading the new id:** \`statements[0].last_insert_rowid\` is the id the first
+insert created, so a batch that creates a record hands you that record's id
+without a \`SELECT\`. The field appears only on statements that inserted a row —
+an \`INSERT\` or a \`REPLACE\` — and is absent rather than zero everywhere else.
+
 **What not to put in one batch:** reads. A \`SELECT\` is refused with \`not_a_write\`;
 reads go to \`/query\`. A write that looks like it needs to read first usually does
 not:
@@ -443,11 +448,13 @@ import { all, sql, transaction } from "../lib/moogo.js";
 export const todos = {
   byId: (id) => all("SELECT * FROM todos WHERE id = ?", [id]).then((r) => r[0] ?? null),
 
-  open: (id, title) =>
-    transaction([
-      { query: "INSERT INTO todos (id, title) VALUES (?, ?)", args: [id, title] },
-      { query: "INSERT INTO activity (todo_id, action) VALUES (?, 'created')", args: [id] },
-    ]),
+  // The rowid comes back on the insert itself, so create() returns a usable id
+  // without the follow-up SELECT it used to need.
+  open: async (id, title) => {
+    const result = await sql("INSERT INTO todos (id, title) VALUES (?, ?)", [id, title]);
+    await sql("INSERT INTO activity (todo_id, action) VALUES (?, 'created')", [id]);
+    return result.last_insert_rowid;
+  },
 
   done: (id, at = new Date().toISOString()) =>
     sql("UPDATE todos SET done = 1, completed_at = ? WHERE id = ?", [at, id]),
@@ -455,7 +462,10 @@ export const todos = {
 \`\`\`
 
 Now a route handler says \`await todos.open(id, title)\` and the rule about keeping
-those two writes together lives in exactly one place.
+those two writes together lives in exactly one place. When they must move
+together rather than in sequence, they belong in one
+[\`transaction\`](#transactions) batch instead — and then the id comes from
+\`result.statements[0].last_insert_rowid\`.
 
 ### Use CTEs for the queries that need them
 

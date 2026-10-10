@@ -107,7 +107,11 @@ type ExecResponse struct {
 	Success      bool  `json:"success"`
 	RowsAffected int64 `json:"rows_affected"`
 	SizeBytes    int64 `json:"size_bytes"`
-	DurationMs   int64 `json:"duration_ms"`
+	// LastInsertRowID is the rowid of the row this statement inserted, and is
+	// present only when the statement was an INSERT or a REPLACE. That saves
+	// the SELECT that would otherwise follow to learn an id.
+	LastInsertRowID int64 `json:"last_insert_rowid,omitempty"`
+	DurationMs      int64 `json:"duration_ms"`
 }
 
 // TransactionRequest is the body accepted by the transaction endpoint.
@@ -137,6 +141,8 @@ type TransactionResponse struct {
 // TransactionStatementResult is the outcome of one statement in the batch.
 type TransactionStatementResult struct {
 	RowsAffected int64 `json:"rows_affected"`
+	// LastInsertRowID is present only for a statement that inserted a row.
+	LastInsertRowID int64 `json:"last_insert_rowid,omitempty"`
 }
 
 // Transaction handles POST /db/{project_id}/transaction.
@@ -214,7 +220,10 @@ func (runner sqlRunner) transaction(w http.ResponseWriter, r *http.Request, proj
 
 	statements := make([]TransactionStatementResult, len(result.Statements))
 	for index, statement := range result.Statements {
-		statements[index] = TransactionStatementResult{RowsAffected: statement.RowsAffected}
+		statements[index] = TransactionStatementResult{
+			RowsAffected:    statement.RowsAffected,
+			LastInsertRowID: insertedRowID(batch[index].Query, statement.LastInsertRowID),
+		}
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, TransactionResponse{
@@ -344,11 +353,33 @@ func (runner sqlRunner) exec(w http.ResponseWriter, r *http.Request, projectID u
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, ExecResponse{
-		Success:      true,
-		RowsAffected: result.RowsAffected,
-		SizeBytes:    result.SizeBytes,
-		DurationMs:   elapsedMs(started),
+		Success:         true,
+		RowsAffected:    result.RowsAffected,
+		SizeBytes:       result.SizeBytes,
+		LastInsertRowID: insertedRowID(request.Query, result.LastInsertRowID),
+		DurationMs:      elapsedMs(started),
 	})
+}
+
+// insertedRowID reports a rowid only when the statement was one that assigned
+// it.
+//
+// SQLite's last_insert_rowid is a property of the connection, not of the
+// statement: after an INSERT, an UPDATE leaves it pointing at the row the
+// INSERT created. Reporting it for anything else would hand a caller an id
+// belonging to an earlier statement in the same request -- a plausible, wrong
+// answer is worse than no answer, so the value is withheld unless the statement
+// is the kind that produced one.
+func insertedRowID(statement string, id int64) int64 {
+	if id == 0 {
+		return 0
+	}
+	switch sanitizer.FirstKeyword(statement) {
+	case "INSERT", "REPLACE":
+		return id
+	default:
+		return 0
+	}
 }
 
 // writeSanitizerError maps a validation failure onto an HTTP response.

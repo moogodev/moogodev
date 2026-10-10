@@ -183,8 +183,62 @@ func TestTransactionRefusesDDLAndWritesMixed(t *testing.T) {
 	}
 }
 
+// TestTransactionReportsInsertedRowids is the saving the feature exists for:
+// a batch of inserts hands back each new rowid, so creating a row and learning
+// its id is one request rather than an insert followed by a SELECT.
+func TestTransactionReportsInsertedRowids(t *testing.T) {
+	manager := newTestManager(t, 100*1024*1024)
+	projectID := uuid.New()
+	ctx := context.Background()
+
+	if err := manager.InitializeProject(ctx, projectID); err != nil {
+		t.Fatalf("initialize project: %v", err)
+	}
+	if _, err := manager.Exec(ctx, projectID,
+		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL)`, nil); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	result, err := manager.Transaction(ctx, projectID, []TransactionStatement{
+		{Query: `INSERT INTO users (id, email) VALUES (?, ?)`,
+			Args: []any{"first", "first@example.com"}},
+		{Query: `INSERT INTO users (id, email) VALUES (?, ?)`,
+			Args: []any{"second", "second@example.com"}},
+	})
+	if err != nil {
+		t.Fatalf("transaction: %v", err)
+	}
+
+	if len(result.Statements) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result.Statements))
+	}
+
+	// The rowids have to be the real ones, not merely present: a rowid that
+	// does not match the row that exists is the bug this guards.
+	for index, email := range []string{"first@example.com", "second@example.com"} {
+		rowid := result.Statements[index].LastInsertRowID
+		if rowid == 0 {
+			t.Fatalf("statement %d reported no rowid", index+1)
+		}
+		found, err := manager.Query(ctx, projectID,
+			`SELECT id FROM users WHERE rowid = ? AND email = ?`, []any{rowid, email}, 0)
+		if err != nil {
+			t.Fatalf("look up rowid: %v", err)
+		}
+		if len(found.Rows) != 1 {
+			t.Fatalf("statement %d rowid %d does not belong to %s",
+				index+1, rowid, email)
+		}
+	}
+
+	// Two inserts cannot report the same rowid.
+	if result.Statements[0].LastInsertRowID == result.Statements[1].LastInsertRowID {
+		t.Error("expected two distinct rowids")
+	}
+}
+
 // TestTransactionRefusesAnEmptyBatch: a batch of nothing is a client bug, and
-// committing it as a success would hide it.
+// a 200 would hide it.
 func TestTransactionRefusesAnEmptyBatch(t *testing.T) {
 	manager := newTestManager(t, 1024*1024)
 	projectID := uuid.New()

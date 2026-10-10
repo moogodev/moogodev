@@ -142,7 +142,14 @@ func (manager *Manager) Transaction(
 			// Not fatal: CREATE TABLE and friends simply report no count.
 			affected = 0
 		}
-		results = append(results, TransactionStatementResult{RowsAffected: affected})
+		insertID, err := execResult.LastInsertId()
+		if err != nil {
+			insertID = 0
+		}
+		results = append(results, TransactionStatementResult{
+			RowsAffected:    affected,
+			LastInsertRowID: insertID,
+		})
 		totalAffected += affected
 	}
 

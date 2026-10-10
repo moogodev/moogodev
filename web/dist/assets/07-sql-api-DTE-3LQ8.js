@@ -138,7 +138,25 @@ Response:
 | \`success\` | boolean | Always \`true\` on a 200. |
 | \`rows_affected\` | number | Rows changed. |
 | \`size_bytes\` | number | Database size after the write. Useful for tracking quota. |
+| \`last_insert_rowid\` | number | **On an \`INSERT\` or \`REPLACE\` only.** The new row's id. |
 | \`duration_ms\` | number | Server-side execution time. |
+
+\`\`\`json
+{ "success": true, "rows_affected": 1, "last_insert_rowid": 42, "size_bytes": 24576, "duration_ms": 1 }
+\`\`\`
+
+That saves the \`SELECT\` that would otherwise follow an insert to learn the new
+id:
+
+\`\`\`js
+const created = await sql("INSERT INTO users (email) VALUES (?)", [email]);
+// created.last_insert_rowid is the id — no follow-up query.
+\`\`\`
+
+On every other statement the field is **absent**, not zero. SQLite's
+\`last_insert_rowid\` belongs to the connection rather than the statement, so an
+\`UPDATE\` right after an \`INSERT\` would otherwise report the id the insert
+created. Read the field only when it is present.
 
 \`/exec\` rejects reads with \`not_a_write\`.
 
@@ -171,7 +189,7 @@ Response:
 {
   "success": true,
   "statements": [
-    { "rows_affected": 1 },
+    { "rows_affected": 1, "last_insert_rowid": 1 },
     { "rows_affected": 1 },
     { "rows_affected": 1 }
   ],
@@ -189,6 +207,24 @@ Response:
 
 The per-statement \`rows_affected\` is \`0\` for statements that do not report a
 count, such as \`CREATE TABLE\`.
+
+**\`last_insert_rowid\` is the saving here.** It is the new row's id, present only
+on a statement that inserted one — an \`INSERT\` or a \`REPLACE\`:
+
+\`\`\`js
+const result = await transaction([
+  { query: "INSERT INTO users (email) VALUES (?)", args: [email] },
+  { query: "INSERT INTO activity (user_id, action) VALUES (?, 'created')", args: ["pending"] },
+]);
+
+const userId = result.statements[0].last_insert_rowid;
+\`\`\`
+
+Creating a record no longer needs a \`SELECT\` to find out what it was called.
+The field is **absent**, not zeroed, on every other statement: SQLite's
+\`last_insert_rowid\` belongs to the connection rather than the statement, so an
+\`UPDATE\` right after an \`INSERT\` would otherwise report the id that insert
+created. Read it only when it is there.
 
 ### All or nothing
 

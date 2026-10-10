@@ -21,6 +21,13 @@ type ExecResult struct {
 	RowsAffected int64 `json:"rows_affected"`
 	// SizeBytes is the database size after the statement ran.
 	SizeBytes int64 `json:"size_bytes"`
+	// LastInsertRowID is the rowid of the row this statement inserted.
+	//
+	// SQLite's value is connection-scoped rather than statement-scoped: an
+	// UPDATE leaves it pointing at whatever was inserted before it, so the
+	// caller has to decide whether the statement was an INSERT before
+	// reporting it. Zero means the driver had nothing to report.
+	LastInsertRowID int64 `json:"last_insert_rowid"`
 }
 
 // TransactionStatement is one statement inside a transaction.
@@ -34,6 +41,9 @@ type TransactionStatement struct {
 type TransactionStatementResult struct {
 	// RowsAffected is 0 for statements that do not report a count.
 	RowsAffected int64 `json:"rows_affected"`
+	// LastInsertRowID is the rowid this statement inserted, with the same
+	// caveat as ExecResult: the caller reports it only for an INSERT.
+	LastInsertRowID int64 `json:"last_insert_rowid"`
 }
 
 // TransactionResult is the outcome of a committed transaction.

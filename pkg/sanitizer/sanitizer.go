@@ -68,6 +68,36 @@ func newSyntaxError(position int, reason string) *Error {
 // It means the statement is a single statement that does not reach for files
 // or native code. The database still enforces its own limits, and the
 // connection is configured to fail rather than read outside its file.
+// FirstKeyword returns the statement's leading keyword, uppercased, or an empty
+// string when the statement does not start with one.
+//
+// Leading comments are skipped, so a statement that opens with "-- add the row
+// here" is still recognised as the INSERT it is. The tokenizer is used rather
+// than a prefix match for the reason the rest of this package exists: a column
+// or table named insert is not an INSERT statement, and a string literal
+// containing the word is not either.
+//
+// It exists for one caller: deciding whether a statement's rowid is one SQLite
+// just assigned to a new row.
+func FirstKeyword(statement string) string {
+	tokens, err := tokenize(strings.TrimSpace(statement))
+	if err != nil {
+		return ""
+	}
+
+	for _, tok := range tokens {
+		switch tok.kind {
+		case tokenComment:
+			continue
+		case tokenKeyword:
+			return tok.value
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
 func Validate(statement string) error {
 	trimmed := strings.TrimSpace(statement)
 

@@ -249,6 +249,11 @@ func (manager *Manager) Exec(
 		rowsAffected = 0
 	}
 
+	insertID, err := execResult.LastInsertId()
+	if err != nil {
+		insertID = 0
+	}
+
 	// The size for the response is read from the files on disk instead of
 	// through a second PRAGMA while the write lock is held. A successful
 	// statement stayed within the limit -- max_page_count refused anything
@@ -268,7 +273,11 @@ func (manager *Manager) Exec(
 		// is told about.
 		size += sidecarSize(path)
 	}
-	return &ExecResult{RowsAffected: rowsAffected, SizeBytes: size}, nil
+	return &ExecResult{
+		RowsAffected:    rowsAffected,
+		SizeBytes:       size,
+		LastInsertRowID: insertID,
+	}, nil
 }
 
 // checkSize fails when a database is already at or over its limit.
