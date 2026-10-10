@@ -27,13 +27,16 @@ func testDataPlane(t *testing.T) (*DataPlane, *fakeEngine) {
 type fakeEngine struct {
 	queryResult dbplane.QueryResult
 	execResult  dbplane.ExecResult
+	txResult    dbplane.TransactionResult
 	err         error
 
 	queryCalls  int
 	execCalls   int
+	txCalls     int
 	lastQuery   string
 	lastArgs    []any
 	lastProject uuid.UUID
+	lastBatch   []dbplane.TransactionStatement
 }
 
 func (engine *fakeEngine) Query(
@@ -62,6 +65,27 @@ func (engine *fakeEngine) Exec(
 	}
 	result := engine.execResult
 	return &result, nil
+}
+
+// Transaction records the write batch so a test can assert that validation
+// happened before anything reached the engine.
+func (engine *fakeEngine) Transaction(
+	_ context.Context, projectID uuid.UUID, statements []dbplane.TransactionStatement,
+) (*dbplane.TransactionResult, error) {
+	engine.txCalls++
+	engine.lastProject = projectID
+	engine.lastBatch = statements
+	if engine.err != nil {
+		return nil, engine.err
+	}
+	if len(engine.txResult.Statements) > 0 {
+		return &engine.txResult, nil
+	}
+	results := make([]dbplane.TransactionStatementResult, len(statements))
+	for index := range results {
+		results[index] = dbplane.TransactionStatementResult{RowsAffected: 1}
+	}
+	return &dbplane.TransactionResult{Statements: results, RowsAffected: int64(len(results))}, nil
 }
 
 // dataPlaneRequest builds an authenticated SQL request.

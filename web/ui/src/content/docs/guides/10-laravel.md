@@ -340,4 +340,5 @@ The `Http` facade works natively with Octane/Swoole.
 - [PHP vanilla guide](/docs/guides/php-vanilla)
 - [FastAPI guide](/docs/guides/fastapi)
 - [Django guide](/docs/guides/django)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)

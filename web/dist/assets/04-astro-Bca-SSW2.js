@@ -258,4 +258,5 @@ The \`fetch\`-based client works in all Astro adapters (Node, Edge, Deno, Bun).
 - [Next.js guide](/docs/guides/nextjs) — React equivalent
 - [Nuxt guide](/docs/guides/nuxt) — Vue equivalent
 - [Vanilla JS guide](/docs/guides/javascript-vanilla)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)`;export{e as default};

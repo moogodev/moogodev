@@ -225,4 +225,5 @@ export const useMoogoStore = defineStore("moogo", () => {
 - [Nuxt guide](/docs/guides/nuxt) — SSR + SQL + Bucket without proxy
 - [Vanilla JS guide](/docs/guides/javascript-vanilla) — same patterns
 - [Object storage](/docs/object-storage)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Security](/docs/security) — why SQL key must stay server-side

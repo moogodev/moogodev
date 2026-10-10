@@ -90,7 +90,7 @@ server-side duration.
   which makes the console a good place to reproduce an error before fixing it.
 - **Paste a whole script.** Several statements separated by \`;\` run one after
   another in order, each as its own request — the
-  [one-statement rule](/docs/sql-api#one-statement-per-request) still applies per
+  [one-statement rule](/docs/sql-api#one-statement-per-entry) still applies per
   request. The batch stops at the first error; statements that already ran stay
   applied, because no transaction spans the batch.
 - **Examples** below the editor load ready-made statements into the editor —

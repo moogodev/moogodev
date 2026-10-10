@@ -397,4 +397,5 @@ end
 - [Python guide](/docs/guides/python-vanilla)
 - [Go guide](/docs/guides/go)
 - [Java/Kotlin guide](/docs/guides/java-kotlin)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)`;export{e as default};

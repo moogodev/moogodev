@@ -368,4 +368,5 @@ GOOS=windows GOARCH=amd64 go build -o myapp.exe
 - [Python guide](/docs/guides/python-vanilla)
 - [Java/Kotlin guide](/docs/guides/java-kotlin)
 - [SQL API reference](/docs/sql-api)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)`;export{e as default};

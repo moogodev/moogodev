@@ -402,6 +402,15 @@ func (plane *fakeDatabases) Exec(
 	return &dbplane.ExecResult{RowsAffected: 1}, nil
 }
 
+// Transaction records a write batch. The console has no transaction route, so
+// this exists to satisfy the Engine interface rather than to be exercised.
+func (plane *fakeDatabases) Transaction(
+	_ context.Context, projectID uuid.UUID, statements []dbplane.TransactionStatement,
+) (*dbplane.TransactionResult, error) {
+	results := make([]dbplane.TransactionStatementResult, len(statements))
+	return &dbplane.TransactionResult{Statements: results}, nil
+}
+
 func (plane *fakeDatabases) InitializeProject(context.Context, uuid.UUID) error {
 	plane.initCalls++
 	return plane.initErr

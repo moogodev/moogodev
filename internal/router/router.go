@@ -73,6 +73,7 @@ type ControlPlaneHandlers interface {
 type DataPlaneHandlers interface {
 	Query(http.ResponseWriter, *http.Request)
 	Exec(http.ResponseWriter, *http.Request)
+	Transaction(http.ResponseWriter, *http.Request)
 }
 
 // HealthHandlers are the liveness and readiness probes.
@@ -512,6 +513,10 @@ func New(deps Deps) http.Handler {
 
 		projectPlane.Post("/query", deps.Data.Query)
 		projectPlane.Post("/exec", deps.Data.Exec)
+		// The transaction endpoint is on the data plane only. The dashboard's
+		// console runs one statement at a time by design -- a batch is an
+		// application concept, not something the console has anywhere to put.
+		projectPlane.Post("/transaction", deps.Data.Transaction)
 	})
 
 	// --- Data plane: object storage, on its own credential ---
@@ -554,6 +559,7 @@ func New(deps Deps) http.Handler {
 
 		dataPlane.Post("/query", deps.Data.Query)
 		dataPlane.Post("/exec", deps.Data.Exec)
+		dataPlane.Post("/transaction", deps.Data.Transaction)
 	})
 
 	// --- Data plane: bucket (object storage) ---

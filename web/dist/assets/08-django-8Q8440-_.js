@@ -311,4 +311,5 @@ gunicorn myproject.wsgi:application -w 4 -b 0.0.0.0:8000
 - [Flask guide](/docs/guides/flask)
 - [FastAPI guide](/docs/guides/fastapi)
 - [Python vanilla guide](/docs/guides/python-vanilla)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)`;export{e as default};

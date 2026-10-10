@@ -212,4 +212,5 @@ def handle_moogo_error(e):
 - [Django guide](/docs/guides/django)
 - [FastAPI guide](/docs/guides/fastapi)
 - [Python vanilla guide](/docs/guides/python-vanilla)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)`;export{e as default};

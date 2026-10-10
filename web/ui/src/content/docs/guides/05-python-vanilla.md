@@ -249,4 +249,5 @@ asyncio.run(main())
 - [Flask guide](/docs/guides/flask)
 - [Django guide](/docs/guides/django)
 - [SQL API reference](/docs/sql-api)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)

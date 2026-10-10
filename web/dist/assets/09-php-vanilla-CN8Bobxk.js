@@ -248,4 +248,5 @@ class MoogoClient {
 - [Laravel guide](/docs/guides/laravel)
 - [Vanilla JS guide](/docs/guides/javascript-vanilla)
 - [SQL API reference](/docs/sql-api)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)`;export{e as default};

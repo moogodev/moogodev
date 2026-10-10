@@ -270,4 +270,5 @@ The `$fetch`/`ofetch` client works in all Nitro presets.
 - [Next.js guide](/docs/guides/nextjs) — React equivalent
 - [Vue guide](/docs/guides/vue) — SPA without Nuxt
 - [SQL API reference](/docs/sql-api)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)

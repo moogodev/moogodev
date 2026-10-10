@@ -229,4 +229,5 @@ try {
 - [Next.js guide](/docs/guides/nextjs) — App Router, RSC, Server Actions
 - [Nuxt guide](/docs/guides/nuxt) — Server routes, composables
 - [SQL API reference](/docs/sql-api)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)

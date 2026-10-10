@@ -279,4 +279,5 @@ The [Next.js guide](/docs/guides/nextjs) covers Server Components, Server Action
 
 - [Next.js guide](/docs/guides/nextjs) — full-stack React with Server Components
 - [JavaScript vanilla](/docs/guides/javascript-vanilla) — no framework
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Bucket API](/docs/object-storage) — full bucket reference

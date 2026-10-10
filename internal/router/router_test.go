@@ -216,6 +216,12 @@ func (stub *stubData) Exec(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("Exec"))
 }
 
+func (stub *stubData) Transaction(w http.ResponseWriter, r *http.Request) {
+	stub.called = "Transaction"
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Transaction"))
+}
+
 // stubBucket is a minimal bucket handler for tests.
 type stubBucket struct{ called string }
 

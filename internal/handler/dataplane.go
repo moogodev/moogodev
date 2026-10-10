@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -40,6 +41,11 @@ type Engine interface {
 		statement string,
 		args []any,
 	) (*dbplane.ExecResult, error)
+	Transaction(
+		ctx context.Context,
+		projectID uuid.UUID,
+		statements []dbplane.TransactionStatement,
+	) (*dbplane.TransactionResult, error)
 }
 
 // DataPlane serves the SQL API.
@@ -102,6 +108,148 @@ type ExecResponse struct {
 	RowsAffected int64 `json:"rows_affected"`
 	SizeBytes    int64 `json:"size_bytes"`
 	DurationMs   int64 `json:"duration_ms"`
+}
+
+// TransactionRequest is the body accepted by the transaction endpoint.
+type TransactionRequest struct {
+	Statements []TransactionStatement `json:"statements"`
+}
+
+// TransactionStatement is one statement in the batch.
+type TransactionStatement struct {
+	Query string `json:"query"`
+	Args  []any  `json:"args"`
+}
+
+// TransactionResponse is the successful result of a committed transaction.
+type TransactionResponse struct {
+	Success bool `json:"success"`
+	// Statements carries one entry per submitted statement, in order.
+	Statements []TransactionStatementResult `json:"statements"`
+	// RowsAffected is the total across the batch.
+	RowsAffected int64 `json:"rows_affected"`
+	// SizeBytes is the database size after the commit.
+	SizeBytes int64 `json:"size_bytes"`
+	// DurationMs is server-side execution time for the whole transaction.
+	DurationMs int64 `json:"duration_ms"`
+}
+
+// TransactionStatementResult is the outcome of one statement in the batch.
+type TransactionStatementResult struct {
+	RowsAffected int64 `json:"rows_affected"`
+}
+
+// Transaction handles POST /db/{project_id}/transaction.
+//
+// It runs a batch of writes as one unit: either every statement commits, or
+// none of them do. That is the guarantee a request-based API cannot otherwise
+// offer -- without it, "create the todo, then log the activity, then bump the
+// counter" is three requests that can half-finish, and a client that retries is
+// left guessing what already happened.
+func (handler *DataPlane) Transaction(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := auth.ProjectIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	handler.runner.transaction(w, r, projectID)
+}
+
+// transaction runs a write batch for an already-authorized caller.
+//
+// Every statement is validated before the first one runs. The engine would roll
+// the batch back anyway, but validating up front means a batch with one bad
+// statement is refused with that statement's error and without touching the
+// database at all -- and the caller learns which line to fix instead of which
+// position happened to fail.
+func (runner sqlRunner) transaction(w http.ResponseWriter, r *http.Request, projectID uuid.UUID) {
+	var request TransactionRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		return
+	}
+
+	if len(request.Statements) == 0 {
+		httpx.WriteError(w, http.StatusBadRequest, "transaction_empty",
+			"a transaction needs at least one statement")
+		return
+	}
+
+	if len(request.Statements) > dbplane.MaxTransactionStatements {
+		httpx.WriteError(w, http.StatusBadRequest, "too_many_statements",
+			fmt.Sprintf("a transaction may carry at most %d statements", dbplane.MaxTransactionStatements))
+		return
+	}
+
+	batch := make([]dbplane.TransactionStatement, len(request.Statements))
+	for index, statement := range request.Statements {
+		if err := sanitizer.Validate(statement.Query); err != nil {
+			// The position is added here because a batch failure is otherwise
+			// unattributable: "ATTACH is not allowed" says nothing about which of
+			// forty statements carried it.
+			writeStatementError(w, err, index+1)
+			return
+		}
+
+		// Reads keep going to /query. A transaction here is about making several
+		// writes atomic; a SELECT inside one would have to be returned as rows,
+		// and the row cap and read-only pool that protect /query would not be
+		// waiting on the other side of it.
+		if isReadStatement(statement.Query) {
+			httpx.WriteErrorWithDetail(w, http.StatusBadRequest, "not_a_write",
+				"a transaction only accepts write statements; use /query for reads",
+				fmt.Sprintf("statement %d", index+1))
+			return
+		}
+
+		batch[index] = dbplane.TransactionStatement{Query: statement.Query, Args: statement.Args}
+	}
+
+	started := now()
+	result, err := runner.databases.Transaction(r.Context(), projectID, batch)
+	if err != nil {
+		runner.writeDataPlaneError(w, r, projectID, err, "transaction")
+		return
+	}
+
+	statements := make([]TransactionStatementResult, len(result.Statements))
+	for index, statement := range result.Statements {
+		statements[index] = TransactionStatementResult{RowsAffected: statement.RowsAffected}
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, TransactionResponse{
+		Success:      true,
+		Statements:   statements,
+		RowsAffected: result.RowsAffected,
+		SizeBytes:    result.SizeBytes,
+		DurationMs:   elapsedMs(started),
+	})
+}
+
+// writeStatementError is writeSanitizerError with the position of the offending
+// statement folded into the detail, so a refusal inside a batch says which one.
+func writeStatementError(w http.ResponseWriter, err error, position int) {
+	var sanitizerError *sanitizer.Error
+	if !errors.As(err, &sanitizerError) {
+		httpx.WriteErrorWithDetail(w, http.StatusBadRequest, "sql_invalid",
+			"the statement could not be accepted", fmt.Sprintf("statement %d", position))
+		return
+	}
+
+	detail := sanitizerError.Keyword
+	if detail == "" {
+		detail = fmt.Sprintf("statement %d", position)
+	} else {
+		detail = fmt.Sprintf("%s (statement %d)", detail, position)
+	}
+
+	httpx.WriteJSON(w, http.StatusBadRequest, httpx.ErrorBody{
+		Error: httpx.ErrorDetail{
+			Code:    sanitizerError.Code,
+			Message: sanitizerError.Message,
+			Detail:  detail,
+		},
+	})
 }
 
 // Query handles POST /db/{project_id}/query.
@@ -276,6 +424,10 @@ func classifyDataPlaneError(err error) (int, string, string) {
 		return http.StatusServiceUnavailable, "service_unavailable", "the service is restarting"
 	case errors.Is(err, dbcontrol.ErrQuotaExceeded):
 		return http.StatusTooManyRequests, "quota_exceeded", "a quota has been reached"
+	case errors.Is(err, dbplane.ErrEmptyTransaction):
+		return http.StatusBadRequest, "transaction_empty", "a transaction needs at least one statement"
+	case errors.Is(err, dbplane.ErrTooManyStatements):
+		return http.StatusBadRequest, "too_many_statements", "the transaction carries too many statements"
 	default:
 		return http.StatusBadRequest, "sql_error", "the statement could not be executed"
 	}

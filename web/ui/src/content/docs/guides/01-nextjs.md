@@ -315,4 +315,5 @@ declare namespace Moogo {
 - [Vanilla JS guide](/docs/guides/javascript-vanilla) — works everywhere
 - [Nuxt guide](/docs/guides/nuxt) — Vue equivalent
 - [SQL API reference](/docs/sql-api)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)

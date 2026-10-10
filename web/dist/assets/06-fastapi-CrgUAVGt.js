@@ -232,4 +232,5 @@ async def test_create_user():
 - [Flask guide](/docs/guides/flask)
 - [Django guide](/docs/guides/django)
 - [Python vanilla guide](/docs/guides/python-vanilla)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [SQL API reference](/docs/sql-api)`;export{e as default};

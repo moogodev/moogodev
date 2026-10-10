@@ -104,6 +104,26 @@ curl $MOOGO_PROJECT_URL/query \
 
 That is a working database.
 
+## Several writes at once
+
+When one change is several statements, send them as one batch:
+
+```bash
+curl $MOOGO_PROJECT_URL/transaction \
+  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statements": [
+      { "query": "INSERT INTO users (id, email) VALUES (?, ?)", "args": ["7c1f", "ketut@example.com"] },
+      { "query": "UPDATE counters SET signups = signups + 1 WHERE name = ?", "args": ["total"] }
+    ]
+  }'
+```
+
+Either both statements commit or neither does, so a request that half-succeeds
+cannot leave your data in a state your code never intended. Full reference:
+[`POST /transaction`](/docs/sql-api#post-transaction-writes-as-one-unit).
+
 ## The one rule to remember
 
 | Endpoint | Accepts | Rejects |
@@ -160,7 +180,8 @@ console with the same rules the API applies.
 
 ## What to read next
 
-- [SQL API](/docs/sql-api) — the full query and exec reference
+- [SQL API](/docs/sql-api) — the full query, exec and transaction reference
+- [Schema & migrations](/docs/schema-best-practices) — batch inserts, paging, indexes
 - [Credentials](/docs/credentials) — keys, rotation, and storage credentials
 - [Object storage](/docs/object-storage) — files under the same project
 - [Limits](/docs/limits) — the quotas you are working within

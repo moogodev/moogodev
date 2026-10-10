@@ -460,4 +460,5 @@ The \`java.net.http.HttpClient\` works in native images (since Java 17).
 - [Ruby/Rails guide](/docs/guides/ruby-rails)
 - [Python guide](/docs/guides/python-vanilla)
 - [SQL API reference](/docs/sql-api)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)`;export{e as default};

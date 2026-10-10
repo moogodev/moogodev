@@ -1,7 +1,8 @@
 # SQL API
 
-Two endpoints. One runs reads, the other runs writes. Both take a project key and
-both validate your SQL before it touches the database.
+Three endpoints. One runs reads, one runs writes, and one runs several writes as
+a single unit. All three take a project key, and all three validate your SQL
+before it touches the database.
 
 ## Base URL
 
@@ -11,12 +12,13 @@ Everything hangs off `MOOGO_PROJECT_URL`, which already contains the project id:
 https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 ```
 
-Append `/query` or `/exec`. You never assemble the path yourself, so the internal
-route layout is not something your application has to track.
+Append `/query`, `/exec`, or `/transaction`. You never assemble the path yourself,
+so the internal route layout is not something your application has to track.
 
-There is also an older form, `/db/{project_id}/query` and `/db/{project_id}/exec`.
-It behaves identically and exists so integrations built against it keep working.
-New code should use the project-scoped URL.
+There is also an older form, `/db/{project_id}/query`, `/db/{project_id}/exec`
+and `/db/{project_id}/transaction`. It behaves identically and exists so
+integrations built against it keep working. New code should use the
+project-scoped URL.
 
 ## Authentication
 
@@ -144,9 +146,112 @@ Response:
 > writes. They run through the same sanitizer, so check
 > [what is rejected](#what-is-rejected) before you are surprised.
 
-## One statement per request
+## `POST /transaction` — writes as one unit
 
-Send exactly one statement. A second statement is rejected with
+Use this when one logical change is several statements: create the todo, log the
+activity, bump the counter. Every statement is committed together, or none of them
+is.
+
+```bash
+curl $MOOGO_PROJECT_URL/transaction \
+  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statements": [
+      { "query": "INSERT INTO todos (id, title) VALUES (?, ?)", "args": ["7c1f", "Buy milk"] },
+      { "query": "INSERT INTO activity (todo_id, action) VALUES (?, ?)", "args": ["7c1f", "created"] },
+      { "query": "UPDATE counters SET todos = todos + 1 WHERE name = ?", "args": ["total"] }
+    ]
+  }'
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "statements": [
+    { "rows_affected": 1 },
+    { "rows_affected": 1 },
+    { "rows_affected": 1 }
+  ],
+  "rows_affected": 3,
+  "size_bytes": 24576,
+  "duration_ms": 3
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `success` | boolean | Always `true` on a 200. |
+| `statements` | object[] | One entry per submitted statement, in the same order. |
+| `rows_affected` | number | Total across the batch. |
+
+The per-statement `rows_affected` is `0` for statements that do not report a
+count, such as `CREATE TABLE`.
+
+### All or nothing
+
+If any statement fails, none of them are applied. Nothing partial is left behind,
+so a retry can never land on top of a half-finished change:
+
+```json
+{
+  "error": {
+    "code": "sql_error",
+    "message": "the statement could not be executed",
+    "detail": "statement 2: execute statement: constraint failed: UNIQUE constraint failed: todos.id"
+  }
+}
+```
+
+`detail` names the **position** of the failing statement, counted from 1. That is
+what makes a forty-statement migration fixable without bisecting it by hand.
+
+### What a transaction accepts
+
+- **Writes and DDL only.** A read is refused with `not_a_write`, the same as on
+  `/exec`. Reads go to `/query`. A write that seems to need a read first usually
+  does not — `UPDATE counters SET todos = todos + 1 WHERE name = ?` never
+  selects the row it is updating, so it needs no read and stays inside the batch.
+- **One statement per entry.** The single-statement rule below still applies to
+  each one, so a semicolon cannot smuggle in a second statement.
+- **Everything is validated before the first statement runs.** A batch with one
+  forbidden statement is refused with that statement's position, and the database
+  is never touched at all.
+- **Up to 100 statements.** The project's write lock is held for the whole batch
+  — that is what makes it atomic — which is also why a batch is bounded.
+- **One 15-second budget for the batch**, not one per statement.
+
+Every rule under [what is rejected](#what-is-rejected) applies to each statement
+in the batch: forbidden keywords, blocked functions, the PRAGMA allowlist, and the
+64 KB statement limit.
+
+### A transaction in the client
+
+```js
+async function transaction(statements) {
+  const response = await fetch(`${base}/transaction`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ statements }),
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error?.message ?? "request failed");
+  return body;
+}
+
+// The todo, its activity row and the counter all move together, or none do.
+await transaction([
+  { query: "INSERT INTO todos (id, title) VALUES (?, ?)", args: [id, title] },
+  { query: "INSERT INTO activity (todo_id, action) VALUES (?, ?)", args: [id, "created"] },
+  { query: "UPDATE counters SET todos = todos + 1 WHERE name = ?", args: ["total"] },
+]);
+```
+
+## One statement per entry
+
+Send exactly one statement per entry. A second statement is rejected with
 `sql_multiple_statements`.
 
 ```json
@@ -164,8 +269,9 @@ That is fine. A trailing semicolon is also fine — it terminates the statement
 rather than starting another one.
 
 The dashboard's SQL console does this splitting for you: paste a script, and it
-runs each statement as its own request in order. This rule constrains a single
-HTTP request, not the console.
+runs each statement as its own request in order. This rule constrains one entry,
+not a whole script — and a batch of entries is exactly what
+[`POST /transaction`](#post-transaction-writes-as-one-unit) is for.
 
 ## What is rejected
 
@@ -261,13 +367,15 @@ migrations/
 ```
 
 2. **Run migrations during deployment** (before deploying app code), using a
-   simple runner that executes each `.sql` file through `/exec`:
+simple runner that sends each `.sql` file as one transaction. The whole file
+either applies or none of it does, so a migration that fails on its sixth
+statement leaves no half-migrated schema behind:
 
 ```javascript
 // migrate.js
 import fs from 'fs';
 import path from 'path';
-import { run } from './lib/moogo';
+import { transaction } from './lib/moogo';
 
 const MIGRATIONS_DIR = './migrations';
 
@@ -283,9 +391,9 @@ async function runMigrations() {
     // semicolon inside a string or comment — for those, split with a
     // tokenizer instead of a plain String.split.
     const statements = text.split(';').filter(s => s.trim());
-    for (const stmt of statements) {
-      await run(stmt);
-    }
+    // One entry per statement, one request per file: the batch is atomic and
+    // capped at 100 statements, so split a longer file into numbered parts.
+    await transaction(statements.map((query) => ({ query })));
     console.log(`✓ ${file}`);
   }
 }
@@ -406,14 +514,14 @@ Moogo enforces safety limits that differ from embedded SQLite:
 
 | Feature | Status | Workaround |
 |---------|--------|------------|
-| Multi-statement transactions (`BEGIN`/`COMMIT`) | ❌ Rejected | Single statement per request; manage transactions in app |
+| `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE` | ❌ Rejected | The endpoint owns the transaction — send the batch to [`POST /transaction`](#post-transaction-writes-as-one-unit) |
 | Triggers (`CREATE TRIGGER`) | ❌ Rejected | Write invariants in application code |
 | `ATTACH` / `DETACH` | ❌ Rejected | Not supported |
 | `VACUUM` / `REINDEX` / `ANALYZE` | ❌ Rejected | Not supported |
 | `load_extension` / `readfile` / `writefile` | ❌ Blocked | Security |
 | `ALTER TABLE ... DROP COLUMN` | ⚠️ SQLite 3.35+ | Requires table recreate in older versions |
 | `ALTER TABLE ... ADD FOREIGN KEY` | ❌ Not supported | Requires table recreate |
-| Transactions across requests | ❌ Not supported | Manage in application code |
+| Related writes across requests | ⚠️ One request each | Send them as one [`/transaction`](#post-transaction-writes-as-one-unit) batch |
 
 See [What is rejected](#what-is-rejected) for the full list of rejected statements.
 
@@ -433,6 +541,13 @@ See [What is rejected](#what-is-rejected) for the full list of rejected statemen
   `SQLITE_BUSY`.
 - `busy_timeout` is still set as a backstop.
 - `journal_mode = WAL` and `foreign_keys = ON` on every connection.
+- **Foreign keys are enforced.** `PRAGMA foreign_keys` is set on every connection
+  as it opens, so a `REFERENCES` clause is not decoration: an orphan insert
+  fails with a constraint error instead of being written. Reading that pragma
+  back is not something you can do — it is not on the allowlist below, and
+  nothing else needs to be: what is enforced is what the table declares, so
+  `PRAGMA foreign_key_list('your_table')` is the check that answers the real
+  question, which is whether the constraint exists.
 - **One connection per project**, not a global pool, so the number of open file
   handles is bounded and countable.
 
@@ -482,6 +597,26 @@ export async function all(query, args = []) {
 export async function run(query, args = []) {
   return sql(query, args);
 }
+
+// Several writes that only make sense together. All of them commit, or none of
+// them do -- which is the only reason to reach for this rather than three calls
+// to /exec.
+export async function transaction(statements) {
+  const response = await fetch(`${base}/transaction`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ statements }),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    const error = new Error(body.error?.message ?? "request failed");
+    error.code = body.error?.code;
+    error.detail = body.error?.detail;
+    throw error;
+  }
+  return body;
+}
 ```
 
 Using it:
@@ -527,13 +662,15 @@ Every error has the same shape, so you can branch on `code` instead of parsing
 |---|---|
 | `sql_empty` | No statement was sent. |
 | `sql_syntax_error` | Could not be tokenized — usually an unterminated string or comment. |
-| `sql_multiple_statements` | More than one statement. |
+| `sql_multiple_statements` | More than one statement in one entry. |
 | `sql_forbidden_keyword` | A blocked keyword or trigger was used. `detail` names it. |
 | `sql_forbidden_function` | A blocked function name was used. |
 | `sql_forbidden_pragma` | The PRAGMA is not on the allowlist. |
 | `sql_too_long` | Statement over 64 KB. |
 | `not_a_read` | A write was sent to `/query`. |
-| `not_a_write` | A read was sent to `/exec`. |
+| `not_a_write` | A read was sent to `/exec` or inside a `/transaction` batch. |
+| `transaction_empty` | A `/transaction` batch with no statements. |
+| `too_many_statements` | A `/transaction` batch over 100 statements. |
 
 ### Runtime codes
 
@@ -556,3 +693,5 @@ See [Errors and troubleshooting](/docs/errors) for how to handle them.
 - [Object storage](/docs/object-storage) — files under the same project
 - [Security](/docs/security) — why these rules exist
 - [Errors](/docs/errors) — every error code and what to do about it
+- [Schema & migrations](/docs/schema-best-practices) — client helpers for
+  batch inserts, paging and indexes

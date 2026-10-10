@@ -77,7 +77,9 @@ overrun the quota.
 | Request body (storage uploads) | Bucket cap or 256 MB | `object_too_large` |
 | List page size (`limit`) | **200** | Clamped down silently — a larger `limit` returns 200, it is not an error. |
 | Statement length | **64 KB** | `sql_too_long` |
+| Statements per transaction | **100** | `too_many_statements` |
 | Statement duration | **15 seconds** | `statement_timeout` |
+| Transaction duration | **15 seconds** for the whole batch | `statement_timeout` |
 | Result payload (one read) | **16 MB** | `result_too_large` |
 | Storage credentials per project | **5** | `credential_limit` |
 | Sign-in endpoints | **10 / minute / client address**, shared | `rate_limited` |
@@ -127,6 +129,8 @@ Worth knowing explicitly, because these are common assumptions:
 | `database_too_large` | Delete rows you no longer need. Freed pages stop counting toward the ceiling, but the file itself will not shrink. If you genuinely need more, this is the ceiling to design around. |
 | `result_too_large` | Narrow the query: add a `WHERE`, select fewer columns, or page the result. The row cap of 1000 does not bound bytes. |
 | `database_busy` | Retry after the second in `Retry-After`. The project ran out of statement slots or is waiting for the previous writer — your statement was not wrong. |
+| `too_many_statements` | A `/transaction` batch carries more than 100 statements. Split it into numbered batches; each one still commits or rolls back as a unit. |
+| `transaction_empty` | A `/transaction` batch with nothing in it. Usually a loop that produced no rows — check before you send it. |
 | `statement_timeout` | Look at the query. Add an index, narrow the `WHERE`, or page the result. |
 | `sql_too_long` | Generate fewer statements per request. One statement per request is the rule. |
 | `body_too_large` | Send less in one call. Page a listing instead of requesting everything. |

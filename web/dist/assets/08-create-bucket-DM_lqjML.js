@@ -240,7 +240,7 @@ stand:
 If you need space back:
 
 - **Delete objects.** The response to a delete includes \`freed_bytes\`.
-- **Delete a whole prefix.** See [Object storage](/docs/object-storage#deleting).
+- **Delete a whole prefix.** See [Object storage](/docs/object-storage#delete).
 - **Delete a bucket**, which removes every object in it. Confirm the count first
   — it is permanent.
 
