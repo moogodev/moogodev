@@ -7,17 +7,21 @@ import {
   type NavigateFunction,
 } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
+import { copyToClipboard } from "../lib/clipboard";
 import { appOrigin } from "../lib/origin";
 import {
   allDocs,
+  docFileName,
   docGroups,
   docsReady,
   ensureDocs,
   findDoc,
+  guideSlugs,
   rawDoc,
   renderDoc,
   type DocPage,
 } from "../lib/docs";
+import { CopyDocButton } from "../components/CopyDocButton";
 import "../docs.css";
 
 // Documentation is a normal page: /docs shows the first page, and /docs/:slug
@@ -36,6 +40,17 @@ const ACTIVE_SECTION_MARGIN = 96;
 // lifted out of the site — into a project as moogo.md, or into an agent's
 // context — so it carries the buttons that do that, at the top of the article.
 const ADOPTION_PROMPT_SLUG = "ai-adoption-prompt";
+
+/**
+ * Whether a page is one of the language or framework guides.
+ *
+ * Read from the manifest rather than from a list kept here, so a guide added to
+ * the sidebar layout gets its copy button with no second edit -- and a page that
+ * merely reads like a guide does not grow one.
+ */
+function isGuide(slug: string): boolean {
+  return guideSlugs().includes(slug);
+}
 
 export default function Docs() {
   const { slug } = useParams();
@@ -309,7 +324,10 @@ function DocsPage() {
 
           <main className="min-w-0">
             <article>
-              {page.slug === ADOPTION_PROMPT_SLUG && <MoogoMdActions slug={page.slug} />}
+              {isGuide(page.slug) && <MarkdownActions slug={page.slug} />}
+              {page.slug === ADOPTION_PROMPT_SLUG && (
+                <MarkdownActions slug={page.slug} fileName="moogo.md" />
+              )}
               <header className="mb-8">
                 <p className="mb-2 text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-accent-strong">
                   {page.group}
@@ -332,6 +350,8 @@ function DocsPage() {
                 onClick={(event) => handleBodyClick(event, navigate, closeNav)}
                 dangerouslySetInnerHTML={{ __html: html }}
               />
+
+              {page.slug === ADOPTION_PROMPT_SLUG && <GuideCopyList />}
             </article>
 
             <Pager page={page} onNavigate={closeNav} />
@@ -345,35 +365,41 @@ function DocsPage() {
 }
 
 /**
- * Copy and download this page as moogo.md.
+ * Copy and download this page as Markdown.
  *
  * The text is the raw Markdown from the bundle, not the rendered HTML: what an
  * agent is fed should be the source document, headings and all. The download is
- * built in the browser from a Blob — there is no server route for a file that
+ * built in the browser from a Blob -- there is no server route for a file that
  * is already compiled into the page.
+ *
+ * The filename follows the page. The adoption prompt is the one document that
+ * has a name of its own -- it is meant to sit in a project as moogo.md -- while a
+ * guide is named after itself, so nextjs.md is what gets written to disk.
  */
-function MoogoMdActions({ slug }: { slug: string }) {
+function MarkdownActions({ slug, fileName }: { slug: string; fileName?: string }) {
   const [copied, setCopied] = useState(false);
   const raw = rawDoc(slug);
+  const file = fileName ?? docFileName(slug);
 
   if (raw === undefined) return null;
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(raw);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard access can be denied or unavailable on an insecure origin.
-      // The download button is the standing fallback, so this stays silent.
-    }
+    const ok = await copyToClipboard(raw, {
+      onSuccess: () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2000);
+      },
+    });
+    // The download button beside this is the standing fallback, so a refused
+    // clipboard needs no dialog of its own.
+    return ok;
   };
 
   const handleDownload = () => {
     const url = URL.createObjectURL(new Blob([raw], { type: "text/markdown" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "moogo.md";
+    anchor.download = file;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -383,17 +409,17 @@ function MoogoMdActions({ slug }: { slug: string }) {
       <p className="text-[0.88rem] font-medium text-muted">
         Take this page with you — as{" "}
         <code className="rounded bg-panel px-1.5 py-0.5 font-mono text-[0.82rem] text-foreground">
-          moogo.md
+          {file}
         </code>{" "}
         in your project, for your agent to read.
       </p>
       <div className="flex shrink-0 gap-2">
         <button
           type="button"
-          onClick={handleCopy}
+          onClick={() => void handleCopy()}
           className="cursor-pointer rounded-lg bg-accent-strong px-4 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent"
         >
-          {copied ? "✓ Copied" : "Copy moogo.md"}
+          {copied ? "✓ Copied" : `Copy ${file}`}
         </button>
         <button
           type="button"
@@ -404,6 +430,57 @@ function MoogoMdActions({ slug }: { slug: string }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The guides, as a list of copy buttons.
+ *
+ * This sits under the adoption prompt because that page is what an agent is
+ * pointed at, and the next thing such a reader needs is the guide for whatever it
+ * is about to write: one click per language, and the Markdown lands on the
+ * clipboard without leaving the page.
+ *
+ * The names link to the guide as well as copying it. Reading one and adopting one
+ * are both reasonable next moves, and a page that could only copy would answer
+ * the second at the cost of the first.
+ */
+function GuideCopyList() {
+  const slugs = guideSlugs();
+  if (slugs.length === 0) return null;
+
+  const guides = slugs
+    .map((slug) => findDoc(slug))
+    .filter((doc): doc is DocPage => doc !== undefined);
+
+  return (
+    <section className="mt-12 border-t border-edge pt-8">
+      <h2 className="mb-2 text-[1.3rem] font-semibold tracking-tight">
+        Guides for every stack
+      </h2>
+      <p className="mb-6 max-w-[52em] text-[0.95rem] leading-relaxed text-muted">
+        The same Moogo API, written out for the language you are already using.
+        Copy one to hand it to your agent, or open it to read.
+      </p>
+      <ul className="grid gap-2 sm:grid-cols-2">
+        {guides.map((guide) => (
+          <li key={guide.slug}>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-background-alt px-4 py-2.5">
+              <Link
+                to={`/docs/guides/${guide.slug}`}
+                className="min-w-0 truncate font-medium hover:text-accent-strong hover:underline"
+              >
+                {guide.title}
+              </Link>
+              <CopyDocButton
+                slug={guide.slug}
+                className="shrink-0 rounded-md border border-edge-strong px-2.5 py-1 text-[0.78rem] font-medium text-muted transition-colors hover:border-accent-strong hover:text-accent-strong"
+              />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

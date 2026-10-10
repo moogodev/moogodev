@@ -25,6 +25,7 @@ export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 import os
 import requests
 from typing import Any
+from urllib.parse import quote
 
 PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
 SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
@@ -38,7 +39,11 @@ STORAGE_HEADERS = {"X-Moogo-Access-Key-Id": BUCKET_ACCESS_KEY_ID, "Authorization
 session = requests.Session()
 
 def is_read(sql: str) -> bool:
-    return sql.lstrip().upper().startswith(("SELECT", "VALUES", "PRAGMA", "EXPLAIN"))
+    # WITH belongs here: a CTE that ends in a SELECT is a read, and /query takes
+    # it. A CTE that writes still reaches /exec, which accepts writes anyway.
+    return sql.lstrip().upper().startswith(
+        ("SELECT", "VALUES", "PRAGMA", "EXPLAIN", "WITH")
+    )
 
 def _post(path: str, query: str, args: list[Any] = None) -> dict:
     args = args or []
@@ -70,15 +75,15 @@ def to_objects(result: dict) -> list[dict]:
 
 # ── Bucket ───────────────────────────────────────────────────────────
 def bucket_upload(key: str, content: bytes, content_type: str) -> dict:
-    resp = session.post(f"{BUCKET_ENDPOINT}/{key}", headers={**STORAGE_HEADERS, "Content-Type": content_type}, data=content)
+    resp = session.post(f"{BUCKET_ENDPOINT}/{quote(key, safe='/')}", headers={**STORAGE_HEADERS, "Content-Type": content_type}, data=content)
     return resp.json()
 
 def bucket_download(key: str) -> bytes:
-    resp = session.get(f"{BUCKET_ENDPOINT}/{key}", headers=STORAGE_HEADERS)
+    resp = session.get(f"{BUCKET_ENDPOINT}/{quote(key, safe='/')}", headers=STORAGE_HEADERS)
     return resp.content
 
 def bucket_delete(key: str) -> dict:
-    resp = session.delete(f"{BUCKET_ENDPOINT}/{key}", headers=STORAGE_HEADERS)
+    resp = session.delete(f"{BUCKET_ENDPOINT}/{quote(key, safe='/')}", headers=STORAGE_HEADERS)
     return resp.json()
 
 def bucket_list(prefix: str = None) -> dict:
@@ -89,7 +94,14 @@ def bucket_list(prefix: str = None) -> dict:
     return resp.json()
 
 def bucket_public_url(key: str) -> str:
-    return f"{BUCKET_ENDPOINT}/{key}"
+    # /pub/<project-id>/<key> is the route that needs no credential. The bucket
+    # endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated URL,
+    # and a browser tab carries no storage credential, so an <img> pointed at one
+    # breaks for every private object. This serves published objects only: until
+    # you publish, public_url in the response is an empty string.
+    origin, _, tail = BUCKET_ENDPOINT.partition("/p/")
+    project_id = tail.split("/")[0]
+    return f"{origin}/pub/{project_id}/{quote(key, safe='/')}"
 \`\`\`
 
 ## Flask App (\`app.py\`)

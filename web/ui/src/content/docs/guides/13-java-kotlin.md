@@ -35,6 +35,7 @@ import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class Moogo {
@@ -56,7 +57,7 @@ public class Moogo {
     }
 
     public static CompletableFuture<Map<String, Object>> sql(String sql, List<Object> args) {
-        if (sql.trim().matches("(?i)^(SELECT|VALUES|PRAGMA|EXPLAIN)\\b.*")) {
+        if (sql.trim().matches("(?i)^(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\\b.*")) {
             return query(sql, args);
         }
         return exec(sql, args);
@@ -76,7 +77,7 @@ public class Moogo {
         return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenApply(res -> {
                 if (res.statusCode() >= 400) {
-                    throw new MoogoException(res.body());
+                    throw new MoogoException(res.body(), res.statusCode());
                 }
                 return MAPPER.readValue(res.body(), Map.class);
             });
@@ -104,7 +105,7 @@ public class Moogo {
             .build();
         return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenApply(res -> {
-                if (res.statusCode() >= 400) throw new MoogoException(res.body());
+                if (res.statusCode() >= 400) throw new MoogoException(res.body(), res.statusCode());
                 return MAPPER.readValue(res.body(), Map.class);
             });
     }
@@ -129,19 +130,45 @@ public class Moogo {
             .build();
         return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenApply(res -> {
-                if (res.statusCode() >= 400) throw new MoogoException(res.body());
+                if (res.statusCode() >= 400) throw new MoogoException(res.body(), res.statusCode());
                 return MAPPER.readValue(res.body(), Map.class);
             });
     }
 
     public static String bucketPublicUrl(String key) {
-        return BUCKET_ENDPOINT + "/" + key;
+        // /pub/<id>/<key> is the route that needs no credential. The bucket
+        // endpoint is not it -- /p/<id>/bucket/<key> is the authenticated URL,
+        // and an <img> pointed at one breaks for every private object. This
+        // serves published objects only.
+        String base = BUCKET_ENDPOINT.replaceAll("/p/([^/]+)/bucket/?$", "/pub/$1");
+        return base + "/" + key;
     }
 }
 
+// The body is the documented envelope -- {"error":{"code":…}} -- and parsing it
+// here is what lets a catch block branch on e.code instead of on a message string.
 class MoogoException extends RuntimeException {
-    public final String code, detail; public final int status;
-    MoogoException(String json) { /* parse error json */ super(""); }
+    public final String code;
+    public final String detail;
+    public final int status;
+
+    MoogoException(String json, int status) {
+        super(extract(json, "message", "Moogo request failed"));
+        this.status = status;
+        this.code = extract(json, "code", "unknown");
+        this.detail = extract(json, "detail", null);
+    }
+
+    // A body that is not the envelope still has to raise this exception rather
+    // than a parser error from inside the constructor.
+    private static String extract(String json, String field, String fallback) {
+        try {
+            JsonNode value = new ObjectMapper().readTree(json).path("error").path(field);
+            return value.isMissingNode() || value.isNull() ? fallback : value.asText();
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
 }
 ```
 
@@ -216,7 +243,7 @@ public class MoogoClient {
     }
 
     public Mono<Map<String, Object>> sql(String sql, List<Object> args) {
-        String path = sql.trim().matches("(?i)^(SELECT|VALUES|PRAGMA|EXPLAIN)\\b.*") ? "/query" : "/exec";
+        String path = sql.trim().matches("(?i)^(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\\b.*") ? "/query" : "/exec";
         return webClient.post()
             .uri(projectUrl + path)
             .header("Authorization", "Bearer " + secretKey)
@@ -294,7 +321,7 @@ object Moogo {
     private val HTTP = HttpClient.newHttpClient()
     private val MAPPER = jacksonObjectMapper()
 
-    private fun isRead(sql: String) = sql.trim().matches(Regex("(?i)^(SELECT|VALUES|PRAGMA|EXPLAIN)\\b.*"))
+    private fun isRead(sql: String) = sql.trim().matches(Regex("(?i)^(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\\b.*"))
 
     suspend fun sql(sql: String, args: List<Any> = emptyList()): Map<String, Any> {
         val path = if (isRead(sql)) "/query" else "/exec"
@@ -309,7 +336,7 @@ object Moogo {
             .build()
 
         val response = HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString()).await()
-        if (response.statusCode() >= 400) throw MoogoException(response.body())
+        if (response.statusCode() >= 400) throw MoogoException(response.body(), response.statusCode())
         return MAPPER.readValue(response.body())
     }
 
@@ -329,7 +356,7 @@ object Moogo {
             .POST(HttpRequest.BodyPublishers.ofByteArray(content))
             .build()
         val response = HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString()).await()
-        if (response.statusCode() >= 400) throw MoogoException(response.body())
+        if (response.statusCode() >= 400) throw MoogoException(response.body(), response.statusCode())
         return MAPPER.readValue(response.body())
     }
 
@@ -344,10 +371,17 @@ object Moogo {
         return response.body()
     }
 
-    fun bucketPublicUrl(key: String) = "$BUCKET_ENDPOINT/$key"
+    // /pub/<id>/<key> is the route that needs no credential; the bucket endpoint
+    // is the authenticated one, which an <img> tag cannot carry. Published only.
+    fun bucketPublicUrl(key: String) =
+        BUCKET_ENDPOINT.replace(Regex("/p/([^/]+)/bucket/?$"), "/pub/\$1") + "/" + key
 }
 
-class MoogoException(json: String) : RuntimeException("Moogo error")
+class MoogoException(val body: String, val status: Int) : RuntimeException(body) {
+    val code: String = runCatching {
+        jacksonObjectMapper().readTree(body).path("error").path("code").asText("unknown")
+    }.getOrDefault("unknown")
+}
 ```
 
 ### Usage (Kotlin)

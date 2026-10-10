@@ -25,6 +25,7 @@ export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 import os
 import httpx
 from typing import Any
+from urllib.parse import quote
 
 PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
 SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
@@ -38,7 +39,11 @@ STORAGE_HEADERS = {"X-Moogo-Access-Key-Id": BUCKET_ACCESS_KEY_ID, "Authorization
 client = httpx.AsyncClient(timeout=30.0)
 
 def is_read(sql: str) -> bool:
-    return sql.lstrip().upper().startswith(("SELECT", "VALUES", "PRAGMA", "EXPLAIN"))
+    # WITH belongs here: a CTE that ends in a SELECT is a read, and /query takes
+    # it. A CTE that writes still reaches /exec, which accepts writes anyway.
+    return sql.lstrip().upper().startswith(
+        ("SELECT", "VALUES", "PRAGMA", "EXPLAIN", "WITH")
+    )
 
 async def _post(path: str, query: str, args: list[Any] = None) -> dict:
     args = args or []
@@ -70,15 +75,15 @@ def to_objects(result: dict) -> list[dict]:
 
 # ── Bucket ───────────────────────────────────────────────────────────
 async def bucket_upload(key: str, content: bytes, content_type: str) -> dict:
-    resp = await client.post(f"{BUCKET_ENDPOINT}/{key}", headers={**STORAGE_HEADERS, "Content-Type": content_type}, content=content)
+    resp = await client.post(f"{BUCKET_ENDPOINT}/{quote(key, safe='/')}", headers={**STORAGE_HEADERS, "Content-Type": content_type}, content=content)
     return resp.json()
 
 async def bucket_download(key: str) -> bytes:
-    resp = await client.get(f"{BUCKET_ENDPOINT}/{key}", headers=STORAGE_HEADERS)
+    resp = await client.get(f"{BUCKET_ENDPOINT}/{quote(key, safe='/')}", headers=STORAGE_HEADERS)
     return resp.content
 
 async def bucket_delete(key: str) -> dict:
-    resp = await client.delete(f"{BUCKET_ENDPOINT}/{key}", headers=STORAGE_HEADERS)
+    resp = await client.delete(f"{BUCKET_ENDPOINT}/{quote(key, safe='/')}", headers=STORAGE_HEADERS)
     return resp.json()
 
 async def bucket_list(prefix: str = None) -> dict:
@@ -89,7 +94,14 @@ async def bucket_list(prefix: str = None) -> dict:
     return resp.json()
 
 def bucket_public_url(key: str) -> str:
-    return f"{BUCKET_ENDPOINT}/{key}"
+    # /pub/<project-id>/<key> is the route that needs no credential. The bucket
+    # endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated URL,
+    # and a browser tab carries no storage credential, so an <img> pointed at one
+    # breaks for every private object. This serves published objects only: until
+    # you publish, public_url in the response is an empty string.
+    origin, _, tail = BUCKET_ENDPOINT.partition("/p/")
+    project_id = tail.split("/")[0]
+    return f"{origin}/pub/{project_id}/{quote(key, safe='/')}"
 ```
 
 ## FastAPI App (`main.py`)
@@ -98,10 +110,17 @@ def bucket_public_url(key: str) -> str:
 # main.py
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
-from moogo import sql, to_objects, bucket_upload, bucket_public_url, MoogoError
+from moogo import (
+    client,
+    sql,
+    to_objects,
+    bucket_upload,
+    bucket_public_url,
+    MoogoError,
+)
 import uuid
 
-app = FastAPI(title "Moogo + FastAPI")
+app = FastAPI(title="Moogo + FastAPI")
 
 class UserIn(BaseModel):
     email: str
@@ -114,7 +133,9 @@ class UserOut(BaseModel):
 
 @app.on_event("shutdown")
 async def shutdown():
-    await moogo.client.aclose()
+    # client is the module-level httpx.AsyncClient from moogo.py, not a module:
+    # moogo.client would be an attribute lookup on a name that does not exist.
+    await client.aclose()
 
 @app.get("/users", response_model=list[UserOut])
 async def list_users():
@@ -162,15 +183,17 @@ uvicorn main:app --reload
 
 ```python
 # dependencies.py
+# There is no MoogoClient class in this guide's client -- the module itself is
+# the client -- so the dependency yields the module rather than an instance.
 from fastapi import Depends
-from moogo import MoogoClient
+import moogo
 
-async def get_moogo() -> MoogoClient:
-    yield moogo_client  # global instance
+async def get_moogo():
+    yield moogo
 
 # In routes:
 @app.get("/users")
-async def list_users(moogo: MoogoClient = Depends(get_moogo)):
+async def list_users(moogo=Depends(get_moogo)):
     return moogo.to_objects(await moogo.sql("SELECT id, email, plan FROM users"))
 ```
 

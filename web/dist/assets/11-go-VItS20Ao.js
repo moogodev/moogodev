@@ -28,21 +28,25 @@ package moogo
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
+	"time"
 )
 
 var (
-	projectURL     = os.Getenv("MOOGO_PROJECT_URL")
-	secretKey      = os.Getenv("MOOGO_SECRET_KEY")
-	bucketEndpoint = os.Getenv("MOOGO_BUCKET_ENDPOINT")
+	projectURL        = os.Getenv("MOOGO_PROJECT_URL")
+	secretKey         = os.Getenv("MOOGO_SECRET_KEY")
+	bucketEndpoint    = os.Getenv("MOOGO_BUCKET_ENDPOINT")
 	bucketAccessKeyID = os.Getenv("MOOGO_BUCKET_ACCESS_KEY_ID")
-	bucketSecretKey = os.Getenv("MOOGO_BUCKET_SECRET_KEY")
+	bucketSecretKey   = os.Getenv("MOOGO_BUCKET_SECRET_KEY")
 
-	readRe = regexp.MustCompile(\`^\\s*(?i:SELECT|VALUES|PRAGMA|EXPLAIN)\\b\`)
-	httpClient = &http.Client{Timeout: 30 * 1e9} // 30s
+	// WITH belongs here: a CTE that ends in a SELECT is a read, and /query
+	// takes it. A CTE that writes still reaches /exec, which accepts writes.
+	readRe     = regexp.MustCompile(\`^\\s*(?i:SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\\b\`)
+	httpClient = &http.Client{Timeout: 30 * time.Second}
 )
 
 type Error struct {
@@ -54,17 +58,22 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
-func do(method, url string, headers map[string]string, body any) (map[string]any, error) {
-	var buf bytes.Buffer
+// do sends one request. The body arrives already encoded -- JSON for the SQL
+// endpoints, raw bytes for an upload -- because JSON-encoding a reader here would
+// send "{}": bytes.Reader has no exported fields, so the file would never leave
+// the process, and forcing Content-Type would lie about what was sent.
+func do(method, url string, headers map[string]string, body []byte) (map[string]any, error) {
+	var reader io.Reader
 	if body != nil {
-		json.NewEncoder(&buf).Encode(body)
+		reader = bytes.NewReader(body)
 	}
-	req, _ := http.NewRequest(method, url, &buf)
+
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		return nil, err
+	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
 	}
 
 	resp, err := httpClient.Do(req)
@@ -77,28 +86,44 @@ func do(method, url string, headers map[string]string, body any) (map[string]any
 	json.NewDecoder(resp.Body).Decode(&result)
 
 	if resp.StatusCode >= 400 {
-		err := &Error{Status: resp.StatusCode}
-		if e := result["error"].(map[string]any); e != nil {
-			err.Code = e["code"].(string)
-			err.Message = e["message"].(string)
-			err.Detail = e["detail"].(string)
+		// The status is the fallback: a body that is not the documented envelope
+		// still has to raise something a caller can branch on.
+		apiErr := &Error{Status: resp.StatusCode, Code: "http_error"}
+		if e, ok := result["error"].(map[string]any); ok {
+			if code, ok := e["code"].(string); ok {
+				apiErr.Code = code
+			}
+			if message, ok := e["message"].(string); ok {
+				apiErr.Message = message
+			}
+			if detail, ok := e["detail"].(string); ok {
+				apiErr.Detail = detail
+			}
 		}
-		return nil, err
+		return nil, apiErr
 	}
 	return result, nil
 }
 
+// postSQL encodes the body for /query and /exec, which take the same shape.
+func postSQL(path, sql string, args []any) (map[string]any, error) {
+	payload, err := json.Marshal(map[string]any{"query": sql, "args": args})
+	if err != nil {
+		return nil, err
+	}
+	return do("POST", projectURL+path, map[string]string{
+		"Authorization": "Bearer " + secretKey,
+		"Content-Type":  "application/json",
+	}, payload)
+}
+
 // ── SQL ──────────────────────────────────────────────────────────────
 func Query(sql string, args ...any) (map[string]any, error) {
-	return do("POST", projectURL+"/query", map[string]string{
-		"Authorization": "Bearer " + secretKey,
-	}, map[string]any{"query": sql, "args": args})
+	return postSQL("/query", sql, args)
 }
 
 func Exec(sql string, args ...any) (map[string]any, error) {
-	return do("POST", projectURL+"/exec", map[string]string{
-		"Authorization": "Bearer " + secretKey,
-	}, map[string]any{"query": sql, "args": args})
+	return postSQL("/exec", sql, args)
 }
 
 func SQL(sql string, args ...any) (map[string]any, error) {
@@ -127,9 +152,9 @@ func ToObjects(result map[string]any) []map[string]any {
 func BucketUpload(key string, content []byte, contentType string) (map[string]any, error) {
 	return do("POST", bucketEndpoint+"/"+key, map[string]string{
 		"X-Moogo-Access-Key-Id": bucketAccessKeyID,
-		"Authorization": "Bearer " + bucketSecretKey,
-		"Content-Type": contentType,
-	}, bytes.NewReader(content))
+		"Authorization":         "Bearer " + bucketSecretKey,
+		"Content-Type":          contentType,
+	}, content)
 }
 
 func BucketDownload(key string) ([]byte, error) {
@@ -147,7 +172,7 @@ func BucketDownload(key string) ([]byte, error) {
 func BucketDelete(key string) (map[string]any, error) {
 	return do("DELETE", bucketEndpoint+"/"+key, map[string]string{
 		"X-Moogo-Access-Key-Id": bucketAccessKeyID,
-		"Authorization": "Bearer " + bucketSecretKey,
+		"Authorization":         "Bearer " + bucketSecretKey,
 	}, nil)
 }
 
@@ -158,12 +183,17 @@ func BucketList(prefix string) (map[string]any, error) {
 	}
 	return do("GET", url, map[string]string{
 		"X-Moogo-Access-Key-Id": bucketAccessKeyID,
-		"Authorization": "Bearer " + bucketSecretKey,
+		"Authorization":         "Bearer " + bucketSecretKey,
 	}, nil)
 }
 
 func BucketPublicUrl(key string) string {
-	return bucketEndpoint + "/" + key
+	// /pub/<id>/<key> is the route that needs no credential. The bucket endpoint
+	// is not it -- /p/<id>/bucket/<key> is the authenticated URL, and an <img>
+	// pointed at one breaks for every private object. This serves published
+	// objects only.
+	base := strings.Replace(bucketEndpoint, "/p/", "/pub/", 1)
+	return strings.TrimSuffix(base, "/bucket") + "/" + key
 }
 \`\`\`
 
@@ -174,8 +204,10 @@ func BucketPublicUrl(key string) string {
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+
 	"your/module/moogo"
 )
 
@@ -227,8 +259,12 @@ func Must[T any](v T, err error) T {
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
+
 	"your/module/moogo"
 )
 

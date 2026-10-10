@@ -55,19 +55,24 @@ function moogoRequest(string $path, string $sql, array $args = []): array {
 }
 
 function isRead(string $sql): bool {
-    return (bool) preg_match('/^\s*(SELECT|VALUES|PRAGMA|EXPLAIN)\b/i', $sql);
+    // WITH belongs here: a CTE that ends in a SELECT is a read, and /query takes
+    // it. A CTE that writes still reaches /exec, which accepts writes anyway.
+    return (bool) preg_match('/^\s*(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\b/i', $sql);
 }
 
 function query(string $sql, array $args = []): array {
     return moogoRequest("/query", $sql, $args);
 }
 
-function exec(string $sql, array $args = []): array {
+// Named execSql rather than exec: PHP has a built-in exec() for running a shell
+// command, and a global-namespace file cannot redeclare it — the file would stop
+// parsing with "Cannot redeclare function exec()".
+function execSql(string $sql, array $args = []): array {
     return moogoRequest("/exec", $sql, $args);
 }
 
 function sql(string $sql, array $args = []): array {
-    return isRead($sql) ? query($sql, $args) : exec($sql, $args);
+    return isRead($sql) ? query($sql, $args) : execSql($sql, $args);
 }
 
 function toObjects(array $result): array {
@@ -121,14 +126,21 @@ function bucketList(?string $prefix = null): array {
 
 function bucketPublicUrl(string $key): string {
     global $bucketEndpoint;
-    return "{$bucketEndpoint}/{$key}";
+    // /pub/<project-id>/<key> is the route that needs no credential. The bucket
+    // endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated
+    // URL, and a browser tab carries no storage credential, so an <img> pointed at
+    // one breaks for every private object. This serves published objects only.
+    $publicBase = preg_replace('#/p/([^/]+)/bucket/?$#', '/pub/$1', $bucketEndpoint);
+    return "{$publicBase}/{$key}";
 }
 
+// errorCode rather than code: Exception already has an int $code, and
+// redeclaring it as a string makes the class a fatal error.
 class MoogoException extends Exception {
-    public string $code;
+    public string $errorCode;
     public ?string $detail;
     public function __construct(array $error) {
-        $this->code = $error['code'] ?? 'unknown';
+        $this->errorCode = $error['code'] ?? 'unknown';
         $this->detail = $error['detail'] ?? null;
         parent::__construct($error['message'] ?? 'Moogo request failed');
     }
@@ -186,9 +198,9 @@ echo "Public URL: " . bucketPublicUrl("public/logo.png") . "\n";
 try {
     sql("SELECT * FROM nonexistent");
 } catch (MoogoException $e) {
-    if ($e->code === 'sql_error') {
+    if ($e->errorCode === 'sql_error') {
         echo "SQLite error: {$e->detail}\n";
-    } elseif ($e->code === 'database_too_large') {
+    } elseif ($e->errorCode === 'database_too_large') {
         echo "Project hit 100 MB limit\n";
     } elseif ($e->getCode() === 401) {
         echo "Invalid or rotated secret key\n";
@@ -216,7 +228,7 @@ class MoogoClient {
     ) {}
 
     public function sql(string $sql, array $args = []): array {
-        $endpoint = preg_match('/^\s*(SELECT|VALUES|PRAGMA|EXPLAIN)\b/i', $sql) ? '/query' : '/exec';
+        $endpoint = preg_match('/^\s*(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\b/i', $sql) ? '/query' : '/exec';
         $request = $this->requestFactory->createRequest('POST', $this->projectUrl . $endpoint)
             ->withHeader('Authorization', "Bearer {$this->secretKey}")
             ->withHeader('Content-Type', 'application/json')

@@ -26,6 +26,8 @@ MOOGO_BUCKET_SECRET_KEY = os.environ["MOOGO_BUCKET_SECRET_KEY"]
 # moogo/client.py
 import requests
 from typing import Any
+from urllib.parse import quote
+
 from django.conf import settings
 
 class MoogoError(Exception):
@@ -48,7 +50,11 @@ class MoogoClient:
         self.session = requests.Session()
 
     def _is_read(self, sql: str) -> bool:
-        return sql.lstrip().upper().startswith(("SELECT", "VALUES", "PRAGMA", "EXPLAIN"))
+        # WITH belongs here: a CTE that ends in a SELECT is a read, and /query
+        # takes it. A CTE that writes still reaches /exec, which accepts writes.
+        return sql.lstrip().upper().startswith(
+            ("SELECT", "VALUES", "PRAGMA", "EXPLAIN", "WITH")
+        )
 
     def _post(self, path: str, query: str, args: list[Any] = None) -> dict:
         args = args or []
@@ -73,15 +79,15 @@ class MoogoClient:
 
     # ── Bucket ───────────────────────────────────────────────────────
     def bucket_upload(self, key: str, content: bytes, content_type: str) -> dict:
-        resp = self.session.post(f"{self.bucket_endpoint}/{key}", headers={**self.storage_headers, "Content-Type": content_type}, data=content)
+        resp = self.session.post(f"{self.bucket_endpoint}/{quote(key, safe='/')}", headers={**self.storage_headers, "Content-Type": content_type}, data=content)
         return resp.json()
 
     def bucket_download(self, key: str) -> bytes:
-        resp = self.session.get(f"{self.bucket_endpoint}/{key}", headers=self.storage_headers)
+        resp = self.session.get(f"{self.bucket_endpoint}/{quote(key, safe='/')}", headers=self.storage_headers)
         return resp.content
 
     def bucket_delete(self, key: str) -> dict:
-        resp = self.session.delete(f"{self.bucket_endpoint}/{key}", headers=self.storage_headers)
+        resp = self.session.delete(f"{self.bucket_endpoint}/{quote(key, safe='/')}", headers=self.storage_headers)
         return resp.json()
 
     def bucket_list(self, prefix: str = None) -> dict:
@@ -92,7 +98,13 @@ class MoogoClient:
         return resp.json()
 
     def bucket_public_url(self, key: str) -> str:
-        return f"{self.bucket_endpoint}/{key}"
+        # /pub/<project-id>/<key> is the route that needs no credential. The
+        # bucket endpoint is not it -- /p/<project-id>/bucket/<key> is the
+        # authenticated URL, and an <img> pointed at one breaks for every private
+        # object. This serves published objects only.
+        origin, _, tail = self.bucket_endpoint.partition("/p/")
+        project_id = tail.split("/")[0]
+        return f"{origin}/pub/{project_id}/{quote(key, safe='/')}"
 ```
 
 ## Singleton instance (`moogo/__init__.py`)
@@ -236,6 +248,8 @@ urlpatterns = [
 import aiohttp
 from django.conf import settings
 
+from .client import MoogoError
+
 class AsyncMoogoClient:
     def __init__(self):
         self.project_url = settings.MOOGO_PROJECT_URL
@@ -251,9 +265,22 @@ class AsyncMoogoClient:
 
     async def sql(self, query: str, args: list = None):
         args = args or []
-        endpoint = "/query" if query.lstrip().upper().startswith(("SELECT", "VALUES", "PRAGMA", "EXPLAIN")) else "/exec"
+        # WITH belongs here: a CTE that ends in a SELECT is a read, and /query
+        # takes it. A CTE that writes still reaches /exec, which accepts writes.
+        endpoint = (
+            "/query"
+            if query.lstrip().upper().startswith(
+                ("SELECT", "VALUES", "PRAGMA", "EXPLAIN", "WITH")
+            )
+            else "/exec"
+        )
         async with self.session.post(f"{self.project_url}{endpoint}", headers={"Authorization": f"Bearer {self.secret_key}"}, json={"query": query, "args": args}) as resp:
-            return await resp.json()
+            body = await resp.json()
+            # aiohttp does not raise on a 4xx, so an unchecked response would
+            # hand the caller an error body where it expects rows.
+            if resp.status >= 400:
+                raise MoogoError(body.get("error", {}))
+            return body
 ```
 
 ```python
@@ -264,7 +291,10 @@ from moogo.async_client import AsyncMoogoClient
 async def list_users(request):
     async with AsyncMoogoClient() as moogo:
         result = await moogo.sql("SELECT id, email, plan FROM users")
-        # convert to objects...
+    # Rows come back as arrays aligned with columns, so the objects callers want
+    # have to be built here.
+    columns = result.get("columns", [])
+    users = [dict(zip(columns, row)) for row in result.get("rows", [])]
     return JsonResponse(users, safe=False)
 ```
 

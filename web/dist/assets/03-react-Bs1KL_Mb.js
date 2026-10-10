@@ -42,7 +42,9 @@ const MOOGO_URL = process.env.MOOGO_PROJECT_URL!;
 const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
 
 function isRead(sql) {
-  return /^\\s*(SELECT|VALUES|PRAGMA|EXPLAIN)\\b/i.test(sql.trim());
+  // \`WITH\` belongs here: a CTE that ends in a SELECT is a read, and /query
+  // takes it. A CTE that writes still reaches /exec, which accepts writes.
+  return /^\\s*(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\\b/i.test(sql.trim());
 }
 
 router.post("/sql", async (req, res) => {
@@ -150,13 +152,24 @@ const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BUCKET_ENDPOINT!;
 const ACCESS_KEY = import.meta.env.VITE_MOOGO_BUCKET_ACCESS_KEY_ID!;
 const SECRET_KEY = import.meta.env.VITE_MOOGO_BUCKET_SECRET_KEY!;
 
+// Slashes are meaningful in a key, so escape each segment and keep them.
+const encodeKey = (key: string) =>
+  key.split("/").map(encodeURIComponent).join("/");
+
+// The public route is /pub/<project-id>/<key> and needs no credential. The
+// bucket endpoint is not it: /p/<project-id>/bucket/<key> is the authenticated
+// URL, so an <img> pointed at one breaks for every private object. This serves
+// published objects only.
+const publicBase = () =>
+  BUCKET_ENDPOINT.replace(/\\/p\\/([^/]+)\\/bucket\\/?$/, "/pub/$1");
+
 const headers = {
   "X-Moogo-Access-Key-Id": ACCESS_KEY,
   Authorization: \`Bearer \${SECRET_KEY}\`,
 };
 
 export async function uploadFile(key: string, file: File) {
-  const res = await fetch(\`\${BUCKET_ENDPOINT}/\${encodeURIComponent(key)}\`, {
+  const res = await fetch(\`\${BUCKET_ENDPOINT}/\${encodeKey(key)}\`, {
     method: "POST",
     headers: { ...headers, "Content-Type": file.type },
     body: file,
@@ -165,7 +178,7 @@ export async function uploadFile(key: string, file: File) {
 }
 
 export function getPublicUrl(key: string) {
-  return \`\${BUCKET_ENDPOINT}/\${encodeURIComponent(key)}\`;
+  return \`\${publicBase()}/\${encodeKey(key)}\`;
 }
 
 export async function listFiles(prefix?: string) {

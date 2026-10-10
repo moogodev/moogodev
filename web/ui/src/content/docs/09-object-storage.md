@@ -47,7 +47,10 @@ curl -X POST "$ENDPOINT/avatars/kit.png" \
   --data-binary @kit.png
 ```
 
-To choose the bucket explicitly, add `?bucket=avatars`:
+**Where it lands.** The first path segment is part of the key, not the bucket:
+`avatars/kit.png` is a key in the bucket named `default`, which Moogo creates on
+first use. A bucket is chosen by the `?bucket=` parameter and nothing else, so to
+put the object in a bucket of your own, add it:
 
 ```bash
 curl -X POST "$ENDPOINT/kit.png?bucket=avatars" \
@@ -57,7 +60,12 @@ curl -X POST "$ENDPOINT/kit.png?bucket=avatars" \
   --data-binary @kit.png
 ```
 
-Response:
+A named bucket has to exist first — create it through
+[`POST /buckets/{project_id}`](#bucket-catalog). An upload naming a bucket that
+does not exist answers `404 not_found` rather than quietly making one, so a typo
+cannot scatter objects across buckets you never asked for.
+
+Response, for the first upload:
 
 ```json
 {
@@ -65,7 +73,7 @@ Response:
   "object": {
     "id": "b21d9f04-77a3-4c58-9e0a-2f8c6d5b1e93",
     "bucket_id": "3f8a2c11-9d4e-4b7a-8f21-5e6c3d9a1b84",
-    "bucket": "avatars",
+    "bucket": "default",
     "key": "avatars/kit.png",
     "size_bytes": 24576,
     "content_type": "image/png",

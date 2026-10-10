@@ -34,9 +34,20 @@ const STORAGE_HEADERS = {
   Authorization: `Bearer ${BUCKET_SECRET_KEY}`,
 };
 
+// Slashes are meaningful in a key, so escape each segment and keep them.
+const encodeKey = (key: string) =>
+  key.split("/").map(encodeURIComponent).join("/");
+
+// The public route is /pub/<project-id>/<key> and needs no credential. The
+// bucket endpoint is not it: /p/<project-id>/bucket/<key> is the authenticated
+// URL, so an <img> pointed at one breaks for every private object. This serves
+// published objects only.
+const publicBase = () =>
+  BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+
 export function useMoogoBucket() {
   async function upload(key: string, file: File) {
-    return ofetch(`${BUCKET_ENDPOINT}/${encodeURIComponent(key)}`, {
+    return ofetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
       method: "POST",
       headers: { ...STORAGE_HEADERS, "Content-Type": file.type },
       body: file,
@@ -44,14 +55,14 @@ export function useMoogoBucket() {
   }
 
   async function download(key: string): Promise<Blob> {
-    return ofetch.raw(`${BUCKET_ENDPOINT}/${encodeURIComponent(key)}`, {
+    return ofetch.raw(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
       headers: STORAGE_HEADERS,
       responseType: "blob",
     });
   }
 
   async function remove(key: string) {
-    return ofetch(`${BUCKET_ENDPOINT}/${encodeURIComponent(key)}`, {
+    return ofetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
       method: "DELETE",
       headers: STORAGE_HEADERS,
     });
@@ -64,7 +75,7 @@ export function useMoogoBucket() {
   }
 
   function publicUrl(key: string): string {
-    return `${BUCKET_ENDPOINT}/${encodeURIComponent(key)}`;
+    return `${publicBase()}/${encodeKey(key)}`;
   }
 
   return { upload, download, remove, list, publicUrl };
@@ -129,7 +140,9 @@ const headers = {
 };
 
 function isRead(sql: string) {
-  return /^\s*(select|values|pragma|explain)\b/i.test(sql.trim());
+  // `with` belongs here: a CTE that ends in a SELECT is a read, and /query
+  // takes it. A CTE that writes still reaches /exec, which accepts writes.
+  return /^\s*(select|values|pragma|explain|with)\b/i.test(sql.trim());
 }
 
 export const handler: Handler = async (event) => {

@@ -67,7 +67,9 @@ class Moogo
   end
 
   def self.read?(sql)
-    sql.strip.match?(/^(SELECT|VALUES|PRAGMA|EXPLAIN)\\b/i)
+    # WITH belongs here: a CTE that ends in a SELECT is a read, and /query takes
+    # it. A CTE that writes still reaches /exec, which accepts writes anyway.
+    sql.strip.match?(/^(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\\b/i)
   end
 
   # ── SQL ────────────────────────────────────────────────────────────
@@ -134,7 +136,11 @@ class Moogo
   end
 
   def self.bucket_public_url(key)
-    "#{BUCKET_ENDPOINT}/#{key}"
+    # /pub/<project-id>/<key> is the route that needs no credential. The bucket
+    # endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated
+    # URL, and an <img> pointed at one breaks for every private object. This
+    # serves published objects only.
+    "#{BUCKET_ENDPOINT.sub(%r{/p/([^/]+)/bucket/?\\z}, '/pub/\\1')}/#{key}"
   end
 end
 \`\`\`
@@ -208,7 +214,9 @@ class Moogo
   end
 
   def self.read?(sql)
-    sql.strip.match?(/^(SELECT|VALUES|PRAGMA|EXPLAIN)\\b/i)
+    # WITH belongs here: a CTE that ends in a SELECT is a read, and /query takes
+    # it. A CTE that writes still reaches /exec, which accepts writes anyway.
+    sql.strip.match?(/^(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\\b/i)
   end
 
   # ── SQL ────────────────────────────────────────────────────────────
@@ -262,7 +270,11 @@ class Moogo
   end
 
   def self.bucket_public_url(key)
-    "#{BUCKET_ENDPOINT}/#{key}"
+    # /pub/<project-id>/<key> is the route that needs no credential. The bucket
+    # endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated
+    # URL, and an <img> pointed at one breaks for every private object. This
+    # serves published objects only.
+    "#{BUCKET_ENDPOINT.sub(%r{/p/([^/]+)/bucket/?\\z}, '/pub/\\1')}/#{key}"
   end
 end
 \`\`\`

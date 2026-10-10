@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
 import { CodeTabs } from "../components/CodeTabs";
+import { CopyDocButton } from "../components/CopyDocButton";
 import { newsOrigin } from "../lib/origin";
 import "../landing.css";
 
@@ -176,9 +177,12 @@ const faqs = [
   },
 ];
 
-// Every entry links to its own guide page under /docs, so the homepage tiles
-// and the docs sidebar stay in sync. Icons are the brand SVGs from Simple
-// Icons (simpleicons.org, CC0) served via the jsDelivr CDN, pinned to v14 so
+// Each entry names a guide under /docs and the page it belongs on. The logos copy
+// that guide's Markdown rather than linking to it: this section answers "can Moogo
+// be used from here?", and a visitor who has just decided that wants the code, not
+// another page to read. The guide is still one click away -- the logo's title names
+// it, and the footer link below the marquee opens it. Icons are the brand SVGs from
+// Simple Icons (simpleicons.org, CC0) served via the jsDelivr CDN, pinned to v14 so
 // a re-release cannot swap artwork underneath us.
 const stacks = [
   { name: "JavaScript", doc: "javascript-vanilla", icon: "javascript" },
@@ -432,8 +436,8 @@ function Languages() {
           If it speaks HTTP, it speaks Moogo.
         </h2>
         <p className="mb-10 max-w-[46em] text-muted">
-          Each logo opens a setup-to-usage guide for SQLite and bucket storage
-          in that language or framework.
+          Click a logo to copy that stack's guide as Markdown — setup to usage,
+          for SQLite and bucket storage in that language or framework.
         </p>
       </div>
 
@@ -454,12 +458,16 @@ function Languages() {
 
       <div className="mx-auto w-full max-w-[1120px] px-6">
         <p className="mt-8 text-center text-[0.9rem] text-muted">
-          Stack guides:{" "}
+          Every logo copies that stack’s guide as{" "}
+          <code className="rounded bg-panel-raised px-1.5 py-0.5 font-mono text-[0.82rem] text-foreground">
+            .md
+          </code>
+          . Prefer to read it?{" "}
           {stacks.map((stack, index) => (
             <span key={stack.name}>
               {index > 0 && " · "}
               <Link
-                to={`/docs/${stack.doc}`}
+                to={`/docs/guides/${stack.doc}`}
                 className="text-accent-strong hover:underline"
               >
                 {stack.name}
@@ -472,14 +480,15 @@ function Languages() {
   );
 }
 
-// StackLogo is a bare logo link: no card, no border. The white chip keeps the
-// black glyph readable on dark backgrounds.
+// StackLogo copies the stack's guide. The white chip keeps the black glyph readable
+// on dark backgrounds, and the confirmation is pinned over the logo by the button
+// itself, so a row of six says which one was copied and the rest stay quiet.
 function StackLogo({ stack }: { stack: { name: string; doc: string; icon: string } }) {
   return (
-    <Link
-      to={`/docs/${stack.doc}`}
-      title={`${stack.name} guide`}
-      aria-label={`${stack.name} guide`}
+    <CopyDocButton
+      slug={stack.doc}
+      title={`Copy the ${stack.name} guide as Markdown`}
+      ariaLabel={`Copy the ${stack.name} guide as Markdown`}
       className="stack-logo"
     >
       <img
@@ -489,7 +498,7 @@ function StackLogo({ stack }: { stack: { name: string; doc: string; icon: string
         width={36}
         height={36}
       />
-    </Link>
+    </CopyDocButton>
   );
 }
 

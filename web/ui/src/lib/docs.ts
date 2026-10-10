@@ -98,6 +98,11 @@ const sourceCache = new Map<string, string>(Object.entries(promptSources));
 // file is dropped rather than rendered as an empty entry, and a file not in the
 // manifest is appended under "Reference" so an unfinished page is still reachable
 // instead of silently vanishing from the docs.
+// The group the language and framework guides live in. Named once because three
+// places need to agree on it: the sidebar layout, the copy-a-guide buttons on a
+// guide page, and the list of guides under the AI adoption prompt.
+const GUIDE_GROUP = "Language Guides";
+
 const layout: { group: string; slugs: string[] }[] = [
   {
     group: "Getting started",
@@ -122,7 +127,7 @@ const layout: { group: string; slugs: string[] }[] = [
     ],
   },
   {
-    group: "Language Guides",
+    group: GUIDE_GROUP,
     slugs: [
       "javascript-vanilla",
       "react",
@@ -513,6 +518,48 @@ export function ensureDocs(): Promise<void> {
 /** Whether the chunks are loaded and the manifest can be read. */
 export function docsReady(): boolean {
   return ready;
+}
+
+/** The language and framework guides, in sidebar order. */
+export function guideSlugs(): string[] {
+  return pages.filter((page) => page.group === GUIDE_GROUP).map((page) => page.slug);
+}
+
+/**
+ * The filename a page is offered as.
+ *
+ * The slug with a .md extension, so `nextjs` becomes `nextjs.md`. It matches the
+ * source file minus the numeric prefix that orders the sidebar, which is the part
+ * a person would retype anyway.
+ */
+export function docFileName(slug: string): string {
+  return `${slug}.md`;
+}
+
+/**
+ * Load one document's source, fetching only that document's chunk.
+ *
+ * ensureDocs() pulls in every page, which is what the docs route wants and what
+ * nothing else should do: it is a copy-a-guide button, so the visitor who clicks
+ * one is asking for one guide, and downloading the whole corpus to hand them a
+ * single file would be a poor trade. The result is cached, so a second click on
+ * any guide -- on the same page or another -- reads from sourceCache.
+ */
+export async function ensureDoc(slug: string): Promise<string | undefined> {
+  const path = documentPaths.find((entry) => slugFromPath(entry) === slug);
+  if (!path) return undefined;
+
+  const cached = sourceCache.get(path);
+  if (cached !== undefined) return cached;
+
+  // The eager prompt file is seeded into sourceCache above, so it is never
+  // missing here; a glob that lacks the path is a slug with no file behind it.
+  const load = sources[path];
+  if (!load) return undefined;
+
+  const text = await load();
+  sourceCache.set(path, text);
+  return text;
 }
 
 /** Every page, in reading order. */

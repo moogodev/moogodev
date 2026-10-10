@@ -5,7 +5,7 @@ Expressive, elegant, full-stack framework with built-in HTTP client.
 ## Setup
 
 \`\`\`bash
-composer require laravel/http-client
+# Nothing to install: the Http client ships with Laravel itself.
 \`\`\`
 
 **Environment variables** (\`.env\`):
@@ -43,12 +43,15 @@ use Illuminate\\Support\\Facades\\Http;
 use Illuminate\\Http\\Client\\Response;
 
 class Moogo {
+    // The promoted properties are nullable because the constructor defaults them
+    // to null before reading config. A non-nullable \`string $x = null\` is a
+    // fatal error, not a default.
     public function __construct(
-        private string $projectUrl = null,
-        private string $secretKey = null,
-        private string $bucketEndpoint = null,
-        private string $bucketAccessKeyId = null,
-        private string $bucketSecretKey = null
+        private ?string $projectUrl = null,
+        private ?string $secretKey = null,
+        private ?string $bucketEndpoint = null,
+        private ?string $bucketAccessKeyId = null,
+        private ?string $bucketSecretKey = null
     ) {
         $this->projectUrl ??= config('services.moogo.project_url');
         $this->secretKey ??= config('services.moogo.secret_key');
@@ -72,7 +75,9 @@ class Moogo {
     }
 
     private function isRead(string $sql): bool {
-        return (bool) preg_match('/^\\s*(SELECT|VALUES|PRAGMA|EXPLAIN)\\b/i', $sql);
+        // WITH belongs here: a CTE that ends in a SELECT is a read, and /query
+        // takes it. A CTE that writes still reaches /exec, which accepts writes.
+        return (bool) preg_match('/^\\s*(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\\b/i', $sql);
     }
 
     private function handleError(Response $response): void {
@@ -133,15 +138,22 @@ class Moogo {
     }
 
     public function bucketPublicUrl(string $key): string {
-        return "{$this->bucketEndpoint}/{$key}";
+        // /pub/<project-id>/<key> is the route that needs no credential. The
+        // bucket endpoint is not it -- /p/<project-id>/bucket/<key> is the
+        // authenticated URL, and an <img> pointed at one breaks for every private
+        // object. This serves published objects only.
+        $base = preg_replace('#/p/([^/]+)/bucket/?$#', '/pub/$1', $this->bucketEndpoint);
+        return "{$base}/{$key}";
     }
 }
 
+// errorCode rather than code: Exception already has an int $code, and
+// redeclaring it as a string makes the class a fatal error.
 class MoogoException extends \\Exception {
-    public string $code;
+    public string $errorCode;
     public ?string $detail;
     public function __construct(array $error) {
-        $this->code = $error['code'] ?? 'unknown';
+        $this->errorCode = $error['code'] ?? 'unknown';
         $this->detail = $error['detail'] ?? null;
         parent::__construct($error['message'] ?? 'Moogo request failed');
     }

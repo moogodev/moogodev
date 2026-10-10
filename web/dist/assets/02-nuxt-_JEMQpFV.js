@@ -55,7 +55,10 @@ export const useMoogo = () => {
   };
 
   function isRead(sql: string): boolean {
-    return /^\\s*(select|values|pragma|explain)\\b/i.test(sql.trim());
+  // \`with\` belongs here: a CTE that ends in a SELECT is a read, and /query
+  // takes it. A CTE that writes (WITH ... INSERT) still reaches /exec, which
+  // accepts writes anyway -- only /query rejects them, as not_a_write.
+    return /^\\s*(select|values|pragma|explain|with)\\b/i.test(sql.trim());
   }
 
   async function handle(res: Response) {
@@ -99,9 +102,22 @@ export const useMoogo = () => {
     ) as T[];
   }
 
+// Slashes are meaningful in a key, so escape each segment and keep them -- the
+// server escapes a key the same way when it hands one back.
+const encodeKey = (key: string) =>
+  key.split("/").map(encodeURIComponent).join("/");
+
+// The public route is /pub/<project-id>/<key> and needs no credential. The
+// bucket endpoint is not it: /p/<project-id>/bucket/<key> is the authenticated
+// URL, and a browser tab carries no storage credential, so an <img> pointed at
+// one breaks for every private object. This serves published objects only --
+// before you publish, the response's public_url is an empty string.
+const publicBase = () =>
+  BUCKET_ENDPOINT.replace(/\\/p\\/([^/]+)\\/bucket\\/?$/, "/pub/$1");
+
   // ── Bucket ─────────────────────────────────────────────────────────
   async function bucketUpload(key: string, body: BodyInit, contentType: string) {
-    const res = await $fetch(\`\${BUCKET_ENDPOINT}/\${encodeURIComponent(key)}\`, {
+    const res = await $fetch(\`\${BUCKET_ENDPOINT}/\${encodeKey(key)}\`, {
       method: "POST",
       headers: { ...STORAGE_HEADERS, "Content-Type": contentType },
       body,
@@ -110,14 +126,14 @@ export const useMoogo = () => {
   }
 
   async function bucketDownload(key: string) {
-    return $fetch.raw(\`\${BUCKET_ENDPOINT}/\${encodeURIComponent(key)}\`, {
+    return $fetch.raw(\`\${BUCKET_ENDPOINT}/\${encodeKey(key)}\`, {
       headers: STORAGE_HEADERS,
       responseType: "blob",
     });
   }
 
   async function bucketDelete(key: string) {
-    const res = await $fetch(\`\${BUCKET_ENDPOINT}/\${encodeURIComponent(key)}\`, {
+    const res = await $fetch(\`\${BUCKET_ENDPOINT}/\${encodeKey(key)}\`, {
       method: "DELETE",
       headers: STORAGE_HEADERS,
     });
@@ -132,7 +148,7 @@ export const useMoogo = () => {
   }
 
   function bucketPublicUrl(key: string): string {
-    return \`\${BUCKET_ENDPOINT}/\${encodeURIComponent(key)}\`;
+    return \`\${publicBase()}/\${encodeKey(key)}\`;
   }
 
   return {

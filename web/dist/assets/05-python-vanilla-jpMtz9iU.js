@@ -24,8 +24,10 @@ export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 # moogo.py
 import os
 import json
+import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import quote
 
 PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
 SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
@@ -43,17 +45,29 @@ STORAGE_HEADERS = {
     "Authorization": f"Bearer {BUCKET_SECRET_KEY}",
 }
 
+def _error_from(exc: urllib.error.HTTPError) -> dict:
+    # The error body is the same envelope the JSON guides parse by hand.
+    try:
+        return json.loads(exc.read()).get("error", {})
+    except Exception:
+        return {"code": f"http_{exc.code}", "message": exc.reason}
+
+
 def _post(path: str, query: str, args: list[Any] = None) -> dict:
     args = args or []
     data = json.dumps({"query": query, "args": args}).encode()
     req = urllib.request.Request(
         f"{PROJECT_URL}{path}", data=data, headers=SQL_HEADERS, method="POST"
     )
-    with urllib.request.urlopen(req) as resp:
-        body = json.load(resp)
-    if resp.status >= 400:
-        raise MoogoError(body.get("error", {}))
-    return body
+    # urlopen raises on 4xx and 5xx rather than returning the response, so the
+    # failure has to be caught here to become a MoogoError. Without this the
+    # class below is never raised and the error handling in this guide catches
+    # nothing.
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as exc:
+        raise MoogoError(_error_from(exc)) from exc
 
 class MoogoError(Exception):
     def __init__(self, error: dict):
@@ -63,7 +77,11 @@ class MoogoError(Exception):
         super().__init__(self.message)
 
 def is_read(sql: str) -> bool:
-    return sql.lstrip().upper().startswith(("SELECT", "VALUES", "PRAGMA", "EXPLAIN"))
+    # WITH belongs here: a CTE that ends in a SELECT is a read, and /query takes
+    # it. A CTE that writes still reaches /exec, which accepts writes anyway.
+    return sql.lstrip().upper().startswith(
+        ("SELECT", "VALUES", "PRAGMA", "EXPLAIN", "WITH")
+    )
 
 def query(sql: str, args: list = None) -> dict:
     return _post("/query", sql, args)
@@ -83,22 +101,28 @@ def _storage_request(method: str, path: str, body: bytes = None, headers: dict =
     url = f"{BUCKET_ENDPOINT}{path}"
     h = {**STORAGE_HEADERS, **(headers or {})}
     req = urllib.request.Request(url, data=body, headers=h, method=method)
-    with urllib.request.urlopen(req) as resp:
-        if resp.status == 204:
-            return {}
-        return json.load(resp)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            if resp.status == 204:
+                return {}
+            return json.load(resp)
+    except urllib.error.HTTPError as exc:
+        raise MoogoError(_error_from(exc)) from exc
 
 def bucket_upload(key: str, data: bytes, content_type: str) -> dict:
-    return _storage_request("POST", f"/{key}", body=data, headers={"Content-Type": content_type})
+    return _storage_request("POST", f"/{quote(key, safe='/')}", body=data, headers={"Content-Type": content_type})
 
 def bucket_download(key: str) -> bytes:
-    url = f"{BUCKET_ENDPOINT}/{key}"
+    url = f"{BUCKET_ENDPOINT}/{quote(key, safe='/')}"
     req = urllib.request.Request(url, headers=STORAGE_HEADERS)
-    with urllib.request.urlopen(req) as resp:
-        return resp.read()
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as exc:
+        raise MoogoError(_error_from(exc)) from exc
 
 def bucket_delete(key: str) -> dict:
-    return _storage_request("DELETE", f"/{key}")
+    return _storage_request("DELETE", f"/{quote(key, safe='/')}")
 
 def bucket_list(prefix: str = None) -> dict:
     url = BUCKET_ENDPOINT
@@ -109,7 +133,14 @@ def bucket_list(prefix: str = None) -> dict:
         return json.load(resp)
 
 def bucket_public_url(key: str) -> str:
-    return f"{BUCKET_ENDPOINT}/{key}"
+    # /pub/<project-id>/<key> is the route that needs no credential. The bucket
+    # endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated URL,
+    # and a browser tab carries no storage credential, so an <img> pointed at one
+    # breaks for every private object. This serves published objects only: until
+    # you publish, public_url in the response is an empty string.
+    origin, _, tail = BUCKET_ENDPOINT.partition("/p/")
+    project_id = tail.split("/")[0]
+    return f"{origin}/pub/{project_id}/{quote(key, safe='/')}"
 \`\`\`
 
 ## Usage — SQLite
@@ -185,7 +216,13 @@ HEADERS = {"Authorization": f"Bearer {SECRET_KEY}", "Content-Type": "application
 
 async def sql(session: aiohttp.ClientSession, query: str, args: list = None) -> dict:
     args = args or []
-    endpoint = "/query" if query.lstrip().upper().startswith(("SELECT", "VALUES", "PRAGMA", "EXPLAIN")) else "/exec"
+    endpoint = (
+        "/query"
+        if query.lstrip().upper().startswith(
+            ("SELECT", "VALUES", "PRAGMA", "EXPLAIN", "WITH")
+        )
+        else "/exec"
+    )
     async with session.post(f"{PROJECT_URL}{endpoint}", headers=HEADERS, json={"query": query, "args": args}) as resp:
         body = await resp.json()
         if resp.status >= 400:
