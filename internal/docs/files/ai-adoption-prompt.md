@@ -89,7 +89,7 @@ Every failure, on any endpoint, uses one envelope:
 ## Transactions
 
 When one logical change is several writes, send them to `/transaction` as one
-batch. They commit together or not at all:
+batch. They commit together or not at all. (`/exec/txn` is an accepted alias.)
 
 ```json
 POST /transaction

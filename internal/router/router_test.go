@@ -534,6 +534,8 @@ func TestProjectScopedRoutesRequireProjectKey(t *testing.T) {
 	for _, path := range []string{
 		"/p/" + projectID.String() + "/query",
 		"/p/" + projectID.String() + "/exec",
+		"/p/" + projectID.String() + "/transaction",
+		"/p/" + projectID.String() + "/exec/txn",
 	} {
 		t.Run(path, func(t *testing.T) {
 			dataStub.called = ""
@@ -560,6 +562,10 @@ func TestProjectScopedRoutesDispatch(t *testing.T) {
 	}{
 		{"/p/" + projectID.String() + "/query", "Query"},
 		{"/p/" + projectID.String() + "/exec", "Exec"},
+		{"/p/" + projectID.String() + "/transaction", "Transaction"},
+		// A client that probed for /exec/txn reaches the transaction handler
+		// rather than a 404, so it never has to fall back.
+		{"/p/" + projectID.String() + "/exec/txn", "Transaction"},
 	}
 
 	for _, testCase := range testCases {
@@ -803,6 +809,8 @@ func TestDataPlaneRoutesRequireProjectKey(t *testing.T) {
 	for _, path := range []string{
 		"/db/" + projectID.String() + "/query",
 		"/db/" + projectID.String() + "/exec",
+		"/db/" + projectID.String() + "/transaction",
+		"/db/" + projectID.String() + "/exec/txn",
 	} {
 		t.Run(path, func(t *testing.T) {
 			dataStub.called = ""
@@ -857,6 +865,8 @@ func TestDataPlaneRoutesDispatch(t *testing.T) {
 	}{
 		{"/db/" + projectID.String() + "/query", "Query"},
 		{"/db/" + projectID.String() + "/exec", "Exec"},
+		{"/db/" + projectID.String() + "/transaction", "Transaction"},
+		{"/db/" + projectID.String() + "/exec/txn", "Transaction"},
 	}
 
 	for _, testCase := range testCases {

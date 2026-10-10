@@ -14,6 +14,7 @@ https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 
 Append \`/query\`, \`/exec\`, or \`/transaction\`. You never assemble the path yourself,
 so the internal route layout is not something your application has to track.
+\`/exec/txn\` is accepted as an alias for \`/transaction\`.
 
 There is also an older form, \`/db/{project_id}/query\`, \`/db/{project_id}/exec\`
 and \`/db/{project_id}/transaction\`. It behaves identically and exists so
@@ -169,6 +170,10 @@ created. Read the field only when it is present.
 Use this when one logical change is several statements: create the todo, log the
 activity, bump the counter. Every statement is committed together, or none of them
 is.
+
+\`POST /exec/txn\` is the same endpoint under the name a client sometimes guesses
+for it — same request, same response, same rules. Use whichever reads better;
+\`/transaction\` is the documented spelling.
 
 \`\`\`bash
 curl $MOOGO_PROJECT_URL/transaction \\

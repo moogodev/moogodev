@@ -517,6 +517,11 @@ func New(deps Deps) http.Handler {
 		// console runs one statement at a time by design -- a batch is an
 		// application concept, not something the console has anywhere to put.
 		projectPlane.Post("/transaction", deps.Data.Transaction)
+		// /exec/txn is the same handler under the name a client guessed for it.
+		// It is a write path that groups several writes, so it lives beside
+		// /exec; keeping both means a client that probed for it reaches an
+		// answer instead of a 404.
+		projectPlane.Post("/exec/txn", deps.Data.Transaction)
 	})
 
 	// --- Data plane: object storage, on its own credential ---
@@ -560,6 +565,7 @@ func New(deps Deps) http.Handler {
 		dataPlane.Post("/query", deps.Data.Query)
 		dataPlane.Post("/exec", deps.Data.Exec)
 		dataPlane.Post("/transaction", deps.Data.Transaction)
+		dataPlane.Post("/exec/txn", deps.Data.Transaction)
 	})
 
 	// --- Data plane: bucket (object storage) ---
