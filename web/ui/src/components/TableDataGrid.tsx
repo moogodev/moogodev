@@ -13,6 +13,8 @@ import {
 } from "../lib/sqlbuilder";
 import type { SchemaColumn, TableIdentity } from "./tableSchema";
 import ConfirmDialog from "./ConfirmDialog";
+import Modal from "./Modal";
+import { copyToClipboard } from "../lib/clipboard";
 
 // PAGE_SIZE is how many rows one page of the grid holds. It is fixed rather
 // than selectable because the grid is already wider than most viewports, and a
@@ -40,7 +42,25 @@ interface TableDataGridProps {
   identity: TableIdentity | null;
   /** Bumped after a write elsewhere in the tab, or by the Reload button. */
   refreshKey: number;
+  /**
+   * Focus mode is on, so the grid may use the height of the window instead of
+   * the reading pane's share of it.
+   */
+  tall?: boolean;
   onChanged: () => void;
+}
+
+// LONG_VALUE_CHARS is where a value stops being something to edit on sight and
+// becomes something to read first.
+//
+// The threshold is on characters rather than on measured width because it has to
+// be the same rule for every column, every font size and every browser: a cell
+// that is long enough to wrap is long enough that editing it blind is a guess.
+// A newline counts on its own, because a value with one is never a single line.
+const LONG_VALUE_CHARS = 80;
+
+function isLongValue(value: string | null): boolean {
+  return value !== null && (value.length > LONG_VALUE_CHARS || value.includes("\n"));
 }
 
 // TableDataGrid is a spreadsheet over one page of a table: a cell becomes an
@@ -52,6 +72,7 @@ export default function TableDataGrid({
   columns,
   identity,
   refreshKey,
+  tall = false,
   onChanged,
 }: TableDataGridProps) {
   const [rows, setRows] = useState<SQLResponse | null>(null);
@@ -63,6 +84,16 @@ export default function TableDataGrid({
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<GridRow | null>(null);
+  // The cell whose full value is on screen. It holds the row and column indexes
+  // as well as the text, because "Edit" in the dialog has to put that same cell
+  // back into edit mode rather than asking the user to find it again.
+  const [viewing, setViewing] = useState<{
+    rowIndex: number;
+    columnIndex: number;
+    column: SchemaColumn;
+    value: string;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const pageStart = page * PAGE_SIZE;
   const editable = identity !== null;
@@ -268,10 +299,15 @@ export default function TableDataGrid({
         </p>
       )}
 
-      <div className="max-h-[62vh] overflow-auto rounded-lg border border-edge">
+      <div
+        className={`overflow-auto rounded-lg border border-edge ${
+          tall ? "max-h-[calc(100vh-13rem)]" : "max-h-[62vh]"
+        }`}
+      >
         <table className="w-full border-collapse text-left text-[0.82rem]">
           <caption className="sr-only">
-            Rows from {table}. Click a cell to edit it.
+            Rows from {table}. Click a cell to edit it, or to read a long value
+            in full.
           </caption>
           <thead className="sticky top-0 z-10 bg-panel-raised">
             <tr>
@@ -331,6 +367,7 @@ export default function TableDataGrid({
                   // is refused by the engine and would surface as a bare
                   // constraint error in the alert above the grid.
                   const readonly = !editable || column.generated;
+                  const long = isLongValue(value);
                   return (
                     <td key={column.name} className="border-l border-edge/50 p-0">
                       {editing ? (
@@ -362,21 +399,77 @@ export default function TableDataGrid({
                       ) : (
                         <button
                           type="button"
-                          onClick={() => !readonly && setEdit({ rowIndex, columnIndex })}
-                          disabled={readonly}
-                          title={readonly && column.generated ? "Generated column" : undefined}
-                          className={`block w-full px-3 py-1 text-left font-mono text-[0.82rem] ${
-                            readonly
-                              ? "cursor-default bg-panel/50 text-muted"
-                              : "cursor-text text-foreground/90"
+                          onClick={() => {
+                            // Reading comes before editing when the value is too
+                            // long to fit: opening an input around text the
+                            // user cannot see is how a good row gets overwritten
+                            // with a truncated one. The dialog offers editing as
+                            // its next step, so nothing is lost.
+                            if (long) {
+                              setViewing({
+                                rowIndex,
+                                columnIndex,
+                                column,
+                                value: value ?? "",
+                              });
+                              return;
+                            }
+                            if (!readonly) setEdit({ rowIndex, columnIndex });
+                          }}
+                          // A read-only cell still opens the dialog when it holds
+                          // something long: refusing the click would leave no way
+                          // to read a generated column's worth of text.
+                          disabled={readonly && !long}
+                          title={
+                            long
+                              ? "Show the full value"
+                              : readonly && column.generated
+                                ? "Generated column"
+                                : undefined
+                          }
+                          className={`flex w-full items-center gap-2 px-3 py-1 text-left font-mono text-[0.82rem] ${
+                            // A cell that opens the dialog is a link, not a text
+                            // cursor; one that is read-only and short cannot be
+                            // clicked at all.
+                            long
+                              ? "cursor-pointer text-foreground/90 hover:bg-panel-raised/60"
+                              : readonly
+                                ? "cursor-default bg-panel/50 text-muted"
+                                : "cursor-text text-foreground/90"
                           }`}
                         >
-                          {value === null ? (
-                            <span className="text-[0.75rem] italic text-faint/70">null</span>
-                          ) : value === "" ? (
-                            <span className="text-faint/50">&nbsp;</span>
-                          ) : (
-                            value
+                          {/* Truncating rather than wrapping: a 4 KB paragraph in
+                              one column would push every other row off the
+                              screen, and the dialog is one click away. The max
+                              width is what makes it truncate in an auto-layout
+                              table -- without a bound the column grows to fit the
+                              whole value and nothing is cut off. */}
+                          <span className="min-w-0 max-w-[20rem] flex-1 truncate">
+                            {value === null ? (
+                              <span className="text-[0.75rem] italic text-faint/70">null</span>
+                            ) : value === "" ? (
+                              <span className="text-faint/50">&nbsp;</span>
+                            ) : (
+                              value
+                            )}
+                          </span>
+                          {long && (
+                            <span
+                              aria-hidden="true"
+                              className="shrink-0 text-faint/70"
+                            >
+                              <svg
+                                viewBox="0 0 16 16"
+                                className="h-3.5 w-3.5"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M6.5 2.5h-4v4M9.5 2.5h4v4M9.5 13.5h4v-4M6.5 13.5h-4v-4" />
+                              </svg>
+                            </span>
                           )}
                         </button>
                       )}
@@ -502,6 +595,61 @@ export default function TableDataGrid({
         onConfirm={confirmDelete}
         onCancel={() => setPendingDelete(null)}
       />
+
+      {viewing && (
+        <Modal
+          onClose={() => {
+            setViewing(null);
+            setCopied(false);
+          }}
+          title={viewing.column.name}
+          description={`Full value from ${table}`}
+          size="lg"
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await copyToClipboard(viewing.value, {
+                    onSuccess: () => {
+                      setCopied(true);
+                      window.setTimeout(() => setCopied(false), 2000);
+                    },
+                  });
+                  if (!ok) setCopied(false);
+                }}
+                className="cursor-pointer rounded-lg border border-edge-strong px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
+              >
+                {copied ? "✓ Copied" : "Copy value"}
+              </button>
+              {/* Editing stays one click away: reading a value is not always the
+                  reason it was opened. */}
+              {editable && !viewing.column.generated && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEdit({
+                      rowIndex: viewing.rowIndex,
+                      columnIndex: viewing.columnIndex,
+                    });
+                    setViewing(null);
+                  }}
+                  className="cursor-pointer rounded-lg bg-accent-strong px-4 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent"
+                >
+                  Edit this cell
+                </button>
+              )}
+            </>
+          }
+        >
+          {/* pre-wrap keeps the value readable: a JSON blob with its own line
+              breaks stays broken the way it is stored, and break-words keeps one
+              unbroken token from pushing the dialog sideways. */}
+          <pre className="max-h-[52vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-edge bg-background px-3 py-2.5 font-mono text-[0.82rem] leading-relaxed text-foreground">
+            {viewing.value}
+          </pre>
+        </Modal>
+      )}
     </div>
   );
 }

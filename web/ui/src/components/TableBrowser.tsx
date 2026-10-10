@@ -59,6 +59,38 @@ export default function TableBrowser({
   const [localRefresh, setLocalRefresh] = useState(0);
   // Bumped after any write so the table detail re-reads its own schema too.
   const [detailRefresh, setDetailRefresh] = useState(0);
+  // Focus mode: the one open table takes the whole viewport and the schema
+  // sidebar steps out of the way, so a wide table has room to be read and edited.
+  const [focused, setFocused] = useState(false);
+
+  // Escape leaves focus mode. It is the way out a keyboard user expects from a
+  // mode that covers the page, and it costs one listener while focused.
+  //
+  // A dialog opened from inside the panel -- the full-value viewer -- handles
+  // Escape itself, and the listener here would close both at once. Checking for
+  // an open dialog is what keeps Escape meaning "dismiss the topmost thing"
+  // rather than "dismiss everything on the way out".
+  useEffect(() => {
+    if (!focused) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector('[role="dialog"]')) return;
+      setFocused(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [focused]);
+
+  // The page behind the panel must not scroll under it, or a wheel gesture over
+  // the table moves the dashboard out from under the overlay.
+  useEffect(() => {
+    if (!focused) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [focused]);
 
   // The open table lives in the query string ("?table=todo") and is derived
   // from it rather than stored: a reload keeps it open, the view is linkable,
@@ -146,8 +178,13 @@ export default function TableBrowser({
 
   return (
     <div>
-      <div className="grid gap-5 lg:grid-cols-[228px_1fr]">
-        <aside className="min-w-0">
+      {/* The two classes are swapped rather than the sidebar being unmounted:
+          the detail pane has to keep its page, its sort and its in-flight cell
+          edit across the switch, and re-mounting it would read the schema again.
+          The aside is hidden rather than removed for the same reason -- a React
+          tree that keeps the same elements in the same order keeps their state. */}
+      <div className={focused ? "block" : "grid gap-5 lg:grid-cols-[228px_1fr]"}>
+        <aside className={focused ? "hidden" : "min-w-0"}>
           <div className="rounded-lg border border-edge bg-panel">
             <div className="flex items-center justify-between gap-2 border-b border-edge px-3 py-2">
               <h2 className="text-[0.82rem] font-bold uppercase tracking-wider text-faint">
@@ -237,7 +274,16 @@ export default function TableBrowser({
           </div>
         </aside>
 
-        <section className="min-w-0">
+        {/* In focus mode this section becomes the viewport. It covers the app
+            header too, because the point is that nothing else competes with the
+            grid -- the way back out is the collapse icon and Escape. */}
+        <section
+          className={
+            focused
+              ? "fixed inset-0 z-40 overflow-y-auto bg-background p-4 lg:p-6"
+              : "min-w-0"
+          }
+        >
           {activeObject ? (
             <TableDetail
               key={activeObject.name}
@@ -245,8 +291,13 @@ export default function TableBrowser({
               object={activeObject}
               siblings={state?.objects ?? []}
               refreshKey={detailRefresh}
+              focused={focused}
+              onToggleFocus={() => setFocused((current) => !current)}
               onChanged={handleChanged}
               onGone={() => {
+                // The table the panel was showing is gone, so there is nothing
+                // left to be full screen about.
+                setFocused(false);
                 selectTable(null);
                 handleChanged();
               }}
@@ -364,6 +415,8 @@ function TableDetail({
   object,
   siblings,
   refreshKey,
+  focused,
+  onToggleFocus,
   onChanged,
   onGone,
   onRenamed,
@@ -375,6 +428,9 @@ function TableDetail({
   // that belong to this table without another read.
   siblings: SchemaObject[];
   refreshKey: number;
+  /** Focus mode is on: the pane is the viewport and the grid may use all of it. */
+  focused: boolean;
+  onToggleFocus: () => void;
   onChanged: () => void;
   /** The object is gone, so nothing should stay selected. */
   onGone: () => void;
@@ -648,19 +704,37 @@ function TableDetail({
             </button>
           ))}
         </div>
-        {!isView && (
+        {/* The controls sit in their own group so the Reload button keeps the
+            right-hand end of the tab bar for every object, view or table. */}
+        <div className="-mb-px ml-auto flex items-end">
+          {!isView && (
+            <button
+              type="button"
+              onClick={() => {
+                setRowsRefresh((current) => current + 1);
+                onReload();
+              }}
+              title="Re-read the rows and the row counts from the database"
+              className="cursor-pointer border-b-2 border-transparent px-3 py-2 text-[0.85rem] font-semibold text-muted transition-colors hover:text-foreground"
+            >
+              Reload
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => {
-              setRowsRefresh((current) => current + 1);
-              onReload();
-            }}
-            title="Re-read the rows and the row counts from the database"
-            className="-mb-px ml-auto cursor-pointer border-b-2 border-transparent px-3 py-2 text-[0.85rem] font-semibold text-muted transition-colors hover:text-foreground"
+            onClick={onToggleFocus}
+            title={focused ? "Leave focus mode (Esc)" : "Show this table on its own, full screen"}
+            aria-pressed={focused}
+            aria-label={focused ? "Leave focus mode" : "Focus this table full screen"}
+            className={`cursor-pointer border-b-2 px-2.5 py-2 transition-colors ${
+              focused
+                ? "border-accent-strong text-foreground"
+                : "border-transparent text-muted hover:text-foreground"
+            }`}
           >
-            Reload
+            <FocusIcon expanded={focused} />
           </button>
-        )}
+        </div>
       </div>
 
       {actionError && (
@@ -684,6 +758,9 @@ function TableDetail({
             columns={columns}
             identity={identity}
             refreshKey={refreshKey + rowsRefresh}
+            // Focus mode is the only place the grid is allowed to grow past the
+            // reading pane's share of the window.
+            tall={focused}
             onChanged={onChanged}
           />
         ) : activeTab === "structure" ? (
@@ -720,6 +797,34 @@ function TableDetail({
         onCancel={() => setPendingDropTable(false)}
       />
     </div>
+  );
+}
+
+// FocusIcon is the four-corner bracket, pointing out when the table is about to
+// take the screen and in when it is about to give it back. Two glyphs rather
+// than one with a rotation, because the reading differs.
+function FocusIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {expanded ? (
+        <>
+          <path d="M7.5 3.5h-4v4M12.5 3.5h4v4M12.5 16.5h4v-4M7.5 16.5h-4v-4" />
+        </>
+      ) : (
+        <>
+          <path d="M3.5 7.5h4v-4M16.5 7.5h-4v-4M16.5 12.5h-4v4M3.5 12.5h4v4" />
+        </>
+      )}
+    </svg>
   );
 }
 
