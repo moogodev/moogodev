@@ -381,7 +381,7 @@ schema inspector needs.
 | Statement length | 64 KB | `sql_too_long` |
 | Request body | 1 MB | `body_too_large` |
 | Execution time | 15 seconds | `statement_timeout` |
-| Database size | 100 MB | `database_too_large` |
+| Database size | 250 MB | `database_too_large` |
 
 The statement length limit bounds tokenizer work and error-message size. It is not
 a substitute for the body limit, which is enforced while reading.
@@ -721,7 +721,7 @@ Every error has the same shape, so you can branch on `code` instead of parsing
 |---|---|---|
 | `sql_error` | 400 | SQLite rejected the statement. Check `detail`. |
 | `database_not_found` | 404 | The project database does not exist. |
-| `database_too_large` | 413 | The database is at its 100 MB ceiling. |
+| `database_too_large` | 413 | The database is at its 250 MB ceiling. |
 | `statement_timeout` | 504 | The statement passed 15 seconds and was cancelled. |
 | `quota_exceeded` | 429 | An account quota was reached. |
 | `project_paused` | 403 | The project is paused. |

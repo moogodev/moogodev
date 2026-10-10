@@ -55,7 +55,7 @@ func newFakeBucketStore(projectID uuid.UUID) *fakeBucketStore {
 
 // testBucketQuota is the per-bucket default the migration writes, so a fixture
 // bucket behaves like a real one without every test having to say so.
-const testBucketQuota = 262144000 // 250 MB
+const testBucketQuota = 247463936 // 236 MiB, the migration default
 
 func (store *fakeBucketStore) addBucket(name string) *dbcontrol.Bucket {
 	store.mu.Lock()
@@ -2391,7 +2391,7 @@ func TestPublicURLUsesTheConfiguredOriginNotTheRequestHost(t *testing.T) {
 }
 
 func TestBucketQuotaCannotPromiseMoreThanTheProjectHas(t *testing.T) {
-	// A bucket allowed to claim 300 MB in a 256 MB project shows a number on the
+	// A bucket allowed to claim 300 MB in a 250 MB project shows a number on the
 	// settings page that no upload can ever reach, and every refusal past the
 	// real ceiling looks like a bug rather than the project's own limit.
 	plane, store, _ := testBucketPlane(t, 1<<20)

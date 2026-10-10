@@ -87,7 +87,7 @@ Response, for the first upload:
     "last_modified": "2026-10-01T09:20:11Z"
   },
   "storage_used_bytes": 10485760,
-  "quota_bytes": 268435456
+  "quota_bytes": 262144000
 }
 \`\`\`
 
@@ -110,9 +110,9 @@ a value you can test for, rather than a missing field.
 
 - **Per object:** the bucket's \`max_object_size_bytes\`, or the project ceiling if
   the bucket sets none.
-- **Per project:** 256 MB total, across all buckets.
+- **Per project:** 250 MB total, across all buckets.
 - **Per request:** the same object cap. The JSON endpoints are capped at 1 MB, but
-  storage is not — a 1 MB cap on a 256 MB project would mean nobody could ever
+  storage is not — a 1 MB cap on a 250 MB project would mean nobody could ever
   fill their bucket.
 
 Failures are distinguishable:
@@ -177,7 +177,7 @@ Response:
   "limit": 50,
   "offset": 0,
   "storage_used_bytes": 10485760,
-  "quota_bytes": 268435456
+  "quota_bytes": 262144000
 }
 \`\`\`
 
@@ -219,7 +219,7 @@ curl -X DELETE "$ENDPOINT/avatars/kit.png" \\
   "deleted": 1,
   "freed_bytes": 24576,
   "storage_used_bytes": 10485760,
-  "quota_bytes": 268435456
+  "quota_bytes": 262144000
 }
 \`\`\`
 
@@ -256,11 +256,11 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \\
       "is_public": false,
       "allowed_types": ["image"],
       "max_object_size_bytes": 2097152,
-      "quota_bytes": 262144000
+      "quota_bytes": 247463936
     }
   ],
   "storage_used_bytes": 10485760,
-  "quota_bytes": 268435456
+  "quota_bytes": 262144000
 }
 \`\`\`
 

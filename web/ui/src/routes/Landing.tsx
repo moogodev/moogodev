@@ -37,7 +37,7 @@ const pillars = [
     accent: false,
     items: [
       {
-        title: "256 MB of files per project",
+        title: "250 MB of files per project",
         body: "Organise with buckets and prefixes, upload with a plain PUT. Storage has its own credential, so a key scoped to running SELECT cannot overwrite your files.",
       },
       {
@@ -164,8 +164,8 @@ const faqs = [
     a: "No. There is no idle timeout, so there is no cold start to design around. If you want to stop using a project, you pause it deliberately, and that is reversible.",
   },
   {
-    q: "What if I outgrow 100 MB?",
-    a: "Then you have outgrown it, and you should know that now rather than after building on it. Two projects per account, 100 MB each, is the current free tier. The limits are enforced before a write commits, never silently.",
+    q: "What if I outgrow 250 MB?",
+    a: "Then it is worth knowing now rather than after building on it. Two projects per account, 250 MB each, is the free tier — enough for a real application, and past it the honest answer is that Moogo is not the right home for it yet. Limits are enforced before a write commits, never silently.",
   },
   {
     q: "Is there really no billing?",
@@ -249,9 +249,9 @@ function Hero() {
           </Link>
         </div>
         <dl className="flex flex-wrap justify-center gap-x-8 gap-y-4 border-t border-edge pt-7">
-          <Fact value="100 MB" label="SQLite / project" />
+          <Fact value="250 MB" label="SQLite / project" />
           <Fact value="2" label="projects / user" />
-          <Fact value="256 MB" label="bucket / project" />
+          <Fact value="250 MB" label="storage / project" />
           <Fact value="No pause" label="always on" />
           <Fact value="No credit" label="free forever" />
         </dl>
@@ -733,8 +733,8 @@ function Pricing() {
 
           <ul className="mb-8 flex flex-col gap-2.5">
             {[
-              "2 projects, 100 MB of SQLite each",
-              "256 MB of object storage per project",
+              "2 projects, 250 MB of SQLite each",
+              "250 MB of object storage per project",
               "The full dashboard and SQL console",
               "No idle pause and no cold start",
             ].map((line) => (

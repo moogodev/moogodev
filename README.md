@@ -22,7 +22,7 @@ update feed.
   prepared statements only and a tokenizing sanitizer that runs before anything
   touches the database.
 - **One database per project** — a real SQLite file you can back up, with its
-  own secret key and its own quota (100 MB per database, 15 seconds per
+  own secret key and its own quota (250 MB per database, 15 seconds per
   statement, 64 KB per statement text).
 - **Object storage** — buckets under the same project, with their own storage
   credential: upload, preview, public/private objects.

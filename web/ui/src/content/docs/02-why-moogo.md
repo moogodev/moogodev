@@ -100,12 +100,12 @@ your time.
 | You need `PostGIS` or spatial queries | SQLite has `R-Tree`, but it is not PostGIS |
 | You need cross-region replicas | One project is one file on one host |
 | You need concurrent analytical scans | SQLite is a single-writer engine |
-| You need a database larger than 100 MB | That is the ceiling, and it is enforced |
+| You need a database larger than 250 MB | That is the ceiling, and it is enforced |
 | You need row-level security across tenants | You do not need it; you get file isolation instead |
 | You need `GRANT` / `REVOKE` and multiple roles | Moogo has one role per project key |
 
-On the free tier you also get **2 projects per account**, 100 MB per database,
-and 256 MB of storage per project. There is no billing in the current version, so
+On the free tier you also get **2 projects per account**, 250 MB per database,
+and 250 MB of storage per project. There is no billing in the current version, so
 every account is on the same plan. If you need more than that, the constraint is
 a real one and you should know about it before you build.
 

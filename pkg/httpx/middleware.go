@@ -158,7 +158,7 @@ func AccessLog(log *logger.Logger) func(http.Handler) http.Handler {
 // It is what lets two MaxBodyBytes middlewares nest: the innermost cap is the
 // one that should bind, and to apply it the original body has to be reachable
 // past the outer wrapper rather than stacked underneath it, where the smaller
-// of the two would silently win and a 256 MB upload route mounted under a
+// of the two would silently win and a 250 MB upload route mounted under a
 // JSON-capped group would die at 1 MB.
 type originalBodyKey struct{}
 

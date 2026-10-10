@@ -162,7 +162,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 			//   - WriteTimeout bounds writing the whole response, counted
 			//     from the end of the headers. A statement may legitimately
 			//     run for the whole query timeout before it writes a byte,
-			//     and a download may stream a 256 MB object over a slow
+			//     and a download may stream a 250 MB object over a slow
 			//     link; a WriteTimeout shorter than either would cut off
 			//     successful results. Slow readers die at the same edge
 			//     timeouts — send_timeout at the site that manages nginx,

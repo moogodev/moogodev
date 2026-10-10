@@ -91,8 +91,8 @@ func newTestUser(t *testing.T, store *Store, maxProjects int) *User {
 		"Test",
 		"hash",
 		maxProjects,
-		100*1024*1024,
-		256*1024*1024,
+		250*1024*1024,
+		250*1024*1024,
 	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)

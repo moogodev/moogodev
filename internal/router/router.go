@@ -172,7 +172,7 @@ type Deps struct {
 	MaxBodyBytes   int64
 	// MaxObjectBytes caps one object upload. It is larger than MaxBodyBytes on
 	// purpose: the JSON endpoints take a request, the bucket endpoints take a
-	// file, and a shared cap would mean a 256 MB project that cannot accept a
+	// file, and a shared cap would mean a 250 MB project that cannot accept a
 	// 2 MB image.
 	MaxObjectBytes int64
 	RequestTimeout time.Duration
@@ -352,8 +352,8 @@ func New(deps Deps) http.Handler {
 		// The control plane takes JSON bodies and nothing else, so the JSON
 		// cap applies to the whole group. It is safe under the nested bucket
 		// routes below because the innermost cap wins: their own
-		// MaxObjectBytes re-wraps the original body, so a 256 MB upload is
-		// still a 256 MB upload while every settings body stops at 1 MB.
+		// MaxObjectBytes re-wraps the original body, so a 250 MB upload is
+		// still a 250 MB upload while every settings body stops at 1 MB.
 		private.Use(httpx.MaxBodyBytes(deps.MaxBodyBytes))
 
 		private.Get("/api/me", deps.Control.Me)

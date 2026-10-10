@@ -215,7 +215,7 @@ try {
   if (err.code === "sql_error") {
     console.log("SQLite error:", err.detail);
   } else if (err.code === "database_too_large") {
-    console.log("Project hit 100 MB limit");
+    console.log("Project hit 250 MB limit");
   } else if (err.status === 401) {
     console.log("Invalid or rotated secret key");
   }

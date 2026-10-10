@@ -49,11 +49,11 @@ account answers `404`, not `403`, so an id cannot even be probed for existence.
 
 - **A real SQLite database.** Full SQLite, the engine you already know, with
   `WAL` journaling and foreign keys enabled on every connection.
-- **Object storage per project.** Up to 256 MB of files, organized into buckets,
+- **Object storage per project.** Up to 250 MB of files, organized into buckets,
   with public URLs you can put in an `<img>` tag.
 - **A dashboard.** Browse your tables as a spreadsheet, run SQL in a console, and
   watch the activity log. It needs no secret key from you.
-- **Honest limits.** 100 MB per database, 15 seconds per statement, 1 MB per
+- **Honest limits.** 250 MB per database, 15 seconds per statement, 1 MB per
   request body. Every one of them is reported in the response, so you find out
   from the API rather than from a hung tab.
 

@@ -135,9 +135,16 @@ func TestQueryRefusesAnOversizedResult(t *testing.T) {
 	if _, err := manager.Exec(ctx, projectID, `CREATE TABLE items (payload BLOB)`, nil); err != nil {
 		t.Fatalf("create table: %v", err)
 	}
-	if _, err := manager.Exec(ctx, projectID,
-		`INSERT INTO items (payload) VALUES (zeroblob(17825792))`, nil); err != nil {
-		t.Fatalf("insert: %v", err)
+	// Two rows of 9 MiB each rather than one of 17. Neither value crosses the
+	// per-value limit, so both are stored, and together they cross the
+	// response budget -- which is the answer this test is about. A single
+	// 17 MiB value is refused at the value limit first, a different failure
+	// on its way to the same one.
+	for i := 0; i < 2; i++ {
+		if _, err := manager.Exec(ctx, projectID,
+			`INSERT INTO items (payload) VALUES (zeroblob(9437184))`, nil); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
 	}
 
 	if _, err := manager.Query(ctx, projectID, `SELECT payload FROM items`, nil, 0); !errors.Is(err, ErrResultTooLarge) {

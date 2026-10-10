@@ -196,7 +196,7 @@ except MoogoError as e:
     if e.code == "sql_error":
         print("SQLite error:", e.detail)
     elif e.code == "database_too_large":
-        print("Project hit 100 MB limit")
+        print("Project hit 250 MB limit")
     elif hasattr(e, 'status') and e.status == 401:
         print("Invalid or rotated secret key")
     raise

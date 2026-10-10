@@ -68,7 +68,7 @@ type Config struct {
 	// It is separate from MaxBodyBytes because the two guard different things.
 	// MaxBodyBytes bounds a JSON request -- a statement, a settings body -- where
 	// anything past a megabyte is a mistake. An upload is a file, so the same
-	// limit would cap a project that has 256 MB of storage at 1 MB per upload,
+	// limit would cap a project that has 250 MB of storage at 1 MB per upload,
 	// and the bucket would then be a quota nobody can ever fill.
 	MaxObjectBytes int64
 
@@ -218,8 +218,8 @@ func Load() (Config, error) {
 		DBConnectTimeout: reader.duration("MOOGO_DB_CONNECT_TIMEOUT", 10*time.Second),
 
 		DataDir:           reader.string("MOOGO_DATA_DIR", "/data"),
-		MaxDBBytes:        reader.int64("MOOGO_MAX_DB_BYTES", 100*1024*1024),
-		MaxStorageBytes:   reader.int64("MOOGO_MAX_STORAGE_BYTES", 256*1024*1024),
+		MaxDBBytes:        reader.int64("MOOGO_MAX_DB_BYTES", 250*1024*1024),
+		MaxStorageBytes:   reader.int64("MOOGO_MAX_STORAGE_BYTES", 250*1024*1024),
 		QueryTimeout:      reader.duration("MOOGO_QUERY_TIMEOUT", 15*time.Second),
 		MaxBodyBytes:      reader.int64("MOOGO_MAX_BODY_BYTES", 1*1024*1024),
 		MaxObjectBytes:    reader.int64("MOOGO_MAX_OBJECT_BYTES", StorageCeilingBytes),
@@ -248,7 +248,7 @@ func Load() (Config, error) {
 		// fetched, because a limit a visitor cannot see reads as a bug when they
 		// hit it: the create button simply stops working.
 		DefaultMaxProjects:       reader.int("MOOGO_DEFAULT_MAX_PROJECTS", 2),
-		DefaultMaxDBBytes:        reader.int64("MOOGO_DEFAULT_MAX_DB_BYTES", 100*1024*1024),
+		DefaultMaxDBBytes:        reader.int64("MOOGO_DEFAULT_MAX_DB_BYTES", 250*1024*1024),
 		DefaultMaxStorageBytes:   reader.int64("MOOGO_DEFAULT_MAX_STORAGE_BYTES", StorageCeilingBytes),
 		ActivityLogRetentionDays: reader.int("MOOGO_ACTIVITY_LOG_RETENTION_DAYS", 7),
 
@@ -320,7 +320,7 @@ func (cfg Config) validate() error {
 		problems = append(problems, "MOOGO_MAX_BODY_BYTES must be at least 1 KB")
 	}
 
-	// The 256 MB ceiling is a product decision, not a tuning knob: it is what a
+	// The 250 MB ceiling is a product decision, not a tuning knob: it is what a
 	// project is promised, and it is what the UI and the pricing page say. A
 	// larger value is rejected rather than quietly clamped, because a
 	// configuration that appears to work and does not is the one nobody can
@@ -482,4 +482,4 @@ func isKnownSessionSecret(secret string) bool {
 // "why did my upload fail", and each of those has to be the same number. Making
 // it configurable in one direction only would reintroduce exactly the drift this
 // prevents.
-const StorageCeilingBytes int64 = 256 * 1024 * 1024
+const StorageCeilingBytes int64 = 250 * 1024 * 1024

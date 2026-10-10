@@ -203,8 +203,8 @@ func newCredHandlerIn(t *testing.T, store *credStore, mailer *credMailer, enviro
 	cfg := config.Config{
 		Environment:            environment,
 		DefaultMaxProjects:     5,
-		DefaultMaxDBBytes:      100 * 1024 * 1024,
-		DefaultMaxStorageBytes: 256 * 1024 * 1024,
+		DefaultMaxDBBytes:      250 * 1024 * 1024,
+		DefaultMaxStorageBytes: 250 * 1024 * 1024,
 		PasswordResetTTL:       time.Hour,
 		VerificationTTL:        24 * time.Hour,
 	}

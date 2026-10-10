@@ -101,7 +101,7 @@ type BucketPlane struct {
 	// Reading the usage total and writing the object cannot be one atomic
 	// operation across Postgres and the filesystem, so without a lock two
 	// concurrent uploads both see room for 100 MB and together land 180 MB
-	// in a 256 MB bucket. The lock spans only those fast Postgres round
+	// in a 250 MB bucket. The lock spans only those fast Postgres round
 	// trips -- never the client's body -- so a slow upload cannot stall
 	// everyone else's.
 	projectLocks lockMap
@@ -380,7 +380,7 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 
 	// The bucket's per-object cap is a separate ceiling from the project quota.
 	// All three apply: a bucket can be stricter than the project (an image bucket
-	// capped at 5 MB inside a 256 MB bucket) and the project can be stricter
+	// capped at 5 MB inside a 250 MB bucket) and the project can be stricter
 	// than the bucket (a 200 MB file into the last 10 MB of a project).
 	//
 	// Whichever is smallest is the budget the body is measured against, so the
@@ -441,7 +441,7 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 	// The three failures are reported separately, because the fixes are different:
 	// one means the project is full, one means this bucket is full, the other means
 	// this bucket wants smaller files. Collapsing them into one "too large" message
-	// leaves a user who set a 5 MB cap with a 256 MB project looking for space that
+	// leaves a user who set a 5 MB cap with a 250 MB project looking for space that
 	// does not exist.
 	if objectCap > 0 && size > objectCap {
 		_ = handler.fs.DeleteObject(projectID, key)
@@ -1218,7 +1218,7 @@ func validateMaxObjectSize(size int64) error {
 // projectQuota is the ceiling above it. A bucket may not promise more room than
 // the project has, because such a number is never reachable and reads on the
 // settings page as storage that does not exist -- the figure would promise 300 MB
-// and every upload past 256 MB would still be refused by the project quota.
+// and every upload past 250 MB would still be refused by the project quota.
 func validateBucketQuota(size int64, projectQuota int64) error {
 	if size <= 0 {
 		return errors.New("quota_bytes must be a positive number of bytes")

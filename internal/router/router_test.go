@@ -1320,12 +1320,12 @@ func uploadThroughRouter(t *testing.T, projectID uuid.UUID, body []byte) *httpte
 func TestBucketUploadIsNotCappedByTheJSONBodyLimit(t *testing.T) {
 	// The JSON cap is 64 KiB and the object cap is 8 MiB. An upload shares a
 	// route group with JSON endpoints, so when both were capped at the JSON
-	// limit a 256 MB project could not accept a file bigger than a statement.
+	// limit a 250 MB project could not accept a file bigger than a statement.
 	recorder := uploadThroughRouter(t, uuid.New(), make([]byte, 1024*1024))
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("a 1 MiB upload was rejected with %d: a project cannot store a "+
-			"256 MB quota if the body limit is smaller than one file", recorder.Code)
+			"250 MB quota if the body limit is smaller than one file", recorder.Code)
 	}
 }
 

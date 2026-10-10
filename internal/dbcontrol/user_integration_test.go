@@ -35,7 +35,7 @@ func TestGoogleSignInSecuresAnUnverifiedRegistration(t *testing.T) {
 	email := uuid.NewString() + "@example.com"
 	registered, err := store.CreateUserWithPassword(
 		ctx, email, "Not The Owner", "attacker-set-hash",
-		5, 100*1024*1024, 256*1024*1024,
+		5, 250*1024*1024, 250*1024*1024,
 	)
 	if err != nil {
 		t.Fatalf("register: %v", err)
@@ -51,7 +51,7 @@ func TestGoogleSignInSecuresAnUnverifiedRegistration(t *testing.T) {
 	}
 
 	// The address owner signs in with Google.
-	user, err := store.UpsertUserByEmail(ctx, email, "The Owner", "", 5, 100*1024*1024, 256*1024*1024)
+	user, err := store.UpsertUserByEmail(ctx, email, "The Owner", "", 5, 250*1024*1024, 250*1024*1024)
 	if err != nil {
 		t.Fatalf("google sign-in: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestGoogleSignInKeepsAVerifiedPasswordAccount(t *testing.T) {
 	email := uuid.NewString() + "@example.com"
 	registered, err := store.CreateUserWithPassword(
 		ctx, email, "The Owner", "owner-hash",
-		5, 100*1024*1024, 256*1024*1024,
+		5, 250*1024*1024, 250*1024*1024,
 	)
 	if err != nil {
 		t.Fatalf("register: %v", err)
@@ -93,7 +93,7 @@ func TestGoogleSignInKeepsAVerifiedPasswordAccount(t *testing.T) {
 		t.Fatalf("reset token: %v", err)
 	}
 
-	user, err := store.UpsertUserByEmail(ctx, email, "The Owner", "", 5, 100*1024*1024, 256*1024*1024)
+	user, err := store.UpsertUserByEmail(ctx, email, "The Owner", "", 5, 250*1024*1024, 250*1024*1024)
 	if err != nil {
 		t.Fatalf("google sign-in: %v", err)
 	}

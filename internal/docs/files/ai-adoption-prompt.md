@@ -175,9 +175,9 @@ Every limit is enforced by the server, and most come back in the response.
 | What | Limit |
 |---|---|
 | Projects per account | 2 |
-| Database size | 100 MB per project; the file never shrinks on its own |
-| Storage | 256 MB per project, summed across all buckets |
-| Object size | The bucket's `max_object_size_bytes`, or 256 MB |
+| Database size | 250 MB per project; the file never shrinks on its own |
+| Storage | 250 MB per project, summed across all buckets |
+| Object size | The bucket's `max_object_size_bytes`, or 250 MB |
 | JSON request body | 1 MB (`body_too_large`) |
 | Statement | 64 KB (`sql_too_long`), 15 seconds (`statement_timeout`) |
 | Storage credentials | 5 per project (`credential_limit`) |

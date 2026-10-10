@@ -330,11 +330,11 @@ function SiteFooter() {
 
             <ul className="mt-7 flex flex-col gap-2 text-[0.87rem] text-muted">
               <li>
-                <span className="text-faint">Database</span> · 100 MB of SQLite
+                <span className="text-faint">Database</span> · 250 MB of SQLite
                 per project
               </li>
               <li>
-                <span className="text-faint">Storage</span> · 256 MB per project
+                <span className="text-faint">Storage</span> · 250 MB per project
               </li>
               <li>
                 <span className="text-faint">Price</span> · free, no card

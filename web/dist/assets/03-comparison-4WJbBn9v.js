@@ -13,8 +13,8 @@ right tool rather than the fashionable one.
 | Connection | HTTP, no driver | Postgres wire protocol + REST/GraphQL | libSQL client (HTTP or WebSocket) |
 | Serverless fit | Built for it, stateless, no pool | Pooling required, proxy adds latency | Edge replicas, sync complexity |
 | Free tier pause | **Never pauses** | Pauses after 1 week inactive | Varies by plan |
-| Max database size | 100 MB per project | Much larger | Larger than Moogo |
-| Object storage | 256 MB per project, included | Separate, billed | Not included on lower tiers |
+| Max database size | 250 MB per project | Much larger | Larger than Moogo |
+| Object storage | 250 MB per project, included | Separate, billed | Not included on lower tiers |
 | AI context file | \`moogo.md\` for assistants | No standard format | No standard format |
 | Licence | MIT | Apache 2 / MIT, varies by component | MPL 2.0 (the libSQL fork) |
 
@@ -55,13 +55,13 @@ not.
 
 This is the clearest tradeoff, and you should check it first.
 
-Moogo caps a database at **100 MB**. That is generous for an application and
+Moogo caps a database at **250 MB**. That is generous for an application and
 small for a dataset. If you are storing user records, sessions, and a few
 thousand uploads, you will never notice. If you are ingesting events, storing
 media metadata at volume, or building a data warehouse, you should stop reading
 this documentation and use a database sized for that.
 
-Supabase and Turso both scale past 100 MB comfortably. They also cost more, and
+Supabase and Turso both scale past 250 MB comfortably. They also cost more, and
 they ask you to manage a connection from code that runs to completion.
 
 ## When to choose something else
@@ -69,7 +69,7 @@ they ask you to manage a connection from code that runs to completion.
 Choose another tool if any of these are true:
 
 - You need \`PostGIS\`, or Postgres extensions generally.
-- You need a database larger than 100 MB per logical unit of data.
+- You need a database larger than 250 MB per logical unit of data.
 - You need many concurrent writers to the same tables. SQLite serialises writes
   per database; this is a property of the engine, not a Moogo setting.
 - You need cross-region replicas or a multi-region write path.

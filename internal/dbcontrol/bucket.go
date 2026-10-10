@@ -757,7 +757,7 @@ func (store *Store) DeletePrefix(
 
 // StorageUsedBytes totals every object size belonging to a project.
 //
-// The 256 MB quota is per project rather than per bucket, so this deliberately
+// The 250 MB quota is per project rather than per bucket, so this deliberately
 // ignores bucket_id and counts the whole project as one pool.
 //
 // Sizes come from the size_bytes column recorded at upload time rather than

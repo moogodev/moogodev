@@ -1,6 +1,6 @@
 # Moogo.dev — Architecture Decisions
 
-Status: draft, 2026-10-01; diperbarui 2026-10-09.
+Status: draft, 2026-10-01; diperbarui 2026-10-10.
 
 ## Keputusan yang sudah dikunci
 
@@ -19,6 +19,7 @@ Status: draft, 2026-10-01; diperbarui 2026-10-09.
 | D10 | Secret key ditampilkan sekali di layar pembuatan project, lalu tidak pernah lagi | Ini membatalkan pilihan show/hide. Karena tidak perlu dibaca kembali, key cukup di-hash, tidak perlu enkripsi |
 | D11 | `http.Server` sengaja tanpa `ReadTimeout`/`WriteTimeout`; yang dibatasi hanya `ReadHeaderTimeout` | Timeout net/http membatasi total waktu permintaan/respon, jadi nilai yang cukup kecil untuk mencegah koneksi macet pasti memotong upload 256 MB atau query yang jalan penuh 15 detik. Yang dibutuhkan adalah timeout antar-byte (gap-based) — itu urusan edge: `client_body_timeout`, `send_timeout`, `proxy_read_timeout` yang ditulis deploy.sh untuk nginx yang dikelolanya; di balik Cloudflare Tunnel deploy.sh tidak menulis nginx apa pun, jadi operator memasang tiga direktif itu sendiri (checklist di deploy-guide.md). Komentar di `internal/app/app.go` mencatat alasan ini agar tidak dikembalikan |
 | D12 | Login/logout mengirim dua header `Set-Cookie` bila `MOOGO_COOKIE_DOMAIN` di-set: satu varian host-only di-expire dulu, lalu satu varian dengan domain | Cookie host-only dan cookie domain adalah dua entitas berbeda di mata browser; varian lama harus diberi `Max-Age=0` di respons yang sama, atau ia tetap duduk di sebelah varian baru dan menang di host yang mengeluarkannya (sesi lama terbaca sesudah logout). Tanpa domain hanya satu header yang keluar. Wontfix sebagai "bug ganda" — ganda ini memang mekanismenya, diuji di `auth_test.go` |
+| D13 | Free tier naik ke 250 MB database + 250 MB storage per project (500 MB per project, 1 GB per akun bila dua-duanya terpakai) | Angka lama 100 MB / 256 MB tercatat di `0001_init.sql` dan `0009_bucket_settings.sql` yang sudah diterapkan di setiap deployment, dan runner menolak file yang berubah setelah diterapkan — jadi perubahan lewat migrasi baru `0014_free_tier_250mb.sql`, bukan suntingan dua file itu. Default kuota per-bucket ikut turun dari 250 MiB ke 236 MiB karena plafon proyek ikut turun: default lama persis sama dengan plafon baru, dan satu bucket sudah bisa memakai seluruh project. Riwayat D7 di atas sengaja dibiarkan apa adanya |
 
 ## Konsekuensi yang harus diakomodasi
 

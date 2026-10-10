@@ -201,7 +201,7 @@ try {
     if ($e->errorCode === 'sql_error') {
         echo "SQLite error: {$e->detail}\n";
     } elseif ($e->errorCode === 'database_too_large') {
-        echo "Project hit 100 MB limit\n";
+        echo "Project hit 250 MB limit\n";
     } elseif ($e->getCode() === 401) {
         echo "Invalid or rotated secret key\n";
     }

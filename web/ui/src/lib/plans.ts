@@ -80,8 +80,8 @@ export const plans: Plan[] = [
     tagline: "Everything Moogo does, with no card and no expiry.",
     quotas: [
       { label: "Projects", value: "2" },
-      { label: "SQLite per project", value: "100 MB" },
-      { label: "Object storage per project", value: "256 MB" },
+      { label: "SQLite per project", value: "250 MB" },
+      { label: "Object storage per project", value: "250 MB" },
     ],
     features: [
       "The full dashboard, SQL console and bucket browser",

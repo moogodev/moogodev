@@ -1,6 +1,6 @@
 var e=`# Create a bucket
 
-Every project has **256 MB of object storage**. A bucket is a named namespace
+Every project has **250 MB of object storage**. A bucket is a named namespace
 inside that quota, so you can keep \`avatars\` separate from \`exports\` without
 either one colliding.
 
@@ -48,7 +48,7 @@ Response:
     "is_public": false,
     "allowed_types": ["any"],
     "max_object_size_bytes": 0,
-    "quota_bytes": 262144000
+    "quota_bytes": 247463936
   }
 }
 \`\`\`
@@ -121,11 +121,11 @@ of zero bytes — so \`0\` disables the cap rather than refusing everything.
 
 ### \`quota_bytes\`
 
-This bucket's own storage ceiling, **250 MB** by default. Uploads past it are
+This bucket's own storage ceiling, **236 MB** by default. Uploads past it are
 refused with \`507 bucket_quota_exceeded\` even when the project still has room, so
 one bucket cannot starve the others.
 
-It cannot exceed the project's 256 MB total, and it cannot be set below what the
+It cannot exceed the project's 250 MB total, and it cannot be set below what the
 bucket already holds — a quota under its current usage would leave every later
 upload refused for a reason that looks like a full project.
 
@@ -227,14 +227,14 @@ characters**.
 
 ## Quota
 
-**256 MB per project**, counted across all buckets — not per bucket. Two buckets
+**250 MB per project**, counted across all buckets — not per bucket. Two buckets
 do not give you 512 MB.
 
 Every response that touches storage reports both numbers so you can see where you
 stand:
 
 \`\`\`json
-{ "storage_used_bytes": 10485760, "quota_bytes": 268435456 }
+{ "storage_used_bytes": 10485760, "quota_bytes": 262144000 }
 \`\`\`
 
 If you need space back:
@@ -246,7 +246,7 @@ If you need space back:
 
 A quota check happens against the declared \`Content-Length\` before a byte is
 written, and again against the bytes actually received. Uploads for one project
-are serialised so two concurrent large uploads cannot both see room for 100 MB and
+are serialised so two concurrent large uploads cannot both see room for 250 MB and
 together overrun the quota.
 
 ## Delete a bucket
@@ -265,7 +265,7 @@ reports how many objects were deleted:
   "success": true,
   "deleted_objects": 42,
   "storage_used_bytes": 10485760,
-  "quota_bytes": 268435456
+  "quota_bytes": 262144000
 }
 \`\`\`
 

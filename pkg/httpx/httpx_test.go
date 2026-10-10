@@ -350,7 +350,7 @@ func (writer *captureWriter) Write(payload []byte) (int, error) {
 // that allows much larger uploads. The innermost one has to be the one that
 // binds, which means each middleware re-wraps the original body rather than
 // the wrapper the outer layer installed. Otherwise the smaller of the two
-// would win by accident and a 256 MB upload route mounted under a JSON-capped
+// would win by accident and a 250 MB upload route mounted under a JSON-capped
 // group would die at 1 MB.
 func TestNestedBodyCapsLetTheInnermostWin(t *testing.T) {
 	drain := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

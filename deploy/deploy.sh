@@ -426,7 +426,7 @@ if [[ $BEHIND_TUNNEL -eq 0 ]]; then
 		proxy_set_header X-Forwarded-For $remote_addr;
 		proxy_set_header X-Forwarded-Proto $scheme;
 		# Stream uploads instead of buffering them to disk first: an object
-		# can be as large as the 256 MB storage ceiling.
+		# can be as large as the 250 MB storage ceiling.
 		proxy_request_buffering off;
 EOF
 	}
@@ -443,7 +443,7 @@ EOF
 		printf '	server_name %s;\n' "$name"
 		printf '	access_log %s;\n' "$logfile"
 		cat <<'EOF'
-	client_max_body_size 256m;
+	client_max_body_size 250m;
 	server_tokens off;
 
 	# Timeouts that bound the connection, not the work. client_body_timeout
@@ -514,8 +514,8 @@ EOF
 	add_header Cross-Origin-Resource-Policy "same-origin" always;
 	add_header X-Permitted-Cross-Origin-Policies "none" always;
 
-	# 256 MB is StorageCeilingBytes, the largest upload the app itself allows.
-	client_max_body_size 256m;
+	# 250 MB is StorageCeilingBytes, the largest upload the app itself allows.
+	client_max_body_size 250m;
 	server_tokens off;
 
 	# Gap-based timeouts, same rationale as the port-80 block: a transfer in

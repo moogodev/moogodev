@@ -108,7 +108,7 @@ with the position — `statement 2: ...`.
 | `sql_error` | 400 | SQLite rejected the statement. `detail` has the driver's message. |
 | `database_not_found` | 404 | The project database does not exist. |
 | `statement_timeout` | 504 | Passed 15 seconds and was cancelled. |
-| `database_too_large` | 413 | The database is at its 100 MB ceiling. |
+| `database_too_large` | 413 | The database is at its 250 MB ceiling. |
 | `result_too_large` | 413 | The result set passed the 16 MB response cap. |
 | `database_busy` | 503 | The project hit its concurrency limit — waiting on a slot or the previous writer. Comes with `Retry-After: 1`. |
 | `service_unavailable` | 503 | The service is restarting. Retry shortly. |
@@ -262,7 +262,7 @@ something about.
 | `invalid_bucket_name` | 400 | The name is empty or not 2–63 characters of lowercase letters, digits, `_`, `-`. |
 | `invalid_allowed_types` | 400 | The upload policy names an unknown type, or combines `any` with a specific one. |
 | `invalid_max_object_size` | 400 | `max_object_size_bytes` is negative. `0` means no limit. |
-| `invalid_quota_bytes` | 400 | `quota_bytes` is negative or over the project's 256 MB. |
+| `invalid_quota_bytes` | 400 | `quota_bytes` is negative or over the project's 250 MB. |
 | `storage_error` | 500 | The request could not be completed. |
 
 ### `key_taken`

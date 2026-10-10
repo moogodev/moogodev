@@ -47,7 +47,10 @@ curl -X POST "$ENDPOINT/avatars/kit.png" \
   --data-binary @kit.png
 ```
 
-To choose the bucket explicitly, add `?bucket=avatars`:
+**Where it lands.** The first path segment is part of the key, not the bucket:
+`avatars/kit.png` is a key in the bucket named `default`, which Moogo creates on
+first use. A bucket is chosen by the `?bucket=` parameter and nothing else, so to
+put the object in a bucket of your own, add it:
 
 ```bash
 curl -X POST "$ENDPOINT/kit.png?bucket=avatars" \
@@ -57,7 +60,12 @@ curl -X POST "$ENDPOINT/kit.png?bucket=avatars" \
   --data-binary @kit.png
 ```
 
-Response:
+A named bucket has to exist first — create it through
+[`POST /buckets/{project_id}`](#bucket-catalog). An upload naming a bucket that
+does not exist answers `404 not_found` rather than quietly making one, so a typo
+cannot scatter objects across buckets you never asked for.
+
+Response, for the first upload:
 
 ```json
 {
@@ -65,7 +73,7 @@ Response:
   "object": {
     "id": "b21d9f04-77a3-4c58-9e0a-2f8c6d5b1e93",
     "bucket_id": "3f8a2c11-9d4e-4b7a-8f21-5e6c3d9a1b84",
-    "bucket": "avatars",
+    "bucket": "default",
     "key": "avatars/kit.png",
     "size_bytes": 24576,
     "content_type": "image/png",
@@ -79,7 +87,7 @@ Response:
     "last_modified": "2026-10-01T09:20:11Z"
   },
   "storage_used_bytes": 10485760,
-  "quota_bytes": 268435456
+  "quota_bytes": 262144000
 }
 ```
 
@@ -102,9 +110,9 @@ a value you can test for, rather than a missing field.
 
 - **Per object:** the bucket's `max_object_size_bytes`, or the project ceiling if
   the bucket sets none.
-- **Per project:** 256 MB total, across all buckets.
+- **Per project:** 250 MB total, across all buckets.
 - **Per request:** the same object cap. The JSON endpoints are capped at 1 MB, but
-  storage is not — a 1 MB cap on a 256 MB project would mean nobody could ever
+  storage is not — a 1 MB cap on a 250 MB project would mean nobody could ever
   fill their bucket.
 
 Failures are distinguishable:
@@ -169,7 +177,7 @@ Response:
   "limit": 50,
   "offset": 0,
   "storage_used_bytes": 10485760,
-  "quota_bytes": 268435456
+  "quota_bytes": 262144000
 }
 ```
 
@@ -211,7 +219,7 @@ curl -X DELETE "$ENDPOINT/avatars/kit.png" \
   "deleted": 1,
   "freed_bytes": 24576,
   "storage_used_bytes": 10485760,
-  "quota_bytes": 268435456
+  "quota_bytes": 262144000
 }
 ```
 
@@ -248,11 +256,11 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
       "is_public": false,
       "allowed_types": ["image"],
       "max_object_size_bytes": 2097152,
-      "quota_bytes": 262144000
+      "quota_bytes": 247463936
     }
   ],
   "storage_used_bytes": 10485760,
-  "quota_bytes": 268435456
+  "quota_bytes": 262144000
 }
 ```
 

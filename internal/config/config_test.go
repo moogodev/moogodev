@@ -30,11 +30,11 @@ func TestDefaultsPutAProjectAt256MB(t *testing.T) {
 		t.Fatalf("defaults should be valid: %v", err)
 	}
 
-	if cfg.MaxStorageBytes != 256*1024*1024 {
-		t.Errorf("MaxStorageBytes = %d, want 256 MiB", cfg.MaxStorageBytes)
+	if cfg.MaxStorageBytes != 250*1024*1024 {
+		t.Errorf("MaxStorageBytes = %d, want 250 MiB", cfg.MaxStorageBytes)
 	}
-	if cfg.MaxObjectBytes != 256*1024*1024 {
-		t.Errorf("MaxObjectBytes = %d, want 256 MiB", cfg.MaxObjectBytes)
+	if cfg.MaxObjectBytes != 250*1024*1024 {
+		t.Errorf("MaxObjectBytes = %d, want 250 MiB", cfg.MaxObjectBytes)
 	}
 }
 
@@ -71,7 +71,7 @@ func TestObjectCapIsSeparateFromTheJSONBodyCap(t *testing.T) {
 
 func TestAQuotaAboveTheCeilingIsRejected(t *testing.T) {
 	// Silently clamping would leave an operator believing they provisioned 1 GB
-	// per project while uploads fail at 256 MB for reasons the config does not
+	// per project while uploads fail at 250 MB for reasons the config does not
 	// mention. Failing to start says what is wrong.
 	_, err := loadWith(t, map[string]string{
 		"MOOGO_MAX_STORAGE_BYTES":         "1073741824",
@@ -79,7 +79,7 @@ func TestAQuotaAboveTheCeilingIsRejected(t *testing.T) {
 		"MOOGO_MAX_OBJECT_BYTES":          "1073741824",
 	})
 	if err == nil {
-		t.Fatal("a 1 GB quota should be rejected, the ceiling is 256 MB")
+		t.Fatal("a 1 GB quota should be rejected, the ceiling is 250 MB")
 	}
 	for _, want := range []string{
 		"MOOGO_MAX_STORAGE_BYTES",

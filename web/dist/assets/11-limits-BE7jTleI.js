@@ -8,9 +8,9 @@ you find out from the API rather than from a hung tab or a surprise bill.
 | Limit | Value | Enforced |
 |---|---|---|
 | Projects per account | **2** | Checked inside the transaction that creates a project. |
-| Database size | **100 MB** per project | Before every write; SQLite itself refuses page growth past the ceiling. |
-| Storage | **256 MB** per project | On upload, against usage plus declared size. |
-| Object size | Bucket's \`max_object_size_bytes\`, or 256 MB | On upload. |
+| Database size | **250 MB** per project | Before every write; SQLite itself refuses page growth past the ceiling. |
+| Storage | **250 MB** per project | On upload, against usage plus declared size. |
+| Object size | Bucket's \`max_object_size_bytes\`, or 250 MB | On upload. |
 
 ### Projects per account
 
@@ -22,7 +22,7 @@ with three projects.
 
 ### Database size
 
-100 MB, measured as \`(page_count - freelist_count) * page_size\` — the data pages,
+250 MB, measured as \`(page_count - freelist_count) * page_size\` — the data pages,
 so space freed by a DELETE starts counting as free immediately.
 
 The check runs **before** the write, and SQLite refuses the page growth that
@@ -35,7 +35,7 @@ partially applied and it is not silently truncated.
 
 Note that a database does not shrink on its own. Deleting rows frees space
 *inside* the file for reuse, but the file does not get smaller. A database that
-once grew past 100 MB stays large, and the freed pages only stop counting toward
+once grew past 250 MB stays large, and the freed pages only stop counting toward
 the ceiling until later writes reuse them.
 
 ### Result size
@@ -55,13 +55,13 @@ would ever hold.
 
 ### Storage
 
-256 MB **per project**, summed across all buckets. Two buckets do not give you
+250 MB **per project**, summed across all buckets. Two buckets do not give you
 512 MB.
 
 Every storage response reports usage and quota:
 
 \`\`\`json
-{ "storage_used_bytes": 10485760, "quota_bytes": 268435456 }
+{ "storage_used_bytes": 10485760, "quota_bytes": 262144000 }
 \`\`\`
 
 The quota is checked against the declared \`Content-Length\` before a byte is
@@ -74,7 +74,7 @@ overrun the quota.
 | Limit | Value | Error code |
 |---|---|---|
 | Request body (JSON endpoints) | **1 MB** | \`body_too_large\` |
-| Request body (storage uploads) | Bucket cap or 256 MB | \`object_too_large\` |
+| Request body (storage uploads) | Bucket cap or 250 MB | \`object_too_large\` |
 | List page size (\`limit\`) | **200** | Clamped down silently — a larger \`limit\` returns 200, it is not an error. |
 | Statement length | **64 KB** | \`sql_too_long\` |
 | Statements per transaction | **100** | \`too_many_statements\` |
@@ -89,7 +89,7 @@ overrun the quota.
 The JSON and storage caps differ on purpose. They guard different things: a JSON
 body is a statement or a settings object where anything past a megabyte is a
 mistake, while an upload is a file. A shared 1 MB cap would mean a project with
-256 MB of storage could never store an image.
+250 MB of storage could never store an image.
 
 The body limit stops the request **while reading it**, not after the whole body is
 in memory.

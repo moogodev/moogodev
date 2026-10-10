@@ -342,22 +342,39 @@ func databaseSize(ctx context.Context, database *sql.DB) (int64, error) {
 	return (pageCount - freelistSize) * pageSize, nil
 }
 
-// applyValueLimit pins SQLITE_LIMIT_LENGTH onto a checked-out connection,
-// using the project's own size limit as the ceiling: a value bigger than the
-// whole database has no business existing, and a statement like
-// "SELECT zeroblob(n)" builds one from two words, sidestepping every size
-// check that looks at the file.
+// maxValueBytes caps a single string or BLOB value SQLite will build or return.
 //
-// sqlite3_limit is per physical connection, so this runs at every checkout:
-// a connection the pool opened after startup carries the limit before it
-// hands back a row.
+// It is deliberately its own constant rather than the project's database limit.
+// The database limit used to be applied here as well, and it grew to 250 MB --
+// but a statement like "SELECT zeroblob(250000000)" synthesises a value out of
+// two words, so nothing about the file says one is coming and the check that
+// guards the file never runs. Pinning the value limit to the database limit
+// would mean a quarter gigabyte materialised per connection, on a host sized
+// for far less.
+//
+// It matches the response budget on purpose: a value larger than a whole
+// response could never be returned, so allowing one buys only a memory spike
+// on the way to being discarded.
+const maxValueBytes = defaultMaxResultBytes
+
+// applyValueLimit pins SQLITE_LIMIT_LENGTH onto a checked-out connection.
+//
+// sqlite3_limit is per physical connection, so this runs at every checkout: a
+// connection the pool opened after startup carries the limit before it hands
+// back a row, and a write connection carries it before any expression in the
+// statement can materialise a value.
 func applyValueLimit(connection *sql.Conn, maxDBBytes int64) error {
-	if maxDBBytes <= 0 {
-		return nil
+	// The smaller of the two ceilings. A value bigger than the database it
+	// would live in has no business existing either -- the ceiling keeps that
+	// answer for a small database, where a value limit chosen for a 250 MB
+	// one would be nonsense. In production the constant binds, and the
+	// database limit governs the file alone.
+	limit := int64(maxValueBytes)
+	if maxDBBytes > 0 && maxDBBytes < limit {
+		limit = maxDBBytes
 	}
-	limit := maxDBBytes
-	if limit > math.MaxInt {
-		limit = math.MaxInt
+	if limit > int64(math.MaxInt) {
+		limit = int64(math.MaxInt)
 	}
 	if _, err := sqlite.Limit(connection, sqliteLimitLength, int(limit)); err != nil {
 		return fmt.Errorf("apply value length limit: %w", err)

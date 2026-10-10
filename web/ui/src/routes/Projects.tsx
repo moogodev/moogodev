@@ -7,10 +7,10 @@ import CreateProjectModal from "../components/CreateProjectModal";
 //
 // It is a constant here because the server does not report it: /api/me carries
 // the database quota but no bucket quota, and the bucket listing that does
-// report one is per project. Every bucket response confirms the same 256 MB, so
+// report one is per project. Every bucket response confirms the same 250 MB, so
 // this matches the server. If the quota ever becomes configurable it belongs in
 // the /api/me response alongside max_db_bytes rather than here.
-const BUCKET_QUOTA_BYTES = 256 * 1024 * 1024;
+const BUCKET_QUOTA_BYTES = 250 * 1024 * 1024;
 
 // The list renders in the order the endpoint returns it, which is newest first.
 // There is no search or sort control: the plan allows two projects, and a filter
@@ -60,7 +60,7 @@ export default function Projects() {
   const totalDbBytes = projects.reduce((sum, project) => sum + project.database_bytes, 0);
   const totalBucketBytes = projects.reduce((sum, project) => sum + (project.storage_bytes ?? 0), 0);
   const maxDbBytes = me?.max_db_bytes ?? 0;
-  // The bucket allowance is a fixed 256 MB per project and is not exposed on
+  // The bucket allowance is a fixed 250 MB per project and is not exposed on
   // /api/me, so it is derived from the project count rather than hard-coded
   // per project. See BUCKET_QUOTA_BYTES.
   const maxBucketBytes = BUCKET_QUOTA_BYTES * Math.max(1, projects.length);
@@ -129,7 +129,7 @@ export default function Projects() {
           value={formatBytes(totalBucketBytes)}
           percent={bucketPercent}
           left={`${formatBytes(Math.max(0, maxBucketBytes - totalBucketBytes))} left`}
-          hint={`256 MB × ${projects.length || 0} project${projects.length === 1 ? "" : "s"}`}
+          hint={`250 MB × ${projects.length || 0} project${projects.length === 1 ? "" : "s"}`}
           ratio={bucketRatio}
         />
       </dl>

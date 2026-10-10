@@ -80,8 +80,8 @@ func newFakeStore(userID uuid.UUID) *fakeStore {
 			Email:                "ketut@example.com",
 			Name:                 "Ketut",
 			QuotaMaxProjects:     5,
-			QuotaMaxDBBytes:      100 * 1024 * 1024,
-			QuotaMaxStorageBytes: 256 * 1024 * 1024,
+			QuotaMaxDBBytes:      250 * 1024 * 1024,
+			QuotaMaxStorageBytes: 250 * 1024 * 1024,
 		},
 		credentials: map[uuid.UUID]*dbcontrol.StorageCredential{},
 	}

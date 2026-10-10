@@ -43,7 +43,7 @@ writes the site config and obtains the certificate. This is not optional.
 | Liveness | `GET /healthz` → `{"status":"ok"}` |
 | Readiness | `GET /readyz` → `{"status":"ready"}` or `503` |
 | Graceful stop | up to **30 seconds** — `systemctl stop` taking 30s is correct |
-| Quota ceiling | 256 MB per project, not configurable upward |
+| Quota ceiling | 250 MB per project, not configurable upward |
 
 Systemd sandboxing is `ProtectSystem=strict` with `ReadWritePaths=/var/lib/moogo`.
 If the service cannot write somewhere, that is usually why — do not add paths
@@ -82,7 +82,7 @@ that machine's own loopback-only configuration alone.
 
 **Checklist for a tunnel machine — the three request timeouts.** The Go
 process deliberately sets no `ReadTimeout`/`WriteTimeout` (a total-time bound
-would cut legitimate 256 MB uploads), so a stalled transfer is meant to die at
+would cut legitimate 250 MB uploads), so a stalled transfer is meant to die at
 the edge instead. `deploy.sh` installs the three gap-based timeouts only in the
 nginx site it writes, which on a tunnel machine is never. Copy them into the
 loopback config the tunnel setup owns:
@@ -258,11 +258,11 @@ limit on your whole user base.
 | `MOOGO_IDLE_TIMEOUT` | `120s` |
 | `MOOGO_SHUTDOWN_TIMEOUT` | `20s` (**not used anywhere** — see §8) |
 | `MOOGO_DEFAULT_MAX_PROJECTS` | `2` |
-| `MOOGO_DEFAULT_MAX_DB_BYTES` | 100 MB |
-| `MOOGO_DEFAULT_MAX_STORAGE_BYTES` | 256 MB |
-| `MOOGO_MAX_STORAGE_BYTES` | 256 MB — **rejected if above the ceiling**, not clamped |
+| `MOOGO_DEFAULT_MAX_DB_BYTES` | 250 MB |
+| `MOOGO_DEFAULT_MAX_STORAGE_BYTES` | 250 MB |
+| `MOOGO_MAX_STORAGE_BYTES` | 250 MB — **rejected if above the ceiling**, not clamped |
 | `MOOGO_MAX_BODY_BYTES` | 1 MB (JSON requests) |
-| `MOOGO_MAX_OBJECT_BYTES` | 256 MB (one upload) |
+| `MOOGO_MAX_OBJECT_BYTES` | 250 MB (one upload) |
 | `MOOGO_PASSWORD_RESET_TTL` | `1h` |
 | `MOOGO_VERIFICATION_TTL` | `24h` |
 | `MOOGO_ACTIVITY_LOG_RETENTION_DAYS` | `7` |
@@ -589,7 +589,7 @@ Real HA means moving buckets to S3-compatible storage so any node can serve
 them, then routing by project id at the proxy. That is D5 being revisited, and
 it is a project of its own.
 
-**256 MB per project is a product decision,** not a tuning knob. A larger value
+**250 MB per project is a product decision,** not a tuning knob. A larger value
 is rejected at startup rather than quietly clamped, because a config that looks
 like it works and does not is the hardest thing to debug from outside. The same
 number appears in the dashboard, the pricing page and the prompt given to a

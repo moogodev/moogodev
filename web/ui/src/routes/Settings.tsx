@@ -296,7 +296,7 @@ function PlanSection({ me, loading }: { me: Me | null; loading: boolean }) {
           label="Database limit"
           value={loading ? "…" : `${formatBytes(me?.max_db_bytes ?? 0)} per project`}
         />
-        <Row label="Bucket limit" value="256 MB per project" />
+        <Row label="Bucket limit" value="250 MB per project" />
       </dl>
 
       <div className="rounded-lg border border-edge bg-background p-4">
