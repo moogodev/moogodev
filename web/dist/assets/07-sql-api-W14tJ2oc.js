@@ -589,8 +589,9 @@ See [What is rejected](#what-is-rejected) for the full list of rejected statemen
   nothing else needs to be: what is enforced is what the table declares, so
   \`PRAGMA foreign_key_list('your_table')\` is the check that answers the real
   question, which is whether the constraint exists.
-- **One connection per project**, not a global pool, so the number of open file
-  handles is bounded and countable.
+- **Two pools per project** — one for reads (\`query_only\`), one for writes — at
+  most eight connections each. Handles are cached per project and evicted under
+  pressure, so the number of open file handles stays bounded and countable.
 
 ## Complete example
 
@@ -708,6 +709,7 @@ Every error has the same shape, so you can branch on \`code\` instead of parsing
 | \`sql_forbidden_function\` | A blocked function name was used. |
 | \`sql_forbidden_pragma\` | The PRAGMA is not on the allowlist. |
 | \`sql_too_long\` | Statement over 64 KB. |
+| \`sql_invalid\` | Refused and not classified further. \`detail\` names the token. |
 | \`not_a_read\` | A write was sent to \`/query\`. |
 | \`not_a_write\` | A read was sent to \`/exec\` or inside a \`/transaction\` batch. |
 | \`transaction_empty\` | A \`/transaction\` batch with no statements. |

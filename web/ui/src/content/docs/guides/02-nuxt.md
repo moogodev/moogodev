@@ -55,9 +55,8 @@ export const useMoogo = () => {
   };
 
   function isRead(sql: string): boolean {
-  // `with` belongs here: a CTE that ends in a SELECT is a read, and /query
-  // takes it. A CTE that writes (WITH ... INSERT) still reaches /exec, which
-  // accepts writes anyway -- only /query rejects them, as not_a_write.
+  // `with` covers CTE reads (WITH ... SELECT); a CTE that writes
+  // (WITH ... INSERT) must be sent to /exec directly.
     return /^\s*(select|values|pragma|explain|with)\b/i.test(sql.trim());
   }
 

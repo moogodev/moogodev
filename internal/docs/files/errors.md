@@ -68,6 +68,7 @@ These mean the statement was refused **before** it touched the database. All are
 | `not_a_read` | A write was sent to `/query`. | Send it to `/exec`. |
 | `not_a_write` | A read was sent to `/exec`. | Send it to `/query`. |
 | `invalid_json` | Body was not valid JSON. | Check quoting, especially around SQL that contains `"`. |
+| `sql_invalid` | A statement was refused and the reason did not map to a more specific code. | `detail` names the token, or `statement N` inside a batch. Usually a write the classifier could not place. |
 
 ### A note on `sql_too_long`
 
@@ -86,6 +87,19 @@ for (let index = 0; index < rows.length; index += batch) {
   );
 }
 ```
+
+### Transaction errors
+
+These come from `POST /transaction`, and are also `400`.
+
+| Code | Meaning | Fix |
+|---|---|---|
+| `transaction_empty` | The batch carried no statements. | Usually a loop that produced no rows — check before you send it. |
+| `too_many_statements` | The batch carried more than 100 statements. | Split it into numbered batches; each still commits or rolls back as a unit. |
+
+See [Limits](/docs/limits) for the per-transaction ceilings. A failure *inside* a
+batch is not one of these: it is the statement's own code, prefixed in `detail`
+with the position — `statement 2: ...`.
 
 ## Runtime SQL errors
 
@@ -121,6 +135,8 @@ explanation lives. Log it.
 |---|---|---|
 | `body_too_large` | 413 | Request body over 1 MB. |
 | `invalid_project_id` | 400 | The id in the URL is not a valid UUID. |
+| `invalid_bucket_id` | 400 | The bucket id in the URL is not a valid UUID. |
+| `invalid_credential_id` | 400 | The storage credential id in the URL is not a valid UUID. |
 | `invalid_body` | 400 | Body was not a JSON object with the expected fields. |
 | `unsupported_media_type` | 415 | `Content-Type` was not `application/json`. |
 | `not_found` | 404 | No such endpoint. Check the path. |
@@ -143,6 +159,12 @@ success that did nothing.
 | `method_not_allowed` | 405 | Wrong HTTP method for this route. |
 | `forbidden` | 403 | A browser POST whose `Origin` does not match the request host. Direct API clients are unaffected. |
 | `email_not_verified` | 403 | The account has not followed its confirmation link. The login page offers **Send a new link**. |
+| `invalid_credentials` | 401 | Wrong email or password, or the current password when changing one is wrong. |
+| `invalid_email` | 400 | The address is not a valid email. |
+| `invalid_password` | 400 | The password does not meet the requirements. `message` says which. |
+| `invalid_token` | 400 | A verification or reset link is missing, invalid, or expired. |
+| `password_unchanged` | 400 | The new password is the current one. Nothing to do. |
+| `password_managed_externally` | 400 | The account signs in through Google, so it has no Moogo password to change. |
 | `mail_failed` | 500 | The confirmation email could not be sent. The registration was rolled back — no account was created. |
 
 ### When you get `rate_limited`
@@ -207,18 +229,34 @@ not yours. If you are certain the project is yours, check that the id in the URL
 matches the one you expect — this is what a copy-paste of the wrong project id
 looks like.
 
+### Dashboard and account endpoints
+
+This page documents the **product API** — the project-key surface an application
+calls. The control-plane endpoints that drive the dashboard itself (`/api/me`,
+`/api/account/password`, `PATCH /api/account/profile`, `DELETE /api/account`,
+project creation, key rotation, backups, storage credentials) are documented as
+UI in [the dashboard guide](/docs/dashboard), not as endpoints here. They use the
+same error envelope, and their `4xx` codes are the same kinds above; the one
+worth naming is `invalid_name`, a project name that is empty or too long.
+
+Server errors (`5xx`) are not enumerated either. They are not something a client
+can act on beyond retrying, so the list here stops at the codes a caller can do
+something about.
+
 ## Storage errors
 
 | Code | Status | Meaning |
 |---|---|---|
 | `missing_key` | 400 | No object key in the path. |
 | `invalid_key` | 400 | The key breaks the [naming rules](/docs/create-bucket#keys-are-strict). |
+| `key_too_long` | 400 | The object key is longer than the maximum. |
 | `invalid_prefix` | 400 | The prefix for a folder delete is not valid. |
 | `key_taken` | 409 | An object with that key already exists. |
 | `quota_below_usage` | 409 | A PATCH tried to set `quota_bytes` below what the bucket already holds. |
 | `bucket_exists` | 409 | A bucket with that name already exists in this project. |
 | `not_found` | 404 | No such object or bucket. |
 | `object_too_large` | 413 | Over the bucket's per-object cap. |
+| `type_not_allowed` | 415 | The `Content-Type` is not in the bucket's `allowed_types`. |
 | `quota_exceeded` | 507 | The project storage total is full. |
 | `bucket_quota_exceeded` | 507 | The bucket's own `quota_bytes` is full, even though the project still has room. |
 | `invalid_bucket_name` | 400 | The name is empty or not 2–63 characters of lowercase letters, digits, `_`, `-`. |

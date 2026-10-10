@@ -50,8 +50,8 @@ class MoogoClient:
         self.session = requests.Session()
 
     def _is_read(self, sql: str) -> bool:
-        # WITH belongs here: a CTE that ends in a SELECT is a read, and /query
-        # takes it. A CTE that writes still reaches /exec, which accepts writes.
+        # \`with\` covers CTE reads (WITH ... SELECT); a CTE that writes
+        # (WITH ... INSERT) must be sent to /exec directly.
         return sql.lstrip().upper().startswith(
             ("SELECT", "VALUES", "PRAGMA", "EXPLAIN", "WITH")
         )
@@ -265,8 +265,8 @@ class AsyncMoogoClient:
 
     async def sql(self, query: str, args: list = None):
         args = args or []
-        # WITH belongs here: a CTE that ends in a SELECT is a read, and /query
-        # takes it. A CTE that writes still reaches /exec, which accepts writes.
+        # \`with\` covers CTE reads (WITH ... SELECT); a CTE that writes
+        # (WITH ... INSERT) must be sent to /exec directly.
         endpoint = (
             "/query"
             if query.lstrip().upper().startswith(

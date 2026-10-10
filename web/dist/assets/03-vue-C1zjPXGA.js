@@ -140,8 +140,8 @@ const headers = {
 };
 
 function isRead(sql: string) {
-  // \`with\` belongs here: a CTE that ends in a SELECT is a read, and /query
-  // takes it. A CTE that writes still reaches /exec, which accepts writes.
+  // \`with\` covers CTE reads (WITH ... SELECT); a CTE that writes
+  // (WITH ... INSERT) must be sent to /exec directly.
   return /^\\s*(select|values|pragma|explain|with)\\b/i.test(sql.trim());
 }
 

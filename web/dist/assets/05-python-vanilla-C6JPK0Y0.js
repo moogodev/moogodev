@@ -77,8 +77,8 @@ class MoogoError(Exception):
         super().__init__(self.message)
 
 def is_read(sql: str) -> bool:
-    # WITH belongs here: a CTE that ends in a SELECT is a read, and /query takes
-    # it. A CTE that writes still reaches /exec, which accepts writes anyway.
+    # \`with\` covers CTE reads (WITH ... SELECT); a CTE that writes
+    # (WITH ... INSERT) must be sent to /exec directly.
     return sql.lstrip().upper().startswith(
         ("SELECT", "VALUES", "PRAGMA", "EXPLAIN", "WITH")
     )

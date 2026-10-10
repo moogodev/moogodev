@@ -55,8 +55,8 @@ function moogoRequest(string $path, string $sql, array $args = []): array {
 }
 
 function isRead(string $sql): bool {
-    // WITH belongs here: a CTE that ends in a SELECT is a read, and /query takes
-    // it. A CTE that writes still reaches /exec, which accepts writes anyway.
+    // `with` covers CTE reads (WITH ... SELECT); a CTE that writes
+    // (WITH ... INSERT) must be sent to /exec directly.
     return (bool) preg_match('/^\s*(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\b/i', $sql);
 }
 
