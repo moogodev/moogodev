@@ -107,7 +107,6 @@ you find out immediately instead of after it has written something.
 - [Quickstart](https://moogo.dev/docs/quickstart) — an account to a working
   query in two minutes (source: [`internal/docs/files/quickstart.md`](internal/docs/files/quickstart.md))
 - [Architecture decisions](DECISIONS.md) — what is locked in, and why
-- [`prd_moogo.md`](prd_moogo.md) — the product requirements this was built from
 - [`deploy/README.md`](deploy/README.md) — systemd unit, nginx site, backup and
   healthcheck scripts
 - [Contributing](CONTRIBUTING.md) — what makes a good change, and the gates to run
