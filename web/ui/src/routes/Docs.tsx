@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import type { MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent, RefObject } from "react";
 import {
   Link,
   useNavigate,
@@ -206,11 +206,13 @@ function DocsPage() {
 
   const page = findDoc(slug) ?? findDoc(DEFAULT_SLUG)!;
 
-  // The sidebar is hidden behind a toggle on narrow screens. It is a plain
-  // boolean rather than a media-query listener because the only thing that
-  // changes is whether the panel is in the document flow, and a resize listener
-  // would re-render on every pixel of a drag.
+  // The sidebar becomes a slide-in drawer on narrow screens. The open state is
+  // a plain boolean rather than a media-query listener: the only thing that
+  // changes is whether the drawer is mounted, and a resize listener would
+  // re-render on every pixel of a drag. On wide screens the drawer never
+  // mounts, so the state stays untouched and the layout is static.
   const [navOpen, setNavOpen] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [activeId, setActiveId] = useState<string>("");
 
@@ -228,6 +230,51 @@ function DocsPage() {
     setNavOpen(false);
     setQuery("");
   };
+
+  // While the drawer is open the page behind it must not scroll, Escape has to
+  // close it, and focus has to move inside it so Tab stays in the drawer
+  // instead of falling out into the page behind. Same three jobs Modal does
+  // for dialogs; the drawer just needs them wired to the header toggle.
+  //
+  // The media query also closes the drawer if the window grows past lg while
+  // it is open. The drawer then unmounts (the lg:hidden wrapper) but navOpen
+  // would stay true, and without this pass the scroll lock would survive the
+  // rotation and leave a page that cannot scroll.
+  useEffect(() => {
+    if (!navOpen) return undefined;
+
+    const desktop = window.matchMedia("(min-width: 1024px)");
+
+    // The scroll lock and the focus move only apply while the window is
+    // actually narrow; a drawer that mounts during a resize edge has no page
+    // to lock, only an invisible panel to close when the layout settles.
+    const previous = document.body.style.overflow;
+    if (!desktop.matches) {
+      document.body.style.overflow = "hidden";
+
+      // Focus lands on the panel so Tab moves forward through the drawer and
+      // the search field -- the first control -- is the first stop.
+      drawerRef.current?.focus();
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setNavOpen(false);
+      setQuery("");
+    };
+    document.addEventListener("keydown", onKeyDown);
+
+    const onLayoutChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setNavOpen(false);
+    };
+    desktop.addEventListener("change", onLayoutChange);
+
+    return () => {
+      document.body.style.overflow = previous;
+      document.removeEventListener("keydown", onKeyDown);
+      desktop.removeEventListener("change", onLayoutChange);
+    };
+  }, [navOpen]);
 
   useEffect(() => {
     if (hash) {
@@ -292,12 +339,13 @@ function DocsPage() {
           padding or the title sits flush against it. The docs sidebar also
           starts at lg:, where this vertical rhythm matters most because the
           three columns become visible at once. */}
-      <div className="mx-auto w-full max-w-[1400px] px-6 pt-10 pb-6 lg:pt-14 lg:pb-8">
+      <div className="mx-auto w-full max-w-[1400px] px-4 pt-10 pb-6 sm:px-6 lg:pt-14 lg:pb-8">
         <div className="lg:hidden">
           <button
             type="button"
             onClick={() => setNavOpen((open) => !open)}
             aria-expanded={navOpen}
+            aria-controls="docs-drawer"
             className="mb-5 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-edge px-3.5 py-2 text-[0.88rem] font-medium text-muted transition-colors hover:text-foreground"
           >
             <svg
@@ -315,7 +363,7 @@ function DocsPage() {
 
         <div className="grid gap-10 pb-20 lg:grid-cols-[236px_minmax(0,1fr)] xl:grid-cols-[236px_minmax(0,1fr)_212px]">
           <Sidebar
-            open={navOpen}
+            className="hidden lg:sticky lg:top-[90px] lg:block lg:max-h-[calc(100vh-120px)] lg:self-start lg:overflow-y-auto lg:pr-2"
             query={query}
             onQuery={setQuery}
             onNavigate={closeNav}
@@ -359,6 +407,21 @@ function DocsPage() {
 
           <OnThisPage page={page} activeId={activeId} />
         </div>
+
+        {/* The sidebar on wide screens is a column in the grid above. On narrow
+            screens it becomes a drawer that overlays the article rather than
+            pushing it down, so opening the contents never resets the reading
+            position. */}
+        {navOpen && (
+          <DocsDrawer
+            panelRef={drawerRef}
+            onClose={closeNav}
+            query={query}
+            onQuery={setQuery}
+            onNavigate={closeNav}
+            activeSlug={page.slug}
+          />
+        )}
       </div>
     </SiteLayout>
   );
@@ -413,18 +476,18 @@ function MarkdownActions({ slug, fileName }: { slug: string; fileName?: string }
         </code>{" "}
         in your project, for your agent to read.
       </p>
-      <div className="flex shrink-0 gap-2">
+      <div className="flex w-full shrink-0 gap-2 sm:w-auto">
         <button
           type="button"
           onClick={() => void handleCopy()}
-          className="cursor-pointer rounded-lg bg-accent-strong px-4 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent"
+          className="flex-1 cursor-pointer rounded-lg bg-accent-strong px-4 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent sm:flex-none"
         >
           {copied ? "✓ Copied" : `Copy ${file}`}
         </button>
         <button
           type="button"
           onClick={handleDownload}
-          className="cursor-pointer rounded-lg border border-edge-strong px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
+          className="flex-1 cursor-pointer rounded-lg border border-edge-strong px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground sm:flex-none"
         >
           Download
         </button>
@@ -567,13 +630,13 @@ async function copyCode(text: string, button: HTMLElement) {
 }
 
 function Sidebar({
-  open,
+  className,
   query,
   onQuery,
   onNavigate,
   activeSlug,
 }: {
-  open: boolean;
+  className?: string;
   query: string;
   onQuery: (value: string) => void;
   onNavigate: () => void;
@@ -601,72 +664,148 @@ function Sidebar({
   const noResults = visible.length === 0;
 
   return (
-    <nav
-      aria-label="Documentation"
-      className={`${open ? "block" : "hidden"} lg:sticky lg:top-[90px] lg:block lg:self-start`}
-    >
-      <div className="lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto lg:pr-2">
-        <div className="relative mb-5">
-          <svg
-            viewBox="0 0 20 20"
-            aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 stroke-current text-faint"
-            fill="none"
-            strokeWidth="1.7"
+    <nav aria-label="Documentation" className={className}>
+      <div className="relative mb-5">
+        <svg
+          viewBox="0 0 20 20"
+          aria-hidden="true"
+          className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 stroke-current text-faint"
+          fill="none"
+          strokeWidth="1.7"
+        >
+          <circle cx="9" cy="9" r="5.5" />
+          <path d="M13.5 13.5 17 17" strokeLinecap="round" />
+        </svg>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => onQuery(event.target.value)}
+          placeholder="Search docs"
+          aria-label="Search documentation"
+          className="w-full rounded-lg border border-edge bg-background py-2 pr-3 pl-8.5 text-[0.88rem] text-foreground placeholder:text-faint focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent/20"
+        />
+      </div>
+
+      {noResults ? (
+        <p className="px-1 text-[0.85rem] text-faint">
+          No page matches “{query}”.
+        </p>
+      ) : (
+        visible.map((group) => (
+          <div key={group.group} className="mb-6">
+            <p className="mb-2 px-3 text-[0.72rem] font-semibold uppercase tracking-[0.11em] text-faint">
+              {group.group}
+            </p>
+            <ul className="flex flex-col gap-0.5">
+              {group.pages.map((page) => {
+                const isActive = page.slug === activeSlug;
+                return (
+                  <li key={page.slug}>
+                    <Link
+                      to={`/docs/${page.slug}`}
+                      onClick={onNavigate}
+                      aria-current={isActive ? "page" : undefined}
+                      className={`block rounded-lg px-3 py-1.5 text-[0.89rem] leading-snug transition-colors ${
+                        isActive
+                          ? "bg-background-alt font-medium text-foreground"
+                          : "text-muted hover:bg-hover-bg hover:text-foreground"
+                      }`}
+                    >
+                      {page.title}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))
+      )}
+
+      <p className="mt-2 px-3 text-[0.78rem] text-faint">
+        {allDocs().length} pages
+      </p>
+    </nav>
+  );
+}
+
+/**
+ * The sidebar as a mobile drawer.
+ *
+ * The narrow-screen layout used to push the sidebar back into the document
+ * flow, which forced the whole article below a list of twenty links as soon
+ * as "Contents" was tapped. A drawer overlays the article instead, so the
+ * reading position survives, and it sits above the sticky header and the site
+ * menu to stay reachable from anywhere on the page.
+ *
+ * The backdrop, the Escape key, and the panel focus mirror Modal.tsx; the
+ * body scroll lock lives in DocsPage because it must be released when the
+ * drawer closes itself on navigation.
+ */
+function DocsDrawer({
+  panelRef,
+  onClose,
+  query,
+  onQuery,
+  onNavigate,
+  activeSlug,
+}: {
+  panelRef: RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+  query: string;
+  onQuery: (value: string) => void;
+  onNavigate: () => void;
+  activeSlug: string;
+}) {
+  return (
+    <div id="docs-drawer" className="lg:hidden">
+      <div
+        onClick={onClose}
+        aria-hidden="true"
+        className="animate-fade-in fixed inset-0 z-[70] bg-black/40 backdrop-blur-[2px]"
+      />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Documentation contents"
+        tabIndex={-1}
+        className="animate-slide-in-left fixed inset-y-0 left-0 z-[80] flex w-[min(21rem,88vw)] flex-col border-r border-edge-strong bg-background outline-none"
+      >
+        <div className="flex items-center justify-between border-b border-edge px-5 py-3.5">
+          <p className="text-[0.8rem] font-semibold uppercase tracking-[0.11em] text-faint">
+            Documentation
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close contents"
+            className="-mr-1.5 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted transition-colors hover:bg-hover-bg hover:text-foreground"
           >
-            <circle cx="9" cy="9" r="5.5" />
-            <path d="M13.5 13.5 17 17" strokeLinecap="round" />
-          </svg>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => onQuery(event.target.value)}
-            placeholder="Search docs"
-            aria-label="Search documentation"
-            className="w-full rounded-lg border border-edge bg-background py-2 pr-3 pl-8.5 text-[0.88rem] text-foreground placeholder:text-faint focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent/20"
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <Sidebar
+            query={query}
+            onQuery={onQuery}
+            onNavigate={onNavigate}
+            activeSlug={activeSlug}
           />
         </div>
-
-        {noResults ? (
-          <p className="px-1 text-[0.85rem] text-faint">
-            No page matches “{query}”.
-          </p>
-        ) : (
-          visible.map((group) => (
-            <div key={group.group} className="mb-6">
-              <p className="mb-2 px-3 text-[0.72rem] font-semibold uppercase tracking-[0.11em] text-faint">
-                {group.group}
-              </p>
-              <ul className="flex flex-col gap-0.5">
-                {group.pages.map((page) => {
-                  const isActive = page.slug === activeSlug;
-                  return (
-                    <li key={page.slug}>
-                      <Link
-                        to={`/docs/${page.slug}`}
-                        onClick={onNavigate}
-                        aria-current={isActive ? "page" : undefined}
-                        className={`block rounded-lg px-3 py-1.5 text-[0.89rem] leading-snug transition-colors ${
-                          isActive
-                            ? "bg-background-alt font-medium text-foreground"
-                            : "text-muted hover:bg-hover-bg hover:text-foreground"
-                        }`}
-                      >
-                        {page.title}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))
-        )}
-
-        <p className="mt-2 px-3 text-[0.78rem] text-faint">
-          {allDocs().length} pages
-        </p>
       </div>
-    </nav>
+    </div>
   );
 }
 
@@ -732,7 +871,7 @@ function Pager({ page, onNavigate }: { page: DocPage; onNavigate: () => void }) 
         <Link
           to={`/docs/${page.next.slug}`}
           onClick={onNavigate}
-          className="text-right sm:col-start-2"
+          className="text-left sm:col-start-2 sm:text-right"
         >
           <span className="pager-direction">Next</span>
           <span className="pager-title">{page.next.title} →</span>

@@ -336,3 +336,64 @@
   font-size: 0.95rem;
   font-weight: 600;
 }
+
+/* --- Mobile drawer ----------------------------------------------------- */
+
+/* The docs sidebar becomes a slide-in drawer on narrow screens. The backdrop
+   and the panel mount together, so both animate in on the same frame and the
+   motion reads as one gesture instead of two responses to the same tap. */
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out forwards;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.22s ease-out forwards;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-0.85rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-slide-in-left {
+    animation: none;
+  }
+}
+
+/* --- Narrow screens ---------------------------------------------------- */
+
+/* Body text at 0.975rem reads thinner on a phone than it does on a monitor:
+   the extra quarter point and a little less vertical space between sections
+   keep a long page from feeling taller than it is. */
+@media (width <= 640px) {
+  .docs-prose {
+    font-size: 1rem;
+  }
+
+  .docs-prose h2 {
+    margin-top: 2.25rem;
+  }
+
+  .docs-prose .code-block,
+  .docs-prose table,
+  .docs-prose blockquote {
+    margin: 1.2rem 0;
+  }
+}
