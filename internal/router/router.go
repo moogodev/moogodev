@@ -938,6 +938,9 @@ func registerPages(root chi.Router, deps Deps) {
 	// a client that does not run JavaScript can read the docs without the app.
 	root.Get("/llms.txt", deps.builtFile("llms.txt"))
 	root.Get("/llms-full.txt", deps.builtFile("llms-full.txt"))
+	// Alternate filename for custom AI agents — same content as llms.txt.
+	root.Get("/agent.txt", deps.builtFile("agent.txt"))
+	root.Get("/agent-full.txt", deps.builtFile("agent-full.txt"))
 }
 
 // docsRoute answers the /docs/* subtree.
@@ -1023,7 +1026,9 @@ func (deps Deps) spa() http.HandlerFunc {
 			canonical := html.EscapeString(deps.PublicURL + r.URL.Path)
 			contents = bytes.Replace(contents,
 				[]byte("</head>"),
-				[]byte(`<link rel="canonical" href="`+canonical+`" />`+"\n  </head>"),
+				[]byte(`<link rel="canonical" href="`+canonical+`" />
+                <link rel="llms" href="`+deps.PublicURL+`/llms.txt" />
+                <link rel="agent" href="`+deps.PublicURL+`/agent.txt" />`+"\n  </head>"),
 				1)
 		}
 

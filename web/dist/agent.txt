@@ -1,0 +1,51 @@
+# Moogo
+
+> Moogo is a hosted backend that gives every project its own SQLite database and object storage, reachable over plain HTTP: no connection string, driver, or database client to install.
+
+## Getting started
+
+- [Quickstart](/docs/quickstart.md): Two minutes from an account to a working query. If you already have an account, start at step 2.
+- [What is Moogo?](/docs/what-is-moogo.md): Moogo is a hosted backend that gives every project its own SQLite database and its own object storage, reachable over plain HTTP. There is no connection string, no driver, and no database client to install.
+- [Why Moogo?](/docs/why-moogo.md): Most hosted databases are Postgres with a nice wrapper. Moogo is not. It is built around a different bet: for a large class of applications, one SQLite file per project is a better fit than a shared Postgres cluster, and the ergonomics...
+- [Comparison](/docs/comparison.md): Moogo is not a replacement for every database. This page is an honest comparison against the two services people usually weigh it against, so you can pick the right tool rather than the fashionable one.
+- [Register](/docs/register.md): An account is one email address and a password. That is the whole identity system: there are no organisations, no invitations, and no roles to assign.
+- [AI Adoption Prompt](/docs/ai-adoption-prompt.md): A self-contained reference to Moogo — a hosted SQLite database and object storage over HTTP — written for AI coding agents. Save this page as moogo.md in your project and point your agent at it, so it knows what Moogo is and how to call...
+
+## Using Moogo
+
+- [Create your first project](/docs/create-project.md): A project is one SQLite database, one object storage namespace, and one set of credentials. Creating it takes a few seconds and gives you everything you need to make your first query.
+- [Credentials](/docs/credentials.md): Moogo uses different credentials for different things, on purpose. This page covers what each one authorises, how to send it, and what happens if it leaks.
+- [SQL API](/docs/sql-api.md): Three endpoints. One runs reads, one runs writes, and one runs several writes as a single unit. All three take a project key, and all three validate your SQL before it touches the database.
+- [Create a bucket](/docs/create-bucket.md): Every project has 250 MB of object storage. A bucket is a named namespace inside that quota, so you can keep avatars separate from exports without either one colliding.
+- [Object storage](/docs/object-storage.md): Files live under your project with a storage credential — not the SQL project key. This page is the full reference.
+- [Dashboard](/docs/dashboard.md): The dashboard is a full studio for your database: browse and edit rows as a spreadsheet, build tables without writing migrations, run SQL in a console, and watch what every request did.
+
+## Language Guides
+
+- [JavaScript / TypeScript (Vanilla)](/docs/javascript-vanilla.md): Works in Node 18+, Deno, Bun, Cloudflare Workers, and Vercel Edge. In a browser it works through a bundler that injects process.env — the values have to come from your build, never from a literal key in client-side code. If you want a...
+- [React (Vite / Create React App)](/docs/react.md): A guide for using Moogo from a client-side React app (Vite, CRA, Remix SPA mode, etc.).
+- [Next.js (App Router)](/docs/nextjs.md): Works with Server Components, Server Actions, Route Handlers, and Edge Runtime.
+- [Nuxt 3](/docs/nuxt.md): Works with Server Routes, Composables, and Nitro (Edge/Node).
+- [Vue 3 (SPA)](/docs/vue.md): Works with Vite, Pinia, Vue Router — client-side only or with a backend proxy.
+- [Astro](/docs/astro.md): Works with SSR, static generation, and server endpoints (API routes).
+- [Python (Vanilla)](/docs/python-vanilla.md): Works with stdlib only (Python 3.11+). No dependencies.
+- [FastAPI](/docs/fastapi.md): Modern, fast (Starlette + Pydantic), async-first.
+- [Flask](/docs/flask.md): Lightweight, synchronous, great for small services.
+- [Django](/docs/django.md): Batteries-included, ORM-style patterns, async support.
+- [PHP (Vanilla)](/docs/php-vanilla.md): Works with PHP 8.1+, no framework required.
+- [Laravel](/docs/laravel.md): Expressive, elegant, full-stack framework with built-in HTTP client.
+- [Go](/docs/go.md): Native HTTP client, zero dependencies, compiles to single binary.
+- [Ruby / Rails](/docs/ruby-rails.md): Works with Rails 7+, Sinatra, Hanami, or plain Ruby.
+- [Java / Kotlin](/docs/java-kotlin.md): Works with Java 17+ (HttpClient), Spring Boot, Quarkus, Micronaut, or Kotlin coroutines.
+
+## Database
+
+- [Database Schema, Migrations & Application Patterns](/docs/schema-best-practices.md): This guide covers how to create and evolve your database schema in Moogo, the client helpers that make bulk work practical, and the patterns worth following once an app outgrows a single table.
+
+## Reference
+
+- [Limits](/docs/limits.md): Every limit below is enforced by the server. Most come back in the response, so you find out from the API rather than from a hung tab or a surprise bill.
+- [Security](/docs/security.md): This page explains how Moogo is built to fail safely, and — just as importantly — what the model does not protect you from.
+- [Errors and troubleshooting](/docs/errors.md): Every error from the Moogo API has the same shape. Branch on code, not on message.
+- [Feedback](/docs/feedback.md): Moogo is built in public and shaped by what people actually try to do with it. Feedback is genuinely useful here — especially the parts that were unclear.
+

@@ -127,6 +127,18 @@ Take one before anything destructive — a large edit through the spreadsheet, a
 schema change, or a bulk delete. It is a full SQLite file, so you can open it with
 any SQLite tooling.
 
+### Bucket settings
+
+The **Settings** tab has its own URL so it can be bookmarked or shared. To view
+settings for a specific bucket, append its name as a query parameter:
+
+```
+/app/projects/{project_id}/bucket/settings?bucket=image
+```
+
+The page will load the settings form for that bucket, and the name will appear
+pre‑filled in the UI.
+
 ## Activity log
 
 Every request against your project is recorded with its method, path, status, and
