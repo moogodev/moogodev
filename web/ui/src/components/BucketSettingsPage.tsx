@@ -327,7 +327,7 @@ export default function BucketSettingsPage({ projectId }: BucketSettingsPageProp
             // real setting here rather than an incomplete one.
             hint={maxSizeHint}
           />
-          <div className="flex-1 min-w-[240px] flex items-center gap-3 px-3 py-2 text-sm font-medium text-muted rounded-lg bg-background border border-edge">
+          <div className="flex-1 min-w-0 flex items-center gap-3 px-3 py-2 text-sm font-medium text-muted rounded-lg bg-background border border-edge">
             <span>Every bucket shares the project-wide storage limit from your plan.</span>
             <a
               href="/plan"

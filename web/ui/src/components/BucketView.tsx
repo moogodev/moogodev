@@ -426,7 +426,7 @@ export default function BucketView({
 
       <div className="min-w-0">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => fileInput.current?.click()}
@@ -474,14 +474,14 @@ export default function BucketView({
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by name"
               aria-label="Search objects"
-              className="w-44 rounded-lg border border-edge-strong bg-panel px-3 py-2 text-sm text-foreground placeholder:text-faint focus:border-accent-strong"
+              className="w-full rounded-lg border border-edge-strong bg-panel px-3 py-2 text-sm text-foreground placeholder:text-faint focus:border-accent-strong sm:w-44"
             />
             <select
               value={`${order}:${dir}`}

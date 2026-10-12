@@ -160,7 +160,7 @@ export default function StorageCredentials({ projectId }: StorageCredentialsProp
               </div>
             ))}
           </div>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={handleCopyRevealed}

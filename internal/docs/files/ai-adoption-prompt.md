@@ -165,8 +165,10 @@ Upload answers with the object — `key`, `size_bytes`, `content_type`,
 `storage_used_bytes` and `quota_bytes` — and three URL fields: `url` for your
 application (it needs the credential), `preview_url` for the dashboard, and
 `public_url`, which stays empty until the object is published. A published
-object is readable by anyone holding `https://api.moogo.dev/pub/{project_id}/{key}`;
-treat publishing as permanent, because anyone who recorded the URL keeps it.
+object is readable by anyone holding its `public_url` —
+`https://cdn.moogo.dev/pub/{project_id}/{key}` on a deployment with a CDN host,
+otherwise the API origin; treat publishing as permanent, because anyone who
+recorded the URL keeps it.
 
 ## Limits
 

@@ -453,7 +453,7 @@ function CopyableField({
     <div>
       <p className="mb-1 text-xs font-bold uppercase tracking-wider text-muted">{label}</p>
       <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 overflow-hidden rounded-lg border border-edge bg-background px-3 py-2 font-mono text-sm font-medium text-foreground">
+        <code className="min-w-0 flex-1 break-all rounded-lg border border-edge bg-background px-3 py-2 font-mono text-sm font-medium text-foreground">
           {value}
           {masked && <span className="ml-2 not-italic text-faint">(not stored)</span>}
         </code>

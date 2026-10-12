@@ -14,6 +14,8 @@ pip install flask requests gunicorn
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
 export MOOGO_SECRET_KEY="moogo_..."
 export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+# Optional: origin public objects are served from; falls back to the bucket endpoint origin when empty.
+export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 ```
@@ -30,6 +32,8 @@ from urllib.parse import quote
 PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
 SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
 BUCKET_ENDPOINT = os.environ["MOOGO_BUCKET_ENDPOINT"]
+# Optional CDN origin for public objects; falls back to the bucket endpoint origin when empty.
+CDN_URL = os.environ.get("MOOGO_CDN_URL", "").rstrip("/")
 BUCKET_ACCESS_KEY_ID = os.environ["MOOGO_BUCKET_ACCESS_KEY_ID"]
 BUCKET_SECRET_KEY = os.environ["MOOGO_BUCKET_SECRET_KEY"]
 
@@ -93,15 +97,25 @@ def bucket_list(prefix: str = None) -> dict:
     resp = session.get(url, headers=STORAGE_HEADERS)
     return resp.json()
 
+def bucket_publish(key: str) -> dict:
+    resp = session.patch(
+        f"{BUCKET_ENDPOINT}/{quote(key, safe='/')}",
+        headers={**STORAGE_HEADERS, "Content-Type": "application/json"},
+        json={"is_public": True},
+    )
+    return resp.json()
+
 def bucket_public_url(key: str) -> str:
     # /pub/<project-id>/<key> is the route that needs no credential. The bucket
     # endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated URL,
     # and a browser tab carries no storage credential, so an <img> pointed at one
-    # breaks for every private object. This serves published objects only: until
-    # you publish, public_url in the response is an empty string.
+    # breaks for every private object. This serves published objects only: a fresh
+    # upload is private, so publish it with bucket_publish first. Until then,
+    # public_url in the response is an empty string. Public objects are served
+    # from the CDN origin (CDN_URL) when set, otherwise from the bucket endpoint.
     origin, _, tail = BUCKET_ENDPOINT.partition("/p/")
     project_id = tail.split("/")[0]
-    return f"{origin}/pub/{project_id}/{quote(key, safe='/')}"
+    return f"{CDN_URL or origin}/pub/{project_id}/{quote(key, safe='/')}"
 ```
 
 ## Flask App (`app.py`)
@@ -109,7 +123,7 @@ def bucket_public_url(key: str) -> str:
 ```python
 # app.py
 from flask import Flask, request, jsonify, send_file
-from moogo import sql, to_objects, bucket_upload, bucket_download, bucket_public_url, MoogoError
+from moogo import sql, to_objects, bucket_upload, bucket_download, bucket_publish, bucket_public_url, MoogoError
 import uuid
 import io
 
@@ -141,6 +155,7 @@ def get_user(user_id):
 def upload_file():
     file = request.files["file"]
     bucket_upload(f"uploads/{file.filename}", file.read(), file.content_type)
+    bucket_publish(f"uploads/{file.filename}")
     return jsonify({"url": bucket_public_url(f"uploads/{file.filename}")})
 
 @app.route("/files")

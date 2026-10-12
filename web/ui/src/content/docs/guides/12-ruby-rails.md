@@ -15,6 +15,8 @@ gem 'httparty'  # or use Net::HTTP (stdlib)
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
 export MOOGO_SECRET_KEY="moogo_..."
 export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 ```
@@ -26,11 +28,13 @@ export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 require 'net/http'
 require 'json'
 require 'uri'
+require 'erb'
 
 class Moogo
   PROJECT_URL = ENV['MOOGO_PROJECT_URL']
   SECRET_KEY  = ENV['MOOGO_SECRET_KEY']
   BUCKET_ENDPOINT = ENV['MOOGO_BUCKET_ENDPOINT']
+  CDN_URL = ENV['MOOGO_CDN_URL'].to_s.sub(%r{/+\z}, '')
   BUCKET_ACCESS_KEY_ID = ENV['MOOGO_BUCKET_ACCESS_KEY_ID']
   BUCKET_SECRET_KEY = ENV['MOOGO_BUCKET_SECRET_KEY']
 
@@ -100,6 +104,7 @@ class Moogo
           when :get then Net::HTTP::Get.new(uri)
           when :post then Net::HTTP::Post.new(uri)
           when :delete then Net::HTTP::Delete.new(uri)
+          when :patch then Net::HTTP::Patch.new(uri)
           end
     STORAGE_HEADERS.merge(extra_headers).each { |k, v| req[k] = v }
     req.body = body if body
@@ -112,7 +117,8 @@ class Moogo
   end
 
   def self.bucket_upload(key, content, content_type)
-    bucket_request(:post, "/#{key}", body: content, extra_headers: { 'Content-Type' => content_type })
+    path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
+    bucket_request(:post, "/#{path}", body: content, extra_headers: { 'Content-Type' => content_type })
   end
 
   def self.bucket_download(key)
@@ -135,12 +141,25 @@ class Moogo
     bucket_request(:get, path)
   end
 
+  def self.bucket_publish(key)
+    path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
+    body = JSON.generate({ is_public: true })
+    bucket_request(:patch, "/#{path}", body: body, extra_headers: { 'Content-Type' => 'application/json' })
+  end
+
   def self.bucket_public_url(key)
     # /pub/<project-id>/<key> is the route that needs no credential. The bucket
     # endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated
     # URL, and an <img> pointed at one breaks for every private object. This
-    # serves published objects only.
-    "#{BUCKET_ENDPOINT.sub(%r{/p/([^/]+)/bucket/?\z}, '/pub/\1')}/#{key}"
+    # serves published objects only: a fresh upload is private, so publish it
+    # with bucket_publish first. Until then, public_url in the response is an
+    # empty string. When MOOGO_CDN_URL is set, public objects are served from
+    # that CDN host instead of the bucket endpoint.
+    path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
+    base = BUCKET_ENDPOINT.sub(%r{/p/([^/]+)/bucket/?\z}, '/pub/\1')
+    # Keep the /pub/<project-id> path, swap only the scheme and host.
+    base = base.sub(%r{\Ahttps?://[^/]+}, CDN_URL) unless CDN_URL.empty?
+    "#{base}/#{path}"
   end
 end
 ```
@@ -148,6 +167,7 @@ end
 ## Usage (Plain Ruby)
 
 ```ruby
+require 'securerandom'
 require_relative 'lib/moogo'
 
 Moogo.sql(<<~SQL)
@@ -166,8 +186,10 @@ puts users.inspect
 
 # Bucket
 content = File.read("avatar.png")
-Moogo.bucket_upload("avatars/kit.png", content, "image/png")
-puts Moogo.bucket_public_url("public/logo.png")
+key = "avatars/kit.png"
+Moogo.bucket_upload(key, content, "image/png")
+Moogo.bucket_publish(key)
+puts Moogo.bucket_public_url(key)
 ```
 
 ---
@@ -182,6 +204,7 @@ class Moogo
   PROJECT_URL = Rails.application.credentials.moogo_project_url || ENV['MOOGO_PROJECT_URL']
   SECRET_KEY  = Rails.application.credentials.moogo_secret_key || ENV['MOOGO_SECRET_KEY']
   BUCKET_ENDPOINT = Rails.application.credentials.moogo_bucket_endpoint || ENV['MOOGO_BUCKET_ENDPOINT']
+  CDN_URL = (Rails.application.credentials.moogo_cdn_url || ENV['MOOGO_CDN_URL']).to_s.sub(%r{/+\z}, '')
   BUCKET_ACCESS_KEY_ID = Rails.application.credentials.moogo_bucket_access_key_id || ENV['MOOGO_BUCKET_ACCESS_KEY_ID']
   BUCKET_SECRET_KEY = Rails.application.credentials.moogo_bucket_secret_key || ENV['MOOGO_BUCKET_SECRET_KEY']
 
@@ -243,7 +266,8 @@ class Moogo
 
   # ── Bucket ─────────────────────────────────────────────────────────
   def self.bucket_upload(key, content, content_type)
-    res = storage_client.post("/#{key}") do |req|
+    path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
+    res = storage_client.post("/#{path}") do |req|
       req.headers.merge!(STORAGE_HEADERS.merge('Content-Type' => content_type))
       req.body = content
     end
@@ -269,12 +293,29 @@ class Moogo
     res.body
   end
 
+  def self.bucket_publish(key)
+    path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
+    res = storage_client.patch("/#{path}") do |req|
+      req.headers.merge!(STORAGE_HEADERS.merge('Content-Type' => 'application/json'))
+      req.body = JSON.generate({ is_public: true })
+    end
+    raise Error.new(res.body['error'], res.status) unless res.success?
+    res.body
+  end
+
   def self.bucket_public_url(key)
     # /pub/<project-id>/<key> is the route that needs no credential. The bucket
     # endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated
     # URL, and an <img> pointed at one breaks for every private object. This
-    # serves published objects only.
-    "#{BUCKET_ENDPOINT.sub(%r{/p/([^/]+)/bucket/?\z}, '/pub/\1')}/#{key}"
+    # serves published objects only: a fresh upload is private, so publish it
+    # with bucket_publish first. Until then, public_url in the response is an
+    # empty string. When MOOGO_CDN_URL is set, public objects are served from
+    # that CDN host instead of the bucket endpoint.
+    path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
+    base = BUCKET_ENDPOINT.sub(%r{/p/([^/]+)/bucket/?\z}, '/pub/\1')
+    # Keep the /pub/<project-id> path, swap only the scheme and host.
+    base = base.sub(%r{\Ahttps?://[^/]+}, CDN_URL) unless CDN_URL.empty?
+    "#{base}/#{path}"
   end
 end
 ```
@@ -310,8 +351,10 @@ end
 class StorageController < ApplicationController
   def upload
     file = params[:file]
-    Moogo.bucket_upload("uploads/#{file.original_filename}", file.read, file.content_type)
-    render json: { url: Moogo.bucket_public_url("uploads/#{file.original_filename}") }
+    key = "uploads/#{file.original_filename}"
+    Moogo.bucket_upload(key, file.read, file.content_type)
+    Moogo.bucket_publish(key)
+    render json: { url: Moogo.bucket_public_url(key) }
   end
 
   def list

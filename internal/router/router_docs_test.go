@@ -66,6 +66,61 @@ func TestDocsPagesServeTheApp(t *testing.T) {
 	}
 }
 
+// TestDocsMarkdownIsServedRaw checks that /docs/<slug>.md answers with the
+// Markdown the client would render, so a client that does not run JavaScript
+// can read a page.
+//
+// The bare slug stays the app shell: the .md suffix is the only thing that
+// selects the document, which keeps every browser URL on the same route.
+func TestDocsMarkdownIsServedRaw(t *testing.T) {
+	built := docsRouter(t)
+
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs/quickstart.md", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", recorder.Code, recorder.Body.String())
+	}
+	if contentType := recorder.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/markdown") {
+		t.Errorf("content type = %q, want text/markdown", contentType)
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, "# Quickstart") {
+		t.Errorf("expected the raw markdown, got %q", body)
+	}
+
+	t.Run("a slug with no markdown copy is not the shell", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs/missing.md", nil))
+
+		if recorder.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d (%s)", recorder.Code, recorder.Body.String())
+		}
+	})
+}
+
+// TestLLMsFilesAreServed checks the corpus-wide machine-readable index the
+// build writes, which a crawler or an AI agent fetches before anything else.
+func TestLLMsFilesAreServed(t *testing.T) {
+	built := docsRouter(t)
+
+	for _, path := range []string{"/llms.txt", "/llms-full.txt"} {
+		t.Run(path, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", recorder.Code)
+			}
+			if contentType := recorder.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/plain") {
+				t.Errorf("content type = %q, want text/plain", contentType)
+			}
+			if strings.Contains(recorder.Body.String(), "<title>home</title>") {
+				t.Errorf("served the app shell instead of the index")
+			}
+		})
+	}
+}
+
 // TestDocsAPIServesMarkdown checks the other half of the split: /api/docs/...
 // still answers with a server-rendered document out of the embedded filesystem,
 // not with the app shell. A docs path answered with index.html here would hand

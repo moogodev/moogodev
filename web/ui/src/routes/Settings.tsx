@@ -107,7 +107,7 @@ function AccountSection({ me, loading, onRefresh }: { me: Me | null; loading: bo
           readOnly
           action={
             editingName ? (
-              <div className="flex items-center gap-2">
+              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                 <input
                   type="text"
                   value={nameInput}
@@ -115,7 +115,7 @@ function AccountSection({ me, loading, onRefresh }: { me: Me | null; loading: bo
                   onKeyDown={(e) => e.key === "Enter" && saveName()}
                   onBlur={cancelEdit}
                   autoFocus
-                  className="flex-1 min-w-[120px] rounded-lg border border-edge bg-background px-3 py-1.5 text-[0.86rem] font-medium text-foreground placeholder:text-faint focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent/20"
+                  className="w-full sm:w-auto sm:flex-1 sm:min-w-[120px] rounded-lg border border-edge bg-background px-3 py-1.5 text-[0.86rem] font-medium text-foreground placeholder:text-faint focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent/20"
                 />
                 <button
                   type="button"
@@ -468,16 +468,15 @@ function Row({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-edge py-3">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-edge py-3">
       <dt className="text-muted">{label}</dt>
-      <dd className="min-w-0 truncate font-medium flex items-center gap-3">
-        {readOnly ? (
-          <span title={`${label} cannot be changed here`} className="block truncate">
-            {value}
-          </span>
-        ) : (
-          value
-        )}
+      {/* flex-wrap plus a right-aligned, shrinkable value keeps an edit form
+          (input + Save + Cancel) on screen at phone widths instead of being
+          clipped inside the row by truncate. */}
+      <dd className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-3 font-medium">
+        <span title={readOnly ? `${label} cannot be changed here` : undefined} className="min-w-0 truncate">
+          {value}
+        </span>
         {action}
       </dd>
     </div>

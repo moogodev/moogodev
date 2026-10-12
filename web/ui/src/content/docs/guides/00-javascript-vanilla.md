@@ -18,6 +18,7 @@ puts the SQL key behind a proxy instead, see [React](/docs/guides/react).
 | `MOOGO_PROJECT_URL` | `https://api.moogo.dev/p/<project-id>` |
 | `MOOGO_SECRET_KEY` | `moogo_...` (SQL auth) |
 | `MOOGO_BUCKET_ENDPOINT` | `https://api.moogo.dev/p/<project-id>/bucket` |
+| `MOOGO_CDN_URL` | Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty |
 | `MOOGO_BUCKET_ACCESS_KEY_ID` | `moogo_ak_...` |
 | `MOOGO_BUCKET_SECRET_KEY` | `moogo_sk_...` |
 
@@ -33,6 +34,7 @@ immediately.
 const PROJECT_URL = process.env.MOOGO_PROJECT_URL!;
 const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
 const BUCKET_ENDPOINT = process.env.MOOGO_BUCKET_ENDPOINT!;
+const CDN_URL = (process.env.MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const BUCKET_ACCESS_KEY_ID = process.env.MOOGO_BUCKET_ACCESS_KEY_ID!;
 const BUCKET_SECRET_KEY = process.env.MOOGO_BUCKET_SECRET_KEY!;
 
@@ -98,13 +100,16 @@ export function toObjects<T>(result: { columns: string[]; rows: any[][] }): T[] 
 const encodeKey = (key: string) =>
   key.split("/").map(encodeURIComponent).join("/");
 
+// Public objects are served from the CDN host when MOOGO_CDN_URL is set.
 // The public route is /pub/<project-id>/<key> and needs no credential. The
 // bucket endpoint is not it: /p/<project-id>/bucket/<key> is the authenticated
 // URL, and a browser tab carries no storage credential, so an <img> pointed at
 // one breaks for every private object. This serves published objects only --
 // before you publish, the response's public_url is an empty string.
-const publicBase = () =>
-  BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+function publicBase(): string {
+  const base = BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+  return CDN_URL ? base.replace(/^https?:\/\/[^/]+/, CDN_URL) : base;
+}
 
 // ── Bucket (Object Storage) ─────────────────────────────────────────
 export async function bucketUpload(
@@ -141,7 +146,18 @@ export async function bucketList(prefix?: string) {
   return handle(res);
 }
 
-// Public download (no auth needed for public objects)
+// Publish an object so its public URL resolves. Uploads are private by default,
+// and public_url stays an empty string until this is called.
+export async function bucketPublish(key: string) {
+  const res = await fetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
+    method: "PATCH",
+    headers: { ...STORAGE_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ is_public: true }),
+  });
+  return handle(res);
+}
+
+// Public download (no auth needed once the object is published)
 export function bucketPublicUrl(key: string): string {
   return `${publicBase()}/${encodeKey(key)}`;
 }
@@ -184,10 +200,11 @@ import {
   bucketDownload,
   bucketDelete,
   bucketList,
+  bucketPublish,
   bucketPublicUrl,
 } from "./lib/moogo";
 
-// Upload a file
+// Upload a file (private by default)
 const file = new File([await fetch("https://example.com/avatar.png").then(r => r.blob())], "avatar.png");
 await bucketUpload("avatars/kit.png", file, file.type);
 
@@ -198,9 +215,11 @@ const blob = await res.blob();
 // List objects
 const { objects } = await bucketList("avatars/");
 
-// Public URL (for public objects — no auth)
+// Publish, then serve the public URL (published objects need no auth)
+await bucketPublish("avatars/kit.png");
+
 const img = document.createElement("img");
-img.src = bucketPublicUrl("public/logo.png");
+img.src = bucketPublicUrl("avatars/kit.png");
 
 // Delete
 await bucketDelete("avatars/old.png");

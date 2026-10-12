@@ -144,7 +144,20 @@ refused immediately.
 ## Public objects
 
 By default every object is private. Publishing makes it readable at a URL with no
-credential at all:
+credential at all.
+
+Publish a single object with `PATCH` on its key:
+
+```bash
+curl -X PATCH "https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"is_public": true}'
+```
+
+Or publish a whole bucket at once — it becomes the default for everything uploaded
+afterwards and flips every object already in it:
 
 ```bash
 curl -X POST https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/public \
@@ -154,20 +167,19 @@ curl -X POST https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/public \
   -d '{"is_public":true}'
 ```
 
-Publish one object:
-
-```json
-{ "is_public": true, "key": "avatars/kit.png" }
-```
-
 A published object gets a `public_url`:
 
 ```
-https://api.moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
+https://cdn.moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
 ```
 
+Its host is the deployment's CDN origin (`MOOGO_CDN_URL`), or the API origin when
+no CDN host is configured.
+
 That URL works with no header, no cookie, and no session. You can put it in an
-`<img>`, a `<video>`, or a CSS `background-image`.
+`<img>`, a `<video>`, or a CSS `background-image`. Published objects are served
+with `Cross-Origin-Resource-Policy: cross-origin`, so a page on any other domain
+can embed them.
 
 > **Understand what publishing means.** A public URL is a bearer token. Anyone who
 > has the link has the file, and there is no way to make it private again without
@@ -179,8 +191,8 @@ That URL works with no header, no cookie, and no session. You can put it in an
 > `404` on the public route, so it is indistinguishable from one that does not
 > exist.
 
-You can also publish a whole bucket at once with the same endpoint and no `key`,
-which sets every object in it.
+Unpublishing reverses it: `PATCH` with `{"is_public": false}` for one object, or
+`POST …/public` with `{"is_public": false}` for a whole bucket.
 
 ## Organising with prefixes
 

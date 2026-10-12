@@ -92,7 +92,13 @@ func Build(ctx context.Context, options Options) (*App, error) {
 	controlHandler := handler.NewControlPlane(store, databases, sessions, cfg, options.Log)
 	dataHandler := handler.NewDataPlane(databases, options.Log)
 	oauthHandler := handler.NewOAuth(google, sessions, store, cfg, options.Log)
-	bucketHandler := handler.NewBucketPlane(store, databases, cfg.MaxStorageBytes, cfg.PublicURL, options.Log)
+	// Object URLs and public links are data-plane addresses, so they are built
+	// from the API origin, not the dashboard's. The two differ only in a split
+	// deployment; MOOGO_API_URL defaults to MOOGO_PUBLIC_URL, which keeps a
+	// single-host deployment building the same URLs it always did. Using the
+	// dashboard origin is what handed the dashboard app.moogo.dev public links
+	// while the /pub/ route was live on api.moogo.dev.
+	bucketHandler := handler.NewBucketPlane(store, databases, cfg.MaxStorageBytes, cfg.APIURL, cfg.CDNURL, options.Log)
 	docsHandler := handler.NewDocsHandler(handler.GetDocsFS(), options.Log)
 	updatesHandler := handler.NewUpdatesHandler(cfg.NewsURL, options.Log)
 	metaHandler := handler.NewMeta(cfg.PublicURL, docsHandler, options.Log)

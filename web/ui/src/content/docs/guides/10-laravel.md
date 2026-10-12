@@ -14,6 +14,8 @@ Expressive, elegant, full-stack framework with built-in HTTP client.
 MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
 MOOGO_SECRET_KEY=moogo_...
 MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+# Optional: origin public objects are served from (e.g. https://cdn.moogo.dev); empty falls back to the bucket endpoint origin.
+MOOGO_CDN_URL=
 MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
 MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 ```
@@ -25,6 +27,7 @@ return [
         'project_url' => env('MOOGO_PROJECT_URL'),
         'secret_key' => env('MOOGO_SECRET_KEY'),
         'bucket_endpoint' => env('MOOGO_BUCKET_ENDPOINT'),
+        'cdn_url' => env('MOOGO_CDN_URL'),
         'bucket_access_key_id' => env('MOOGO_BUCKET_ACCESS_KEY_ID'),
         'bucket_secret_key' => env('MOOGO_BUCKET_SECRET_KEY'),
     ],
@@ -50,12 +53,15 @@ class Moogo {
         private ?string $projectUrl = null,
         private ?string $secretKey = null,
         private ?string $bucketEndpoint = null,
+        private ?string $cdnUrl = null,
         private ?string $bucketAccessKeyId = null,
         private ?string $bucketSecretKey = null
     ) {
         $this->projectUrl ??= config('services.moogo.project_url');
         $this->secretKey ??= config('services.moogo.secret_key');
         $this->bucketEndpoint ??= config('services.moogo.bucket_endpoint');
+        $this->cdnUrl ??= config('services.moogo.cdn_url');
+        $this->cdnUrl = rtrim((string) $this->cdnUrl, '/');
         $this->bucketAccessKeyId ??= config('services.moogo.bucket_access_key_id');
         $this->bucketSecretKey ??= config('services.moogo.bucket_secret_key');
     }
@@ -111,9 +117,10 @@ class Moogo {
 
     // ── Bucket ─────────────────────────────────────────────────────────
     public function bucketUpload(string $key, string $content, string $contentType): array {
+        $path = implode('/', array_map('rawurlencode', explode('/', $key)));
         $response = $this->storageClient()
             ->withHeaders(['Content-Type' => $contentType])
-            ->post("/{$key}", $content);
+            ->post("/{$path}", $content);
         $this->handleError($response);
         return $response->json();
     }
@@ -137,13 +144,30 @@ class Moogo {
         return $response->json();
     }
 
+    public function bucketPublish(string $key): array {
+        $path = implode('/', array_map('rawurlencode', explode('/', $key)));
+        $response = $this->storageClient()
+            ->withHeaders(['Content-Type' => 'application/json'])
+            ->patch("/{$path}", ['is_public' => true]);
+        $this->handleError($response);
+        return $response->json();
+    }
+
     public function bucketPublicUrl(string $key): string {
         // /pub/<project-id>/<key> is the route that needs no credential. The
         // bucket endpoint is not it -- /p/<project-id>/bucket/<key> is the
         // authenticated URL, and an <img> pointed at one breaks for every private
-        // object. This serves published objects only.
+        // object. This serves published objects only: a fresh upload is private,
+        // so publish it with bucketPublish first. Until then, public_url in the
+        // response is an empty string. When MOOGO_CDN_URL is set, public objects
+        // are served from that CDN host instead of the bucket endpoint.
         $base = preg_replace('#/p/([^/]+)/bucket/?$#', '/pub/$1', $this->bucketEndpoint);
-        return "{$base}/{$key}";
+        if ($this->cdnUrl !== '') {
+            // Keep the /pub/<project-id> path, swap only the scheme and host.
+            $base = preg_replace('#^https?://[^/]+#', $this->cdnUrl, $base);
+        }
+        $path = implode('/', array_map('rawurlencode', explode('/', $key)));
+        return "{$base}/{$path}";
     }
 }
 
@@ -235,6 +259,7 @@ class StorageController extends Controller {
         $file = $request->file('file');
         $path = "uploads/{$file->hashName()}";
         $this->moogo->bucketUpload($path, file_get_contents($file), $file->getMimeType());
+        $this->moogo->bucketPublish($path);
         return response()->json(['url' => $this->moogo->bucketPublicUrl($path)]);
     }
 

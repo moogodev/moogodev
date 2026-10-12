@@ -33,7 +33,7 @@ Create a tiny serverless function / API route that forwards SQL calls to Moogo. 
 ### 1. Proxy endpoint (Node/Express example)
 
 ```js
-// server/routes/moogo.js
+// server/routes/moogo.ts
 import express from "express";
 import fetch from "node-fetch";
 
@@ -149,6 +149,7 @@ Since bucket credentials are separate, you **can** use them directly in React fo
 ```tsx
 // hooks/useMoogoBucket.ts
 const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BUCKET_ENDPOINT!;
+const CDN_URL = (import.meta.env.VITE_MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const ACCESS_KEY = import.meta.env.VITE_MOOGO_BUCKET_ACCESS_KEY_ID!;
 const SECRET_KEY = import.meta.env.VITE_MOOGO_BUCKET_SECRET_KEY!;
 
@@ -156,12 +157,15 @@ const SECRET_KEY = import.meta.env.VITE_MOOGO_BUCKET_SECRET_KEY!;
 const encodeKey = (key: string) =>
   key.split("/").map(encodeURIComponent).join("/");
 
+// Public objects are served from the CDN host when VITE_MOOGO_CDN_URL is set.
 // The public route is /pub/<project-id>/<key> and needs no credential. The
 // bucket endpoint is not it: /p/<project-id>/bucket/<key> is the authenticated
 // URL, so an <img> pointed at one breaks for every private object. This serves
 // published objects only.
-const publicBase = () =>
-  BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+function publicBase(): string {
+  const base = BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+  return CDN_URL ? base.replace(/^https?:\/\/[^/]+/, CDN_URL) : base;
+}
 
 const headers = {
   "X-Moogo-Access-Key-Id": ACCESS_KEY,
@@ -173,6 +177,17 @@ export async function uploadFile(key: string, file: File) {
     method: "POST",
     headers: { ...headers, "Content-Type": file.type },
     body: file,
+  });
+  return res.json();
+}
+
+// Uploads are private by default, so an uploaded object has to be published
+// before its public URL resolves.
+export async function publishFile(key: string) {
+  const res = await fetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
+    method: "PATCH",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ is_public: true }),
   });
   return res.json();
 }
@@ -191,17 +206,28 @@ export async function listFiles(prefix?: string) {
 
 ```tsx
 // components/AvatarUpload.tsx
-import { uploadFile, getPublicUrl } from "../hooks/useMoogoBucket";
+import { useState } from "react";
+import { uploadFile, publishFile, getPublicUrl } from "../hooks/useMoogoBucket";
 
 export function AvatarUpload() {
+  const [publicUrl, setPublicUrl] = useState<string>();
+
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    await uploadFile(`avatars/${file.name}`, file);
-    alert("Uploaded!");
+    const key = `avatars/${file.name}`;
+    await uploadFile(key, file);
+    // Uploads are private by default — publish so the public URL resolves.
+    await publishFile(key);
+    setPublicUrl(getPublicUrl(key));
   }
 
-  return <input type="file" onChange={handleUpload} accept="image/*" />;
+  return (
+    <>
+      <input type="file" onChange={handleUpload} accept="image/*" />
+      {publicUrl && <img src={publicUrl} alt="" />}
+    </>
+  );
 }
 ```
 
@@ -225,6 +251,8 @@ MOOGO_SECRET_KEY=moogo_...
 
 # Frontend (bucket only) — safe to expose
 VITE_MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+# Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
+VITE_MOOGO_CDN_URL=https://cdn.moogo.dev
 VITE_MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
 VITE_MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 ```
@@ -247,7 +275,9 @@ cd my-app
 npm i @tanstack/react-query
 ```
 
-Add a `.env` file with the variables above (prefix with `VITE_` for Vite, `REACT_APP_` for CRA).
+Add a `.env` file with the variables above, prefixed with `VITE_` (the hook reads
+`import.meta.env.VITE_*`). A CRA setup would instead read
+`process.env.REACT_APP_*` in the hook, since CRA does not expose `import.meta.env`.
 
 ---
 

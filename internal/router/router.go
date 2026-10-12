@@ -13,6 +13,7 @@ import (
 	"html"
 	"io/fs"
 	"net/http"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -796,6 +797,15 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		header.Set("X-Frame-Options", "DENY")
 		header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
+		// CORP starts same-origin because two of the three response classes
+		// here are private to the origin: the dashboard and API responses for
+		// a client holding a credential. The third class is published objects
+		// served from /pub/, whose purpose is to be embedded on other
+		// origins; its handler overrides this header to cross-origin on the
+		// object response it writes, while the default stays here for
+		// everything else, including that route's own error responses.
+		header.Set("Cross-Origin-Resource-Policy", "same-origin")
+
 		// HSTS only over HTTPS -- either the socket this process holds, or the
 		// scheme the proxy in front of it reports. A plain r.TLS check would
 		// never fire in production, where nginx terminates TLS and this app
@@ -920,7 +930,61 @@ func registerPages(root chi.Router, deps Deps) {
 	// markdown handler, which renders a bare page with no sidebar, no search
 	// and none of the site's styling.
 	root.Get("/docs", index)
-	root.Get("/docs/*", index)
+	root.Get("/docs/*", deps.docsRoute(index))
+
+	// The machine-readable index of the documentation, written by the frontend
+	// build (web/ui/scripts/build-llms.mjs). They sit at the site root because
+	// that is where an AI agent looks for llms.txt, and they are plain text so
+	// a client that does not run JavaScript can read the docs without the app.
+	root.Get("/llms.txt", deps.builtFile("llms.txt"))
+	root.Get("/llms-full.txt", deps.builtFile("llms-full.txt"))
+}
+
+// docsRoute answers the /docs/* subtree.
+//
+// A path ending in .md returns the Markdown the page renders, written next to
+// the bundle by the frontend build and served from /docs/<slug>.md. Every other
+// path is the app shell. The copy exists because the docs are client-rendered:
+// an AI agent, a link preview, or curl that fetches /docs/<slug> would otherwise
+// read an empty page.
+func (deps Deps) docsRoute(index http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".md") {
+			slug := strings.TrimSuffix(path.Base(r.URL.Path), ".md")
+			deps.serveBuilt(w, r, "docs/"+slug+".md", "text/markdown; charset=utf-8")
+			return
+		}
+		index(w, r)
+	}
+}
+
+// builtFile serves one file out of the built frontend as plain text.
+func (deps Deps) builtFile(name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		deps.serveBuilt(w, r, name, "text/plain; charset=utf-8")
+	}
+}
+
+// serveBuilt writes a file out of the embedded frontend.
+//
+// The URL is stable while the contents change when the docs do, so the response
+// asks a cache to revalidate rather than to keep a copy for a fixed window.
+func (deps Deps) serveBuilt(w http.ResponseWriter, r *http.Request, name, contentType string) {
+	if deps.IndexFS == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	contents, err := fs.ReadFile(deps.IndexFS, name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(contents)
 }
 
 // spa returns a handler that serves the built index.html for any page route.

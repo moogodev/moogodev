@@ -13,9 +13,11 @@ Works with Server Components, Server Actions, Route Handlers, and Edge Runtime.
 ```env
 MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
 MOOGO_SECRET_KEY=moogo_...
-MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
-MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
-MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
+NEXT_PUBLIC_MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+# Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
+NEXT_PUBLIC_MOOGO_CDN_URL=https://cdn.moogo.dev
+NEXT_PUBLIC_MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
+NEXT_PUBLIC_MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 ```
 
 ## Client (`lib/moogo.ts`)
@@ -24,9 +26,10 @@ MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 // lib/moogo.ts
 const PROJECT_URL = process.env.MOOGO_PROJECT_URL!;
 const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
-const BUCKET_ENDPOINT = process.env.MOOGO_BUCKET_ENDPOINT!;
-const BUCKET_ACCESS_KEY_ID = process.env.MOOGO_BUCKET_ACCESS_KEY_ID!;
-const BUCKET_SECRET_KEY = process.env.MOOGO_BUCKET_SECRET_KEY!;
+const BUCKET_ENDPOINT = process.env.NEXT_PUBLIC_MOOGO_BUCKET_ENDPOINT!;
+const CDN_URL = (process.env.NEXT_PUBLIC_MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
+const BUCKET_ACCESS_KEY_ID = process.env.NEXT_PUBLIC_MOOGO_BUCKET_ACCESS_KEY_ID!;
+const BUCKET_SECRET_KEY = process.env.NEXT_PUBLIC_MOOGO_BUCKET_SECRET_KEY!;
 
 const SQL_HEADERS = {
   Authorization: `Bearer ${SECRET_KEY}`,
@@ -92,13 +95,17 @@ export function toObjects<T>(result: { columns: string[]; rows: any[][] }): T[] 
 const encodeKey = (key: string) =>
   key.split("/").map(encodeURIComponent).join("/");
 
+// Public objects are served from the CDN host when NEXT_PUBLIC_MOOGO_CDN_URL is
+// set.
 // The public route is /pub/<project-id>/<key> and needs no credential. The
 // bucket endpoint is not it: /p/<project-id>/bucket/<key> is the authenticated
 // URL, and a browser tab carries no storage credential, so an <img> pointed at
 // one breaks for every private object. This serves published objects only --
 // before you publish, the response's public_url is an empty string.
-const publicBase = () =>
-  BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+function publicBase(): string {
+  const base = BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+  return CDN_URL ? base.replace(/^https?:\/\/[^/]+/, CDN_URL) : base;
+}
 
 // ── Bucket ───────────────────────────────────────────────────────────
 export async function bucketUpload(
@@ -137,6 +144,18 @@ export async function bucketList(prefix?: string) {
   return handle(res);
 }
 
+// Publish an object so its public URL resolves. Uploads are private by default,
+// and public_url stays an empty string until this is called.
+export async function bucketPublish(key: string) {
+  const res = await fetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
+    method: "PATCH",
+    headers: { ...STORAGE_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ is_public: true }),
+  });
+  return handle(res);
+}
+
+// Public download (no auth needed once the object is published)
 export function bucketPublicUrl(key: string): string {
   return `${publicBase()}/${encodeKey(key)}`;
 }
@@ -225,7 +244,7 @@ export default async function UsersPage() {
 
 ```ts
 // app/api/users/route.ts
-import { sql, toObjects, bucketUpload } from "@/lib/moogo";
+import { sql, toObjects } from "@/lib/moogo";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET() {
@@ -255,21 +274,28 @@ export const runtime = "edge"; // Works in Edge Runtime (Vercel, Cloudflare)
 ```tsx
 // app/upload/page.tsx
 "use client";
-import { bucketUpload, bucketPublicUrl } from "@/lib/moogo";
+import { useState } from "react";
+import { bucketUpload, bucketPublish, bucketPublicUrl } from "@/lib/moogo";
 
 export default function UploadPage() {
+  const [publicUrl, setPublicUrl] = useState("");
+
   async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const file = form.get("file") as File;
-    await bucketUpload(`uploads/${file.name}`, file, file.type);
-    alert("Uploaded!");
+    const key = `uploads/${file.name}`;
+    await bucketUpload(key, file, file.type);
+    // Uploads are private by default — publish so the public URL resolves.
+    await bucketPublish(key);
+    setPublicUrl(bucketPublicUrl(key));
   }
 
   return (
     <form onSubmit={handleUpload}>
       <input type="file" name="file" required />
       <button type="submit">Upload</button>
+      {publicUrl && <img src={publicUrl} alt="" />}
     </form>
   );
 }

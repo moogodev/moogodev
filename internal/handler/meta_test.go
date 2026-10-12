@@ -91,6 +91,7 @@ func TestRobotsKeepsCrawlersOffTheMachines(t *testing.T) {
 		"Disallow: /app",
 		"Disallow: /p/",
 		"Sitemap: https://moogo.dev/sitemap.xml",
+		"/llms.txt",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("robots.txt is missing %q:\n%s", want, body)

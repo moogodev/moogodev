@@ -62,7 +62,7 @@ export default function ConfirmDialog({
       <div className="space-y-3">
         <p className="text-sm text-muted">{description}</p>
         {detail ? (
-          <p className="rounded-lg border border-edge bg-panel px-3 py-2 font-mono text-[0.82rem] text-foreground">
+          <p className="rounded-lg border border-edge bg-panel px-3 py-2 font-mono text-[0.82rem] text-foreground break-all">
             {detail}
           </p>
         ) : null}

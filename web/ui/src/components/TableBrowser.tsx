@@ -680,7 +680,7 @@ function TableDetail({
       </header>
 
       <div className="mb-4 flex items-end gap-1 border-b border-edge">
-        <div role="tablist" aria-label={`Views of ${object.name}`} className="flex gap-1">
+        <div role="tablist" aria-label={`Views of ${object.name}`} className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
           {tabs.map((tab, index) => (
             <button
               key={tab.id}
@@ -706,7 +706,7 @@ function TableDetail({
         </div>
         {/* The controls sit in their own group so the Reload button keeps the
             right-hand end of the tab bar for every object, view or table. */}
-        <div className="-mb-px ml-auto flex items-end">
+        <div className="-mb-px ml-auto flex shrink-0 items-end">
           {!isView && (
             <button
               type="button"

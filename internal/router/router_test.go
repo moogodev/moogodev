@@ -331,6 +331,9 @@ var testFrontend = fstest.MapFS{
 	"assets/app.css":           {Data: []byte("body{color:#fff}")},
 	"assets/index-Ab12Cd34.js": {Data: []byte("console.log(0)")},
 	"img/favicon.svg":          {Data: []byte("<svg/>")},
+	"llms.txt":                 {Data: []byte("# Moogo\n\n## Getting started\n\n- [Quickstart](/docs/quickstart.md)\n")},
+	"llms-full.txt":            {Data: []byte("# Moogo documentation\n")},
+	"docs/quickstart.md":       {Data: []byte("# Quickstart\n\nTwo minutes from an account to a working query.\n")},
 }
 
 // testProjectKey is the plaintext key the test project accepts.
@@ -1010,9 +1013,10 @@ func TestSecurityHeadersApplied(t *testing.T) {
 	built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	expected := map[string]string{
-		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":        "DENY",
-		"Referrer-Policy":        "strict-origin-when-cross-origin",
+		"X-Content-Type-Options":       "nosniff",
+		"X-Frame-Options":              "DENY",
+		"Referrer-Policy":              "strict-origin-when-cross-origin",
+		"Cross-Origin-Resource-Policy": "same-origin",
 	}
 	for header, want := range expected {
 		if got := recorder.Header().Get(header); got != want {

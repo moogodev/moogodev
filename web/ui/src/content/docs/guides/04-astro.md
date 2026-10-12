@@ -14,6 +14,8 @@ Works with SSR, static generation, and server endpoints (API routes).
 MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
 MOOGO_SECRET_KEY=moogo_...
 MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+# Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
+MOOGO_CDN_URL=https://cdn.moogo.dev
 MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
 MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 ```
@@ -25,6 +27,7 @@ MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 const PROJECT_URL = import.meta.env.MOOGO_PROJECT_URL!;
 const SECRET_KEY = import.meta.env.MOOGO_SECRET_KEY!;
 const BUCKET_ENDPOINT = import.meta.env.MOOGO_BUCKET_ENDPOINT!;
+const CDN_URL = (import.meta.env.MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const BUCKET_ACCESS_KEY_ID = import.meta.env.MOOGO_BUCKET_ACCESS_KEY_ID!;
 const BUCKET_SECRET_KEY = import.meta.env.MOOGO_BUCKET_SECRET_KEY!;
 
@@ -90,13 +93,16 @@ export function toObjects<T>(result: { columns: string[]; rows: any[][] }): T[] 
 const encodeKey = (key: string) =>
   key.split("/").map(encodeURIComponent).join("/");
 
+// Public objects are served from the CDN host when MOOGO_CDN_URL is set.
 // The public route is /pub/<project-id>/<key> and needs no credential. The
 // bucket endpoint is not it: /p/<project-id>/bucket/<key> is the authenticated
 // URL, and a browser tab carries no storage credential, so an <img> pointed at
 // one breaks for every private object. This serves published objects only --
 // before you publish, the response's public_url is an empty string.
-const publicBase = () =>
-  BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+function publicBase(): string {
+  const base = BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+  return CDN_URL ? base.replace(/^https?:\/\/[^/]+/, CDN_URL) : base;
+}
 
 // ── Bucket ───────────────────────────────────────────────────────────
 export async function bucketUpload(
@@ -130,6 +136,17 @@ export async function bucketList(prefix?: string) {
   const url = new URL(`${BUCKET_ENDPOINT}`);
   if (prefix) url.searchParams.set("prefix", prefix);
   const res = await fetch(url, { headers: STORAGE_HEADERS });
+  return handle(res);
+}
+
+// Objects are private until published with bucketPublish, so the public_url in
+// an upload response is an empty string until then.
+export async function bucketPublish(key: string) {
+  const res = await fetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
+    method: "PATCH",
+    headers: { ...STORAGE_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ is_public: true }),
+  });
   return handle(res);
 }
 
@@ -208,12 +225,14 @@ const post = (await toObjects(
 ```astro
 ---
 // src/pages/upload.astro
-import { bucketUpload } from "@/lib/moogo";
+import { bucketUpload, bucketPublish } from "@/lib/moogo";
 
 if (Astro.request.method === "POST") {
   const form = await Astro.request.formData();
   const file = form.get("file") as File;
-  await bucketUpload(`uploads/${file.name}`, file, file.type);
+  const key = `uploads/${file.name}`;
+  await bucketUpload(key, file, file.type);
+  await bucketPublish(key); // a fresh upload is private until published
   return Astro.redirect("/upload?success=1");
 }
 ---
@@ -242,10 +261,10 @@ const { key } = Astro.props;
 ```ts
 // astro.config.mjs
 import { defineConfig } from "astro/config";
-import vercel from "@astrojs/vercel/edge"; // or netlify, cloudflare
+import vercel from "@astrojs/vercel"; // or netlify, cloudflare
 
 export default defineConfig({
-  output: "server", // or "hybrid"
+  output: "server",
   adapter: vercel(),
 });
 ```

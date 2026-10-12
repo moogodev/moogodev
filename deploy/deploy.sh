@@ -217,6 +217,14 @@ if [[ -f "$NEWS_ENV_FILE" ]]; then
 	news_enabled=1
 fi
 
+# The CDN host is opt-in: it exists only when the deployment names one in
+# MOOGO_CDN_URL, so a site with no separate CDN host is unchanged. The same
+# value is what makes the app hand out public URLs on that host.
+cdn_enabled=0
+if grep -qE '^[[:space:]]*MOOGO_CDN_URL=' "$ENV_FILE" 2>/dev/null; then
+	cdn_enabled=1
+fi
+
 if [[ $BEHIND_TUNNEL -eq 0 ]]; then
 	# nginx comes in two layouts: Debian and Ubuntu keep per-site files in
 	# sites-available linked from sites-enabled, other distributions include
@@ -269,6 +277,9 @@ if [[ $BEHIND_TUNNEL -eq 0 ]]; then
 			fi
 			if [[ $news_enabled -eq 1 && "$name" == "news.$DOMAIN" ]]; then
 				conflicts+=("news.$DOMAIN")
+			fi
+			if [[ $cdn_enabled -eq 1 && "$name" == "cdn.$DOMAIN" ]]; then
+				conflicts+=("cdn.$DOMAIN")
 			fi
 		done <<<"$existing_names"
 	fi
@@ -431,9 +442,10 @@ if [[ $BEHIND_TUNNEL -eq 0 ]]; then
 EOF
 	}
 
-	# nginx_site_80 SERVER_NAME plain|tls UPSTREAM_PORT ACCESS_LOG
+	# nginx_site_80 SERVER_NAME plain|tls UPSTREAM_PORT ACCESS_LOG [SCOPE]
+	# SCOPE "pub" limits the host to /pub/ (the CDN origin); default is all.
 	nginx_site_80() {
-		local name="$1" mode="$2" port="$3" logfile="$4"
+		local name="$1" mode="$2" port="$3" logfile="$4" scope="${5:-all}"
 		cat <<'EOF'
 
 server {
@@ -474,6 +486,18 @@ EOF
 	}
 }
 EOF
+		elif [[ "$scope" == "pub" ]]; then
+			# The CDN host serves published objects only, even over plain
+			# http before it has a certificate.
+			printf '	location /pub/ {\n		proxy_pass http://127.0.0.1:%s;\n' "$port"
+			nginx_proxy_headers
+			cat <<'EOF'
+	}
+	location / {
+		return 404;
+	}
+}
+EOF
 		else
 			# No certificate yet: proxy instead of redirecting, so http:// keeps
 			# answering while certbot obtains one (or when certbot is absent).
@@ -486,9 +510,10 @@ EOF
 		fi
 	}
 
-	# nginx_site_443 SERVER_NAME CERT KEY UPSTREAM_PORT ACCESS_LOG
+	# nginx_site_443 SERVER_NAME CERT KEY UPSTREAM_PORT ACCESS_LOG [SCOPE]
+	# SCOPE "pub" limits the host to /pub/ (the CDN origin); default is all.
 	nginx_site_443() {
-		local name="$1" cert="$2" key="$3" port="$4" logfile="$5"
+		local name="$1" cert="$2" key="$3" port="$4" logfile="$5" scope="${6:-all}"
 		cat <<'EOF'
 
 server {
@@ -506,12 +531,15 @@ EOF
 	# site's transport policy to no HSTS at all.
 	add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
-	# The app sets X-Content-Type-Options, X-Frame-Options, Referrer-Policy
-	# and Content-Security-Policy on every response itself, and news does
-	# the same for its own pages -- duplicating those here would send each
-	# header twice. Only the three it never sends live at this layer.
+	# The app sets X-Content-Type-Options, X-Frame-Options, Referrer-Policy,
+	# Content-Security-Policy and Cross-Origin-Resource-Policy on every
+	# response itself, and news does the same for its own pages -- duplicating
+	# those here would send each header twice. CORP has to be per-route in the
+	# app (same-origin for the dashboard and API, cross-origin for published
+	# objects served from /pub/, which must be embeddable on other origins), so
+	# it can never live at this blanket layer. Only the two it never sends
+	# remain here.
 	add_header Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=()" always;
-	add_header Cross-Origin-Resource-Policy "same-origin" always;
 	add_header X-Permitted-Cross-Origin-Policies "none" always;
 
 	# 250 MB is StorageCeilingBytes, the largest upload the app itself allows.
@@ -537,10 +565,21 @@ EOF
 	gzip_types text/plain text/css application/json application/javascript
 		application/xml image/svg+xml font/woff2;
 
+EOF
+		if [[ "$scope" == "pub" ]]; then
+			cat <<'EOF'
+	# The CDN host serves published objects and nothing else. Duplicating the
+	# dashboard and the credential-bearing API on a host whose only job is to
+	# hand out public objects would widen the surface for no benefit.
+	location /pub/ {
+EOF
+		else
+			cat <<'EOF'
 	# Everything goes to the same origin, including /healthz and /readyz,
 	# which the healthcheck and any external monitor poll.
 	location / {
 EOF
+		fi
 		printf '		proxy_pass http://127.0.0.1:%s;\n' "$port"
 		cat <<'EOF'
 		# Gap between reads from the app, not a total response time: a
@@ -551,20 +590,31 @@ EOF
 		proxy_send_timeout 300s;
 EOF
 		nginx_proxy_headers
-		cat <<'EOF'
+		if [[ "$scope" == "pub" ]]; then
+			cat <<'EOF'
+	}
+	location / {
+		return 404;
 	}
 }
 EOF
+		else
+			cat <<'EOF'
+	}
+}
+EOF
+		fi
 	}
 
-	# write_nginx_site MAIN_MODE NEWS_MODE -- write the site, test it, reload.
-	# A failed test restores the previous file and exits without reloading: a
-	# half written proxy config is worse than the one already running. There
-	# is deliberately no "restart nginx" fallback anywhere: a reload that
-	# fails because the config is broken must leave the old, working nginx
-	# serving, not try to start from a config nginx already rejected.
+	# write_nginx_site MAIN_MODE NEWS_MODE CDN_MODE -- write the site, test it,
+	# reload. A failed test restores the previous file and exits without
+	# reloading: a half written proxy config is worse than the one already
+	# running. There is deliberately no "restart nginx" fallback anywhere: a
+	# reload that fails because the config is broken must leave the old,
+	# working nginx serving, not try to start from a config nginx already
+	# rejected.
 	write_nginx_site() {
-		local main_mode="$1" news_mode="$2" backup="" test_out="" dump=""
+		local main_mode="$1" news_mode="$2" cdn_mode="$3" backup="" test_out="" dump=""
 		if [[ -f "$NGINX_SITE_FILE" ]]; then
 			backup="$(mktemp)"
 			cp -p "$NGINX_SITE_FILE" "$backup"
@@ -590,6 +640,12 @@ EOF
 				nginx_site_80 "news.$DOMAIN" "$news_mode" 8081 /var/log/nginx/moogo-news-access.log
 				if [[ "$news_mode" == "tls" ]]; then
 					nginx_site_443 "news.$DOMAIN" "$news_cert" "$news_key" 8081 /var/log/nginx/moogo-news-access.log
+				fi
+			fi
+			if [[ "$cdn_mode" != "off" ]]; then
+				nginx_site_80 "cdn.$DOMAIN" "$cdn_mode" 8080 /var/log/nginx/moogo-cdn-access.log pub
+				if [[ "$cdn_mode" == "tls" ]]; then
+					nginx_site_443 "cdn.$DOMAIN" "$cdn_cert" "$cdn_key" 8080 /var/log/nginx/moogo-cdn-access.log pub
 				fi
 			fi
 		} >"$NGINX_SITE_FILE"
@@ -711,6 +767,24 @@ EOF
 			attempt_news=1
 		fi
 	fi
+	cdn_cert=""
+	cdn_key=""
+	cdn_live_cert="/etc/letsencrypt/live/cdn.$DOMAIN/fullchain.pem"
+	cdn_live_key="/etc/letsencrypt/live/cdn.$DOMAIN/privkey.pem"
+	if [[ $cdn_enabled -eq 1 && -f "$cdn_live_cert" && -f "$cdn_live_key" ]]; then
+		if ! command -v openssl >/dev/null 2>&1 ||
+			openssl x509 -checkend 0 -noout -in "$cdn_live_cert" >/dev/null 2>&1; then
+			cdn_cert="$cdn_live_cert"
+			cdn_key="$cdn_live_key"
+		fi
+	fi
+	attempt_cdn=0
+	if [[ $cdn_enabled -eq 1 && -z "$cdn_cert" && $have_certbot -eq 1 ]]; then
+		# Same DNS guard as news: no record, no point in waiting for certbot.
+		if ! command -v getent >/dev/null 2>&1 || getent hosts "cdn.$DOMAIN" >/dev/null 2>&1; then
+			attempt_cdn=1
+		fi
+	fi
 	need_main=0
 	if [[ -z "$main_cert" ]]; then
 		need_main=1
@@ -753,9 +827,16 @@ EOF
 			news_mode="tls"
 		fi
 	fi
-	if [[ $need_main -eq 1 || $attempt_news -eq 1 ]]; then
+	cdn_mode="off"
+	if [[ $cdn_enabled -eq 1 ]]; then
+		cdn_mode="plain"
+		if [[ -n "$cdn_cert" ]]; then
+			cdn_mode="tls"
+		fi
+	fi
+	if [[ $need_main -eq 1 || $attempt_news -eq 1 || $attempt_cdn -eq 1 ]]; then
 		echo "    writing the site configuration (a certificate is still missing)"
-		write_nginx_site "$main_mode" "$news_mode"
+		write_nginx_site "$main_mode" "$news_mode" "$cdn_mode"
 	fi
 
 	if [[ $need_main -eq 1 ]]; then
@@ -788,14 +869,29 @@ EOF
 		fi
 	fi
 
+	if [[ $attempt_cdn -eq 1 ]]; then
+		echo "    requesting a certificate for cdn.$DOMAIN"
+		if obtain_cert "cdn.$DOMAIN" && [[ -f "$cdn_live_cert" && -f "$cdn_live_key" ]]; then
+			cdn_cert="$cdn_live_cert"
+			cdn_key="$cdn_live_key"
+			cdn_mode="tls"
+		fi
+	fi
+
 	echo "    writing the site configuration"
-	write_nginx_site "tls" "$news_mode"
+	write_nginx_site "tls" "$news_mode" "$cdn_mode"
 	echo "    $NGINX_SITE_FILE now points at $DOMAIN"
 	if [[ $news_enabled -eq 1 && -z "$news_cert" ]]; then
 		echo "    note: news.$DOMAIN has no certificate, so it is served over plain http" >&2
 		echo "    note: (its Secure-only login cookie will not be sent there). Once its" >&2
 		echo "    note: DNS record points here, run:" >&2
 		echo "    note:   certbot certonly --webroot -w /var/www/certbot -d news.$DOMAIN" >&2
+		echo "    note: and re-run this script." >&2
+	fi
+	if [[ $cdn_enabled -eq 1 && -z "$cdn_cert" ]]; then
+		echo "    note: cdn.$DOMAIN has no certificate, so it is served over plain http" >&2
+		echo "    note: until its DNS record points here. Once it does, run:" >&2
+		echo "    note:   certbot certonly --webroot -w /var/www/certbot -d cdn.$DOMAIN" >&2
 		echo "    note: and re-run this script." >&2
 	fi
 else

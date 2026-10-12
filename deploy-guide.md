@@ -176,6 +176,8 @@ configuration is valid
   environment:   production
   addr:          127.0.0.1:8080
   public url:    https://moogo.example.com
+  api url:       https://api.moogo.example.com
+  cdn url:       https://cdn.moogo.example.com
   data dir:      /var/lib/moogo
   cookie secure: true
   mail provider: true
@@ -237,6 +239,24 @@ from 127.0.0.1**. The rate limit on `/auth/login` is per client address, so
 every visitor on the internet counts as one client and the limit becomes a
 limit on your whole user base.
 
+### Optional: a CDN host for public objects
+
+By default a public object is served from the same origin as the data plane
+(`MOOGO_API_URL`). Set `MOOGO_CDN_URL` to a host of its own and every public
+object's `public_url` points there instead:
+
+```
+MOOGO_CDN_URL=https://cdn.moogo.example.com
+```
+
+`deploy.sh` reads that value from the env file and, when it is set, writes a
+`cdn.<domain>` server block that serves **only `/pub/`** (everything else is a
+`404`) with its own certificate. Point that host's `A`/`AAAA` record at the
+machine first, then re-run `deploy.sh`; the same certificate note as `news.`
+applies while the record is missing. A private object keeps its authenticated
+`url` on the API host — the CDN host never carries a route that needs a project
+credential.
+
 ### Defaults, verbatim from `internal/config/config.go`
 
 | Variable | Default |
@@ -245,6 +265,7 @@ limit on your whole user base.
 | `MOOGO_DATA_DIR` | `/data` |
 | `MOOGO_PUBLIC_URL` | `http://localhost:8080` |
 | `MOOGO_NEWS_URL` | `http://127.0.0.1:8081` (the news service; when it is down the dashboard's What's-new list is empty) |
+| `MOOGO_CDN_URL` | `MOOGO_API_URL` (no separate CDN host; public objects are served from the data plane) |
 | `MOOGO_ENV` | `development` |
 | `MOOGO_COOKIE_SECURE` | `true` |
 | `MOOGO_TRUSTED_PROXIES` | `""` (header ignored) |

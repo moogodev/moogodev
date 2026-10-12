@@ -14,6 +14,8 @@ Works with PHP 8.1+, no framework required.
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
 export MOOGO_SECRET_KEY="moogo_..."
 export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 ```
@@ -27,6 +29,7 @@ export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 $projectUrl = $_ENV['MOOGO_PROJECT_URL'] ?? getenv('MOOGO_PROJECT_URL');
 $secretKey = $_ENV['MOOGO_SECRET_KEY'] ?? getenv('MOOGO_SECRET_KEY');
 $bucketEndpoint = $_ENV['MOOGO_BUCKET_ENDPOINT'] ?? getenv('MOOGO_BUCKET_ENDPOINT');
+$cdnUrl = rtrim($_ENV['MOOGO_CDN_URL'] ?? getenv('MOOGO_CDN_URL') ?: '', '/');
 $bucketAccessKeyId = $_ENV['MOOGO_BUCKET_ACCESS_KEY_ID'] ?? getenv('MOOGO_BUCKET_ACCESS_KEY_ID');
 $bucketSecretKey = $_ENV['MOOGO_BUCKET_SECRET_KEY'] ?? getenv('MOOGO_BUCKET_SECRET_KEY');
 
@@ -108,7 +111,8 @@ function storageRequest(string $method, string $path, $body = null, array $extra
 }
 
 function bucketUpload(string $key, string $content, string $contentType): array {
-    return json_decode(storageRequest("POST", "/{$key}", $content, ["Content-Type: {$contentType}"]), true);
+    $path = implode('/', array_map('rawurlencode', explode('/', $key)));
+    return json_decode(storageRequest("POST", "/{$path}", $content, ["Content-Type: {$contentType}"]), true);
 }
 
 function bucketDownload(string $key): string {
@@ -124,14 +128,28 @@ function bucketList(?string $prefix = null): array {
     return json_decode(storageRequest("GET", $path), true);
 }
 
+function bucketPublish(string $key): array {
+    $path = implode('/', array_map('rawurlencode', explode('/', $key)));
+    $body = json_encode(["is_public" => true]);
+    return json_decode(storageRequest("PATCH", "/{$path}", $body, ["Content-Type: application/json"]), true);
+}
+
 function bucketPublicUrl(string $key): string {
-    global $bucketEndpoint;
+    global $bucketEndpoint, $cdnUrl;
     // /pub/<project-id>/<key> is the route that needs no credential. The bucket
     // endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated
     // URL, and a browser tab carries no storage credential, so an <img> pointed at
-    // one breaks for every private object. This serves published objects only.
+    // one breaks for every private object. This serves published objects only: a
+    // fresh upload is private, so publish it with bucketPublish first. Until then,
+    // public_url in the response is an empty string. When MOOGO_CDN_URL is set,
+    // public objects are served from that CDN host instead of the bucket endpoint.
     $publicBase = preg_replace('#/p/([^/]+)/bucket/?$#', '/pub/$1', $bucketEndpoint);
-    return "{$publicBase}/{$key}";
+    if ($cdnUrl !== '') {
+        // Keep the /pub/<project-id> path, swap only the scheme and host.
+        $publicBase = preg_replace('#^https?://[^/]+#', $cdnUrl, $publicBase);
+    }
+    $path = implode('/', array_map('rawurlencode', explode('/', $key)));
+    return "{$publicBase}/{$path}";
 }
 
 // errorCode rather than code: Exception already has an int $code, and
@@ -179,7 +197,9 @@ foreach ($users as $user) {
 require 'moogo.php';
 
 $content = file_get_contents("avatar.png");
-bucketUpload("avatars/kit.png", $content, "image/png");
+$key = "avatars/kit.png";
+bucketUpload($key, $content, "image/png");
+bucketPublish($key);
 
 $files = bucketList("avatars/");
 foreach ($files['objects'] as $obj) {
@@ -189,7 +209,7 @@ foreach ($files['objects'] as $obj) {
 $download = bucketDownload("avatars/kit.png");
 file_put_contents("kit-download.png", $download);
 
-echo "Public URL: " . bucketPublicUrl("public/logo.png") . "\n";
+echo "Public URL: " . bucketPublicUrl($key) . "\n";
 ```
 
 ## Error handling
@@ -202,8 +222,6 @@ try {
         echo "SQLite error: {$e->detail}\n";
     } elseif ($e->errorCode === 'database_too_large') {
         echo "Project hit 250 MB limit\n";
-    } elseif ($e->getCode() === 401) {
-        echo "Invalid or rotated secret key\n";
     }
     throw $e;
 }

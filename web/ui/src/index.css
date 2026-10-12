@@ -113,6 +113,15 @@
     padding-block: 2rem;
   }
 
+  /* A phone has no gutter to spare: two rem on each side of a 360px screen is
+     a fifth of the width gone before any content. Tighten it on the narrowest
+     screens only; from sm: up the original padding is right. */
+  @media (max-width: 639px) {
+    .page-shell {
+      padding-inline: 1rem;
+    }
+  }
+
   /* surface is a card sitting on the page background.
 
      Flat by design: no fill and no shadow, so a card is defined entirely by its

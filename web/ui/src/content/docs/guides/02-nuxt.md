@@ -14,6 +14,8 @@ Works with Server Routes, Composables, and Nitro (Edge/Node).
 MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
 MOOGO_SECRET_KEY=moogo_...
 MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+# Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
+MOOGO_CDN_URL=https://cdn.moogo.dev
 MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
 MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 ```
@@ -24,9 +26,12 @@ export default defineNuxtConfig({
   runtimeConfig: {
     moogoProjectUrl: process.env.MOOGO_PROJECT_URL,
     moogoSecretKey: process.env.MOOGO_SECRET_KEY,
-    moogoBucketEndpoint: process.env.MOOGO_BUCKET_ENDPOINT,
-    moogoBucketAccessKeyId: process.env.MOOGO_BUCKET_ACCESS_KEY_ID,
-    moogoBucketSecretKey: process.env.MOOGO_BUCKET_SECRET_KEY,
+    public: {
+      moogoBucketEndpoint: process.env.MOOGO_BUCKET_ENDPOINT,
+      moogoCdnUrl: process.env.MOOGO_CDN_URL,
+      moogoBucketAccessKeyId: process.env.MOOGO_BUCKET_ACCESS_KEY_ID,
+      moogoBucketSecretKey: process.env.MOOGO_BUCKET_SECRET_KEY,
+    },
   },
 });
 ```
@@ -40,9 +45,10 @@ export const useMoogo = () => {
 
   const PROJECT_URL = config.moogoProjectUrl as string;
   const SECRET_KEY = config.moogoSecretKey as string;
-  const BUCKET_ENDPOINT = config.moogoBucketEndpoint as string;
-  const BUCKET_ACCESS_KEY_ID = config.moogoBucketAccessKeyId as string;
-  const BUCKET_SECRET_KEY = config.moogoBucketSecretKey as string;
+  const BUCKET_ENDPOINT = config.public.moogoBucketEndpoint as string;
+  const CDN_URL = ((config.public.moogoCdnUrl as string) ?? "").replace(/\/+$/, "");
+  const BUCKET_ACCESS_KEY_ID = config.public.moogoBucketAccessKeyId as string;
+  const BUCKET_SECRET_KEY = config.public.moogoBucketSecretKey as string;
 
   const SQL_HEADERS = {
     Authorization: `Bearer ${SECRET_KEY}`,
@@ -106,13 +112,16 @@ export const useMoogo = () => {
 const encodeKey = (key: string) =>
   key.split("/").map(encodeURIComponent).join("/");
 
+// Public objects are served from the CDN host when MOOGO_CDN_URL is set.
 // The public route is /pub/<project-id>/<key> and needs no credential. The
 // bucket endpoint is not it: /p/<project-id>/bucket/<key> is the authenticated
 // URL, and a browser tab carries no storage credential, so an <img> pointed at
 // one breaks for every private object. This serves published objects only --
 // before you publish, the response's public_url is an empty string.
-const publicBase = () =>
-  BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+function publicBase(): string {
+  const base = BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+  return CDN_URL ? base.replace(/^https?:\/\/[^/]+/, CDN_URL) : base;
+}
 
   // ── Bucket ─────────────────────────────────────────────────────────
   async function bucketUpload(key: string, body: BodyInit, contentType: string) {
@@ -146,6 +155,18 @@ const publicBase = () =>
     return handle(res as any);
   }
 
+  // Publish an object so its public URL resolves. Uploads are private by
+  // default, and public_url stays an empty string until this is called.
+  async function bucketPublish(key: string) {
+    const res = await $fetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
+      method: "PATCH",
+      headers: { ...STORAGE_HEADERS, "Content-Type": "application/json" },
+      body: { is_public: true },
+    });
+    return handle(res as any);
+  }
+
+  // Public download (no auth needed once the object is published)
   function bucketPublicUrl(key: string): string {
     return `${publicBase()}/${encodeKey(key)}`;
   }
@@ -159,6 +180,7 @@ const publicBase = () =>
     bucketDownload,
     bucketDelete,
     bucketList,
+    bucketPublish,
     bucketPublicUrl,
   };
 };
@@ -219,16 +241,21 @@ export default defineEventHandler(async (event) => {
 ```vue
 <!-- components/AvatarUpload.vue -->
 <script setup lang="ts">
-const { bucketUpload, bucketPublicUrl } = useMoogo();
+const { bucketUpload, bucketPublish, bucketPublicUrl } = useMoogo();
 
 const uploading = ref(false);
+const publicUrl = ref("");
 
 async function onUpload(e: Event) {
   const input = e.target as HTMLInputElement;
   if (!input.files?.[0]) return;
   uploading.value = true;
   const file = input.files[0];
-  await bucketUpload(`avatars/${file.name}`, file, file.type);
+  const key = `avatars/${file.name}`;
+  await bucketUpload(key, file, file.type);
+  // Uploads are private by default — publish so the public URL resolves.
+  await bucketPublish(key);
+  publicUrl.value = bucketPublicUrl(key);
   uploading.value = false;
 }
 </script>
@@ -236,6 +263,7 @@ async function onUpload(e: Event) {
 <template>
   <input type="file" @change="onUpload" :disabled="uploading" />
   <p v-if="uploading">Uploading…</p>
+  <img v-if="publicUrl" :src="publicUrl" alt="" />
 </template>
 ```
 

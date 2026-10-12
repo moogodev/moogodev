@@ -106,6 +106,12 @@ tab does not carry a storage credential, so the image would break for every
 private object. `public_url` is an empty string until the object is published —
 a value you can test for, rather than a missing field.
 
+`url` and `preview_url` are always built from the API origin. `public_url` is
+built from the deployment's CDN origin (`MOOGO_CDN_URL`) when it has one, so a
+published object is served — and can be cached — on a host of its own rather
+than on the credential-bearing API host. With no CDN configured it falls back to
+the API origin.
+
 ### Upload limits
 
 - **Per object:** the bucket's `max_object_size_bytes`, or the project ceiling if
@@ -142,11 +148,15 @@ curl -I "$ENDPOINT/avatars/kit.png" \
 ## Public download
 
 ```bash
-curl https://api.moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
+curl https://cdn.moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png
 ```
 
-No headers. Serves only objects that were published; anything else returns `404`,
-so a private object is indistinguishable from a missing one.
+No headers. This host is the CDN origin (`MOOGO_CDN_URL`); a deployment without
+one serves the same route from the API host. It serves only objects that were
+published; anything else returns `404`, so a private object is
+indistinguishable from a missing one. Responses carry
+`Cross-Origin-Resource-Policy: cross-origin`, so a page on any other domain can
+embed them in an `<img>`, a `<video>`, or CSS.
 
 ## List objects
 
@@ -186,22 +196,34 @@ Response:
 
 ## Update an object
 
-`PATCH` changes an object's metadata or key.
+`PATCH` targets one object at `$ENDPOINT/{key}` and changes either its key or its
+visibility. Send `new_key` to rename or move, `is_public` to publish or unpublish.
 
 **Rename or move:**
 
-```json
-{ "rename_to": "avatars/2026/kit.png" }
+```bash
+curl -X PATCH "$ENDPOINT/avatars/kit.png" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"new_key": "avatars/2026/kit.png"}'
 ```
 
 **Publish or unpublish:**
 
-```json
-{ "is_public": true }
+```bash
+curl -X PATCH "$ENDPOINT/avatars/kit.png" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"is_public": true}'
 ```
 
-Renaming moves the file and updates its record atomically from the caller's point
-of view; the object keeps its identity and `id`.
+`true` publishes the object and fills in its `public_url`; `false` makes it
+private again and empties the field. Renaming moves the file and updates its
+record atomically from the caller's point of view; the object keeps its identity
+and `id`. A rename never changes visibility — if a body carries both `new_key` and
+`is_public`, the rename wins and the visibility is left as it was.
 
 ## Delete
 

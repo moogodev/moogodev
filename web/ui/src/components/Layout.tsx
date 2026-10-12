@@ -93,7 +93,14 @@ function SiteHeader() {
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
 
+  // The mobile menu is a sibling of the header, not a child. The header sets
+  // backdrop-blur, and backdrop-filter makes an element the containing block for
+  // its fixed-position descendants: a `fixed inset-0` menu inside it would be
+  // sized to the 66px bar and paint over the hamburger, hiding the close icon.
+  // Outside the header it is viewport-relative and the header (z-50) still sits
+  // above the menu (z-40), so the hamburger-to-X control stays visible.
   return (
+    <>
     <header className="sticky top-0 z-50 border-b border-edge bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex h-[66px] w-full max-w-[1120px] items-center gap-7 px-6">
         <Brand />
@@ -180,6 +187,7 @@ function SiteHeader() {
           </Link>
         )}
       </div>
+    </header>
 
       {/* Mobile menu */}
       {mobileMenuOpen && (
@@ -237,7 +245,7 @@ function SiteHeader() {
           </div>
         </div>
       )}
-    </header>
+    </>
   );
 }
 

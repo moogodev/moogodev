@@ -30,6 +30,14 @@ type Config struct {
 	// plain HTTP. Defaults to PublicURL, which is what a single-host
 	// deployment wants.
 	APIURL string
+	// CDNURL is the origin published objects are served from, so the URL a
+	// client is given for a public object points at the CDN host rather than
+	// at the data plane. It is the base of an object's public_url; the
+	// authenticated url keeps using APIURL, so a private object never leaks
+	// the CDN host and a public one never carries an API credential route.
+	// Defaults to APIURL, which is what a deployment with no separate CDN
+	// host wants.
+	CDNURL string
 	// NewsURL is the What's-new service whose published posts feed the
 	// dashboard's update list. The list is fetched over loopback and served
 	// on this origin, so the news service needs no CORS route. The default
@@ -207,6 +215,7 @@ func Load() (Config, error) {
 		Addr:            reader.string("MOOGO_ADDR", "127.0.0.1:8080"),
 		PublicURL:       strings.TrimRight(reader.string("MOOGO_PUBLIC_URL", "http://localhost:8080"), "/"),
 		APIURL:          strings.TrimRight(reader.string("MOOGO_API_URL", ""), "/"),
+		CDNURL:          strings.TrimRight(reader.string("MOOGO_CDN_URL", ""), "/"),
 		NewsURL:         strings.TrimRight(reader.string("MOOGO_NEWS_URL", "http://127.0.0.1:8081"), "/"),
 		ReadTimeout:     reader.duration("MOOGO_READ_TIMEOUT", 15*time.Second),
 		IdleTimeout:     reader.duration("MOOGO_IDLE_TIMEOUT", 120*time.Second),
@@ -263,6 +272,12 @@ func Load() (Config, error) {
 	// off from the dashboard; otherwise the two are the same host.
 	if cfg.APIURL == "" {
 		cfg.APIURL = cfg.PublicURL
+	}
+	// Published objects are served from a CDN host when the deployment has
+	// one; without it they are served from the same origin as the data plane,
+	// so public_url is never empty and never points at nothing.
+	if cfg.CDNURL == "" {
+		cfg.CDNURL = cfg.APIURL
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err

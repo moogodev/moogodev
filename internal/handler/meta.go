@@ -89,7 +89,9 @@ func (handler *Meta) Robots(w http.ResponseWriter, r *http.Request) {
 		"Disallow: /pub/\n" +
 		"Allow: /\n" +
 		"\n" +
-		"Sitemap: " + handler.publicURL + "/sitemap.xml\n"
+		"Sitemap: " + handler.publicURL + "/sitemap.xml\n" +
+		"# AI agents: a plain-text index of the documentation is at " +
+		handler.publicURL + "/llms.txt\n"
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")

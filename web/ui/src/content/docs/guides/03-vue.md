@@ -12,6 +12,8 @@ npm i ofetch  # or use built-in fetch (modern browsers)
 
 ```env
 VITE_MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+# Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
+VITE_MOOGO_CDN_URL=https://cdn.moogo.dev
 VITE_MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
 VITE_MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 ```
@@ -23,9 +25,10 @@ VITE_MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 
 ```ts
 // composables/useMoogoBucket.ts
-import { ofetch } from "ofetch";
+import { ofetch, type FetchResponse } from "ofetch";
 
 const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BUCKET_ENDPOINT!;
+const CDN_URL = (import.meta.env.VITE_MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const BUCKET_ACCESS_KEY_ID = import.meta.env.VITE_MOOGO_BUCKET_ACCESS_KEY_ID!;
 const BUCKET_SECRET_KEY = import.meta.env.VITE_MOOGO_BUCKET_SECRET_KEY!;
 
@@ -38,12 +41,15 @@ const STORAGE_HEADERS = {
 const encodeKey = (key: string) =>
   key.split("/").map(encodeURIComponent).join("/");
 
+// Public objects are served from the CDN host when VITE_MOOGO_CDN_URL is set.
 // The public route is /pub/<project-id>/<key> and needs no credential. The
 // bucket endpoint is not it: /p/<project-id>/bucket/<key> is the authenticated
 // URL, so an <img> pointed at one breaks for every private object. This serves
 // published objects only.
-const publicBase = () =>
-  BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+function publicBase(): string {
+  const base = BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+  return CDN_URL ? base.replace(/^https?:\/\/[^/]+/, CDN_URL) : base;
+}
 
 export function useMoogoBucket() {
   async function upload(key: string, file: File) {
@@ -54,8 +60,18 @@ export function useMoogoBucket() {
     });
   }
 
-  async function download(key: string): Promise<Blob> {
-    return ofetch.raw(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
+  // Uploads are private by default, so an uploaded object has to be published
+  // before its public URL resolves.
+  async function publish(key: string) {
+    return ofetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
+      method: "PATCH",
+      headers: { ...STORAGE_HEADERS, "Content-Type": "application/json" },
+      body: { is_public: true },
+    });
+  }
+
+  async function download(key: string): Promise<FetchResponse<Blob>> {
+    return ofetch.raw<Blob>(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
       headers: STORAGE_HEADERS,
       responseType: "blob",
     });
@@ -78,7 +94,7 @@ export function useMoogoBucket() {
     return `${publicBase()}/${encodeKey(key)}`;
   }
 
-  return { upload, download, remove, list, publicUrl };
+  return { upload, publish, download, remove, list, publicUrl };
 }
 ```
 
@@ -89,7 +105,7 @@ export function useMoogoBucket() {
 <script setup lang="ts">
 import { useMoogoBucket } from "@/composables/useMoogoBucket";
 
-const { upload, publicUrl, list } = useMoogoBucket();
+const { upload, publish, publicUrl, list } = useMoogoBucket();
 const files = ref<{ key: string; url: string }[]>([]);
 const uploading = ref(false);
 
@@ -98,7 +114,10 @@ async function onUpload(e: Event) {
   if (!input.files?.length) return;
   uploading.value = true;
   for (const file of input.files) {
-    await upload(`uploads/${file.name}`, file);
+    const key = `uploads/${file.name}`;
+    await upload(key, file);
+    // Uploads are private by default — publish so the public URL resolves.
+    await publish(key);
   }
   await refresh();
   uploading.value = false;

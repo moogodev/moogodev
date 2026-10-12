@@ -53,6 +53,39 @@ func TestDefaultAddrBindsLoopback(t *testing.T) {
 	}
 }
 
+// TestCDNURLDefaultsToTheAPIURL pins the single-host case: a deployment with
+// no CDN host hands public objects out on the data plane, so a public_url is
+// never empty and never points at nothing.
+func TestCDNURLDefaultsToTheAPIURL(t *testing.T) {
+	cfg, err := loadWith(t, nil)
+	if err != nil {
+		t.Fatalf("defaults should be valid: %v", err)
+	}
+
+	if cfg.CDNURL != cfg.APIURL {
+		t.Errorf("CDNURL = %q, want the API URL %q when no CDN host is set", cfg.CDNURL, cfg.APIURL)
+	}
+}
+
+// TestCDNURLIsReadAndTrimmed checks the split-host case: the CDN origin is
+// taken from the environment, has no trailing slash, and does not drag the API
+// origin with it.
+func TestCDNURLIsReadAndTrimmed(t *testing.T) {
+	cfg, err := loadWith(t, map[string]string{
+		"MOOGO_CDN_URL": "https://cdn.moogo.dev/",
+	})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if cfg.CDNURL != "https://cdn.moogo.dev" {
+		t.Errorf("CDNURL = %q, want the trailing slash trimmed", cfg.CDNURL)
+	}
+	if cfg.APIURL == cfg.CDNURL {
+		t.Errorf("APIURL should stay the data-plane origin, got %q", cfg.APIURL)
+	}
+}
+
 func TestObjectCapIsSeparateFromTheJSONBodyCap(t *testing.T) {
 	cfg, err := loadWith(t, nil)
 	if err != nil {

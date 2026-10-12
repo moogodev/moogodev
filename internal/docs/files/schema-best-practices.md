@@ -17,7 +17,7 @@ migration file. This gives you full control but requires discipline.
 
 ```javascript
 // Run DDL via /exec endpoint
-await sql(`
+await run(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
@@ -183,7 +183,7 @@ async function batchInsert(table, rows) {
     const placeholders = columns.map(() => `(${columns.map(() => "?").join(",")})`).join(",");
     const args = chunk.flatMap((row) => columns.map((column) => row[column]));
 
-    await sql(
+    await run(
       `INSERT INTO ${table} (${columns.join(",")}) VALUES ${placeholders}`,
       args,
     );
@@ -233,7 +233,7 @@ async function queryIndexes(table) {
 
 async function createIndex(table, columns) {
   const name = `idx_${table}_${columns.join("_")}`;
-  await sql(
+  await run(
     `CREATE INDEX IF NOT EXISTS ${quoteIdent(name)} ON ${quoteIdent(table)} (${columns.map(quoteIdent).join(", ")})`,
   );
   return name;
@@ -325,10 +325,10 @@ CREATE INDEX idx_posts_published ON posts(published, created_at DESC); -- WHERE 
 
 ```javascript
 // ✅ Correct - parameterized
-await sql("SELECT * FROM users WHERE email = ?", [email]);
+await run("SELECT * FROM users WHERE email = ?", [email]);
 
 // ❌ NEVER - string interpolation (SQL injection: the value becomes syntax)
-await sql(`SELECT * FROM users WHERE email = '${email}'`);
+await run(`SELECT * FROM users WHERE email = '${email}'`);
 ```
 
 ### 2. Use Explicit Column Lists
@@ -383,7 +383,6 @@ Before running migrations in production:
 - [ ] Use `IF NOT EXISTS` / `IF EXISTS` for idempotency
 - [ ] Run during low-traffic window
 - [ ] Have rollback plan (backup before migrate)
-- [ ] Run `PRAGMA foreign_keys = ON` (Moogo does this by default)
 - [ ] Test rollback locally first
 - [ ] Send each file as one `/transaction` batch, so a failure applies nothing
 
@@ -443,7 +442,7 @@ across route handlers:
 
 ```javascript
 // repositories/todos.js
-import { all, sql, transaction } from "../lib/moogo.js";
+import { all, run, transaction } from "../lib/moogo.js";
 
 export const todos = {
   byId: (id) => all("SELECT * FROM todos WHERE id = ?", [id]).then((r) => r[0] ?? null),
@@ -451,13 +450,13 @@ export const todos = {
   // The rowid comes back on the insert itself, so create() returns a usable id
   // without the follow-up SELECT it used to need.
   open: async (id, title) => {
-    const result = await sql("INSERT INTO todos (id, title) VALUES (?, ?)", [id, title]);
-    await sql("INSERT INTO activity (todo_id, action) VALUES (?, 'created')", [id]);
+    const result = await run("INSERT INTO todos (id, title) VALUES (?, ?)", [id, title]);
+    await run("INSERT INTO activity (todo_id, action) VALUES (?, 'created')", [id]);
     return result.last_insert_rowid;
   },
 
   done: (id, at = new Date().toISOString()) =>
-    sql("UPDATE todos SET done = 1, completed_at = ? WHERE id = ?", [at, id]),
+    run("UPDATE todos SET done = 1, completed_at = ? WHERE id = ?", [at, id]),
 };
 ```
 
@@ -513,7 +512,7 @@ Do not cache rows. What you cache is what you stop being able to trust.
 A read returns at most 1000 rows and says so:
 
 ```javascript
-const result = await sql("SELECT * FROM todos ORDER BY created_at");
+const result = await run("SELECT * FROM todos ORDER BY created_at");
 if (result.truncated) {
   // Not the whole table. Page through it, or narrow the query.
 }

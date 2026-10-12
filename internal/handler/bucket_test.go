@@ -554,7 +554,7 @@ func testBucketPlane(t *testing.T, quota int64) (*BucketPlane, *fakeBucketStore,
 	projectID := uuid.New()
 	store := newFakeBucketStore(projectID)
 	fs := newFakeObjectFS()
-	return NewBucketPlane(store, fs, quota, "", logger.Nop()), store, fs
+	return NewBucketPlane(store, fs, quota, "", "", logger.Nop()), store, fs
 }
 
 // requestContext builds a context carrying a project id and an object key, which
@@ -828,6 +828,12 @@ func TestPublicDownloadServesAPublishedObject(t *testing.T) {
 	if got := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(got, "sandbox") {
 		t.Fatalf("Content-Security-Policy = %q, want a sandbox directive", got)
 	}
+	// A published object is served to be embedded on other origins, so CORP
+	// must relax to cross-origin even though every other response the API
+	// writes stays same-origin.
+	if got := recorder.Header().Get("Cross-Origin-Resource-Policy"); got != "cross-origin" {
+		t.Fatalf("Cross-Origin-Resource-Policy = %q, want cross-origin", got)
+	}
 }
 
 func TestPublicDownloadHidesPrivateObjectsBehindNotFound(t *testing.T) {
@@ -965,6 +971,12 @@ func TestPrivateDownloadIsNotStoredByIntermediaries(t *testing.T) {
 	got := recorder.Header().Get("Cache-Control")
 	if strings.Contains(got, "public") || !strings.Contains(got, "private") {
 		t.Fatalf("Cache-Control = %q, want a private directive for an authorized response", got)
+	}
+	// The opposite of a published object: a private download is authorized for
+	// one client, so CORP stays at the same-origin default and a page on
+	// another origin cannot read the bytes.
+	if got := recorder.Header().Get("Cross-Origin-Resource-Policy"); got != "same-origin" {
+		t.Fatalf("Cross-Origin-Resource-Policy = %q, want same-origin", got)
 	}
 }
 
@@ -2364,7 +2376,7 @@ func TestPublicURLUsesTheConfiguredOriginNotTheRequestHost(t *testing.T) {
 	// that will still work when they paste it into their own site.
 	store := newFakeBucketStore(uuid.New())
 	fs := newFakeObjectFS()
-	plane := NewBucketPlane(store, fs, 1<<20, "https://moogo.dev", logger.Nop())
+	plane := NewBucketPlane(store, fs, 1<<20, "https://moogo.dev", "", logger.Nop())
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "logo.png", 4, "image/png")
 	if _, err := store.SetObjectPublic(
@@ -2387,6 +2399,55 @@ func TestPublicURLUsesTheConfiguredOriginNotTheRequestHost(t *testing.T) {
 
 	if !strings.HasPrefix(response.PublicURL, "https://moogo.dev/pub/") {
 		t.Fatalf("public_url = %q, want the configured origin", response.PublicURL)
+	}
+}
+
+func TestPublicURLUsesTheCDNOriginWhileTheURLUsesTheAPIOrigin(t *testing.T) {
+	// The two origins are deliberately apart: url is the data plane a client
+	// application talks to with a project credential, and public_url is the
+	// CDN host a published object is served and cached from. A private object
+	// must not carry the CDN host, and a public one must not carry the API
+	// host.
+	store := newFakeBucketStore(uuid.New())
+	fs := newFakeObjectFS()
+	plane := NewBucketPlane(
+		store, fs, 1<<20,
+		"https://api.moogo.dev", "https://cdn.moogo.dev", logger.Nop(),
+	)
+	bucket := store.addBucket("default")
+	store.addObject(bucket, "logo.png", 4, "image/png")
+
+	request := httptest.NewRequest(http.MethodGet, "/bucket/x", nil).WithContext(
+		requestContext(store.projectID, "logo.png"),
+	)
+
+	private, err := store.ObjectByKey(context.Background(), store.projectID, "logo.png")
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	privateResponse := plane.objectResponse(request, store.projectID, bucket.Name, private)
+	if !strings.HasPrefix(privateResponse.URL, "https://api.moogo.dev/p/") {
+		t.Fatalf("url = %q, want the API origin", privateResponse.URL)
+	}
+	if privateResponse.PublicURL != "" {
+		t.Fatalf("public_url = %q, want empty while private", privateResponse.PublicURL)
+	}
+
+	if _, err := store.SetObjectPublic(
+		context.Background(), store.projectID, "logo.png", true,
+	); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	published, err := store.ObjectByKey(context.Background(), store.projectID, "logo.png")
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	publishedResponse := plane.objectResponse(request, store.projectID, bucket.Name, published)
+	if !strings.HasPrefix(publishedResponse.URL, "https://api.moogo.dev/p/") {
+		t.Fatalf("url = %q, want the API origin", publishedResponse.URL)
+	}
+	if !strings.HasPrefix(publishedResponse.PublicURL, "https://cdn.moogo.dev/pub/") {
+		t.Fatalf("public_url = %q, want the CDN origin", publishedResponse.PublicURL)
 	}
 }
 

@@ -14,6 +14,8 @@ Works with stdlib only (Python 3.11+). No dependencies.
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
 export MOOGO_SECRET_KEY="moogo_..."
 export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+# Optional: origin public objects are served from; falls back to the bucket endpoint origin when empty.
+export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 ```
@@ -32,6 +34,8 @@ from urllib.parse import quote
 PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
 SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
 BUCKET_ENDPOINT = os.environ["MOOGO_BUCKET_ENDPOINT"]
+# Optional CDN origin for public objects; falls back to the bucket endpoint origin when empty.
+CDN_URL = os.environ.get("MOOGO_CDN_URL", "").rstrip("/")
 BUCKET_ACCESS_KEY_ID = os.environ["MOOGO_BUCKET_ACCESS_KEY_ID"]
 BUCKET_SECRET_KEY = os.environ["MOOGO_BUCKET_SECRET_KEY"]
 
@@ -67,13 +71,15 @@ def _post(path: str, query: str, args: list[Any] = None) -> dict:
         with urllib.request.urlopen(req) as resp:
             return json.load(resp)
     except urllib.error.HTTPError as exc:
-        raise MoogoError(_error_from(exc)) from exc
+        raise MoogoError(_error_from(exc), exc.code) from exc
 
 class MoogoError(Exception):
-    def __init__(self, error: dict):
+    def __init__(self, error: dict, status: int = None):
         self.code = error.get("code")
         self.message = error.get("message")
         self.detail = error.get("detail")
+        # The HTTP status, so callers can branch on 401/403 and the like.
+        self.status = status
         super().__init__(self.message)
 
 def is_read(sql: str) -> bool:
@@ -127,20 +133,28 @@ def bucket_delete(key: str) -> dict:
 def bucket_list(prefix: str = None) -> dict:
     url = BUCKET_ENDPOINT
     if prefix:
-        url += f"?prefix={prefix}"
+        url += f"?prefix={quote(prefix, safe='')}"
     req = urllib.request.Request(url, headers=STORAGE_HEADERS)
     with urllib.request.urlopen(req) as resp:
         return json.load(resp)
+
+def bucket_publish(key: str) -> dict:
+    body = json.dumps({"is_public": True}).encode()
+    return _storage_request(
+        "PATCH", f"/{quote(key, safe='/')}", body=body, headers={"Content-Type": "application/json"}
+    )
 
 def bucket_public_url(key: str) -> str:
     # /pub/<project-id>/<key> is the route that needs no credential. The bucket
     # endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated URL,
     # and a browser tab carries no storage credential, so an <img> pointed at one
-    # breaks for every private object. This serves published objects only: until
-    # you publish, public_url in the response is an empty string.
+    # breaks for every private object. This serves published objects only: a fresh
+    # upload is private, so publish it with bucket_publish first. Until then,
+    # public_url in the response is an empty string. Public objects are served
+    # from the CDN origin (CDN_URL) when set, otherwise from the bucket endpoint.
     origin, _, tail = BUCKET_ENDPOINT.partition("/p/")
     project_id = tail.split("/")[0]
-    return f"{origin}/pub/{project_id}/{quote(key, safe='/')}"
+    return f"{CDN_URL or origin}/pub/{project_id}/{quote(key, safe='/')}"
 ```
 
 ## Usage — SQLite
@@ -169,7 +183,7 @@ print(users)
 ## Usage — Bucket
 
 ```python
-from moogo import bucket_upload, bucket_download, bucket_delete, bucket_list, bucket_public_url
+from moogo import bucket_upload, bucket_download, bucket_delete, bucket_list, bucket_publish, bucket_public_url
 
 # Upload
 with open("avatar.png", "rb") as f:
@@ -181,8 +195,9 @@ content = bucket_download("avatars/kit.png")
 # List
 objects = bucket_list("avatars/")["objects"]
 
-# Public URL
-print(bucket_public_url("public/logo.png"))
+# Publish, then read the public URL
+bucket_publish("avatars/kit.png")
+print(bucket_public_url("avatars/kit.png"))
 ```
 
 ## Error handling

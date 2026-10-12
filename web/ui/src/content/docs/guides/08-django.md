@@ -16,6 +16,8 @@ import os
 MOOGO_PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
 MOOGO_SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
 MOOGO_BUCKET_ENDPOINT = os.environ["MOOGO_BUCKET_ENDPOINT"]
+# Optional: origin public objects are served from; falls back to the bucket endpoint origin when empty.
+MOOGO_CDN_URL = os.environ.get("MOOGO_CDN_URL", "")
 MOOGO_BUCKET_ACCESS_KEY_ID = os.environ["MOOGO_BUCKET_ACCESS_KEY_ID"]
 MOOGO_BUCKET_SECRET_KEY = os.environ["MOOGO_BUCKET_SECRET_KEY"]
 ```
@@ -42,6 +44,8 @@ class MoogoClient:
         self.project_url = settings.MOOGO_PROJECT_URL
         self.secret_key = settings.MOOGO_SECRET_KEY
         self.bucket_endpoint = settings.MOOGO_BUCKET_ENDPOINT
+        # Optional CDN origin for public objects; falls back to the bucket endpoint origin when empty.
+        self.cdn_url = getattr(settings, "MOOGO_CDN_URL", "").rstrip("/")
         self.bucket_access_key_id = settings.MOOGO_BUCKET_ACCESS_KEY_ID
         self.bucket_secret_key = settings.MOOGO_BUCKET_SECRET_KEY
 
@@ -97,14 +101,25 @@ class MoogoClient:
         resp = self.session.get(url, headers=self.storage_headers)
         return resp.json()
 
+    def bucket_publish(self, key: str) -> dict:
+        resp = self.session.patch(
+            f"{self.bucket_endpoint}/{quote(key, safe='/')}",
+            headers={**self.storage_headers, "Content-Type": "application/json"},
+            json={"is_public": True},
+        )
+        return resp.json()
+
     def bucket_public_url(self, key: str) -> str:
         # /pub/<project-id>/<key> is the route that needs no credential. The
         # bucket endpoint is not it -- /p/<project-id>/bucket/<key> is the
         # authenticated URL, and an <img> pointed at one breaks for every private
-        # object. This serves published objects only.
+        # object. This serves published objects only: a fresh upload is private,
+        # so publish it with bucket_publish first. Until then, public_url in the
+        # response is an empty string. Public objects are served from the CDN
+        # origin (self.cdn_url) when set, otherwise from the bucket endpoint.
         origin, _, tail = self.bucket_endpoint.partition("/p/")
         project_id = tail.split("/")[0]
-        return f"{origin}/pub/{project_id}/{quote(key, safe='/')}"
+        return f"{self.cdn_url or origin}/pub/{project_id}/{quote(key, safe='/')}"
 ```
 
 ## Singleton instance (`moogo/__init__.py`)
@@ -212,6 +227,7 @@ class UploadView(View):
     def post(self, request):
         file = request.FILES["file"]
         moogo_client.bucket_upload(f"uploads/{file.name}", file.read(), file.content_type)
+        moogo_client.bucket_publish(f"uploads/{file.name}")
         return JsonResponse({"url": moogo_client.bucket_public_url(f"uploads/{file.name}")})
 
 class ListFilesView(View):

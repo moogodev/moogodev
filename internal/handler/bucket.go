@@ -95,6 +95,17 @@ type BucketPlane struct {
 	// development deployment want.
 	publicBase string
 
+	// cdnBase is the origin public objects are served from, used for the
+	// public_url of an object that has been made public.
+	//
+	// It is separate from publicBase so a published object can be handed out
+	// on a CDN host while the authenticated url stays on the API host: a
+	// public URL is meant to be pasted into someone else's page and cached,
+	// and neither belongs on the credential-bearing data plane. Empty falls
+	// back to publicBase, and then to the request, which is what a deployment
+	// with no CDN host and a test want.
+	cdnBase string
+
 	// projectLocks serializes the final quota check and the catalog insert
 	// per project.
 	//
@@ -187,13 +198,17 @@ const defaultBucketName = "default"
 
 // NewBucketPlane creates a BucketPlane handler.
 //
-// publicBase is the origin object URLs are built from, normally the configured
-// public URL. It is empty in tests, where the request host is the right answer.
+// publicBase is the origin authenticated object URLs are built from, normally
+// the configured API URL. cdnBase is the origin public object URLs are built
+// from, normally the configured CDN URL; an empty cdnBase falls back to
+// publicBase. Both are empty in tests, where the request host is the right
+// answer.
 func NewBucketPlane(
 	store BucketStore,
 	fs FileSystem,
 	quota int64,
 	publicBase string,
+	cdnBase string,
 	log *logger.Logger,
 ) *BucketPlane {
 	return &BucketPlane{
@@ -202,6 +217,7 @@ func NewBucketPlane(
 		quota:      quota,
 		maxKeyLen:  1024,
 		publicBase: strings.TrimRight(publicBase, "/"),
+		cdnBase:    strings.TrimRight(cdnBase, "/"),
 		log:        log,
 	}
 }
@@ -627,6 +643,18 @@ func (handler *BucketPlane) writeObjectHeaders(
 	// only to the active types, because the set of types a browser will parse is
 	// larger and version-dependent than any list worth maintaining here.
 	header.Set("Content-Security-Policy", "sandbox; default-src 'none'")
+
+	// A published object exists to be embedded on other people's pages — the
+	// point of /pub/ is an <img> or <video> served into a different origin.
+	// CORP must let that embedding through, so the same-origin default the
+	// SecurityHeaders middleware applies elsewhere is relaxed here. Private
+	// object downloads keep the default: the request was authorized for one
+	// client, and its bytes must not become readable from another origin.
+	if public {
+		header.Set("Cross-Origin-Resource-Policy", "cross-origin")
+	} else {
+		header.Set("Cross-Origin-Resource-Policy", "same-origin")
+	}
 
 	// A public object is cacheable by the browser and by any CDN in front of the
 	// service. A private one must not be: the response was authorized for one
@@ -1438,7 +1466,7 @@ func (handler *BucketPlane) objectResponse(
 	}
 
 	if object.IsPublic {
-		response.PublicURL = fmt.Sprintf("%s/pub/%s/%s", base, projectID, escapedKey)
+		response.PublicURL = fmt.Sprintf("%s/pub/%s/%s", handler.publicCDNURL(r), projectID, escapedKey)
 	}
 
 	return response
@@ -2031,13 +2059,15 @@ func parseIntParam(raw string, fallback int) int {
 
 // publicBaseURL returns the origin object URLs are built from.
 //
-// The configured public URL wins when it is set, and only then are the forwarded
-// headers consulted. Trusting X-Forwarded-Host unconditionally would let any
-// caller pass an arbitrary host and have the server mint an object URL pointing
-// at a domain they control, which turns a copy button in the dashboard into a
-// way to send a user's own visitors somewhere else. A deployment that has not
-// set MOOGO_PUBLIC_URL falls back to the request, which is correct for local
-// development and for the tests.
+// It is the API origin the deployment names in MOOGO_API_URL -- the data plane
+// that actually serves /pub/ and the /p/ routes -- not the dashboard's. The
+// configured value wins when it is set, and only then are the forwarded headers
+// consulted. Trusting X-Forwarded-Host unconditionally would let any caller pass
+// an arbitrary host and have the server mint an object URL pointing at a domain
+// they control, which turns a copy button in the dashboard into a way to send a
+// user's own visitors somewhere else. A deployment that has not configured an
+// API origin falls back to the request, which is correct for local development
+// and for the tests.
 //
 // The forwarded headers are still honoured in the fallback because that is the
 // only way a single-host deployment behind a proxy gets an https URL rather than
@@ -2047,6 +2077,20 @@ func (handler *BucketPlane) publicBaseURL(r *http.Request) string {
 		return handler.publicBase
 	}
 	return publicBaseURL(r)
+}
+
+// publicCDNURL returns the origin a public object is served from.
+//
+// It is the CDN origin the deployment names in MOOGO_CDN_URL, a different host
+// from the API origin so a published object can be cached and served apart from
+// the credential-bearing data plane. When no CDN host is configured it falls
+// back to the same origin the authenticated URLs use, which keeps a single-host
+// deployment and the tests working unchanged.
+func (handler *BucketPlane) publicCDNURL(r *http.Request) string {
+	if handler.cdnBase != "" {
+		return handler.cdnBase
+	}
+	return handler.publicBaseURL(r)
 }
 
 // publicBaseURL derives the absolute origin from a request, for the fallback

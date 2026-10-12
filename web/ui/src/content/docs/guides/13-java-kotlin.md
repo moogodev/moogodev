@@ -20,6 +20,8 @@ Works with Java 17+ (HttpClient), Spring Boot, Quarkus, Micronaut, or Kotlin cor
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
 export MOOGO_SECRET_KEY="moogo_..."
 export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 ```
@@ -39,9 +41,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class Moogo {
-    private static final String PROJECT_URL = System.getenv("MOOGO_PROJECT_URL");
+    // Not final: a test can point the client at a mock server before first use.
+    static String PROJECT_URL = System.getenv("MOOGO_PROJECT_URL");
     private static final String SECRET_KEY = System.getenv("MOOGO_SECRET_KEY");
     private static final String BUCKET_ENDPOINT = System.getenv("MOOGO_BUCKET_ENDPOINT");
+    private static final String CDN_URL = System.getenv("MOOGO_CDN_URL") == null ? "" : System.getenv("MOOGO_CDN_URL").replaceAll("/+$", "");
     private static final String BUCKET_ACCESS_KEY_ID = System.getenv("MOOGO_BUCKET_ACCESS_KEY_ID");
     private static final String BUCKET_SECRET_KEY = System.getenv("MOOGO_BUCKET_SECRET_KEY");
 
@@ -95,9 +99,16 @@ public class Moogo {
     }
 
     // ── Bucket ─────────────────────────────────────────────────────────
+    // Slashes are meaningful in a key, so escape each segment and keep them.
+    private static String keyPath(String key) {
+        return java.util.Arrays.stream(key.split("/"))
+            .map(segment -> java.net.URLEncoder.encode(segment, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"))
+            .collect(java.util.stream.Collectors.joining("/"));
+    }
+
     public static CompletableFuture<Map<String, Object>> bucketUpload(String key, byte[] content, String contentType) {
         var request = HttpRequest.newBuilder()
-            .uri(URI.create(BUCKET_ENDPOINT + "/" + key))
+            .uri(URI.create(BUCKET_ENDPOINT + "/" + keyPath(key)))
             .header("X-Moogo-Access-Key-Id", BUCKET_ACCESS_KEY_ID)
             .header("Authorization", "Bearer " + BUCKET_SECRET_KEY)
             .header("Content-Type", contentType)
@@ -135,13 +146,37 @@ public class Moogo {
             });
     }
 
+    public static CompletableFuture<Map<String, Object>> bucketPublish(String key) {
+        var json = MAPPER.writeValueAsString(Map.of("is_public", true));
+        var request = HttpRequest.newBuilder()
+            .uri(URI.create(BUCKET_ENDPOINT + "/" + keyPath(key)))
+            .header("X-Moogo-Access-Key-Id", BUCKET_ACCESS_KEY_ID)
+            .header("Authorization", "Bearer " + BUCKET_SECRET_KEY)
+            .header("Content-Type", "application/json")
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(json))
+            .build();
+        return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+            .thenApply(res -> {
+                if (res.statusCode() >= 400) throw new MoogoException(res.body(), res.statusCode());
+                return MAPPER.readValue(res.body(), Map.class);
+            });
+    }
+
     public static String bucketPublicUrl(String key) {
         // /pub/<id>/<key> is the route that needs no credential. The bucket
         // endpoint is not it -- /p/<id>/bucket/<key> is the authenticated URL,
         // and an <img> pointed at one breaks for every private object. This
-        // serves published objects only.
+        // serves published objects only: a fresh upload is private, so publish it
+        // with bucketPublish first. Until then, public_url in the response is an
+        // empty string. When MOOGO_CDN_URL is set, public objects are served from
+        // that CDN host instead of the bucket endpoint.
         String base = BUCKET_ENDPOINT.replaceAll("/p/([^/]+)/bucket/?$", "/pub/$1");
-        return base + "/" + key;
+        if (!CDN_URL.isEmpty()) {
+            // Keep the /pub/<id> path, swap only the scheme and authority.
+            URI cdn = URI.create(CDN_URL);
+            base = cdn.getScheme() + "://" + cdn.getAuthority() + base.replaceFirst("^https?://[^/]+", "");
+        }
+        return base + "/" + keyPath(key);
     }
 }
 
@@ -199,8 +234,10 @@ public class Main {
 
         // Bucket
         byte[] content = Files.readAllBytes(Path.of("avatar.png"));
-        Moogo.bucketUpload("avatars/kit.png", content, "image/png").join();
-        System.out.println(Moogo.bucketPublicUrl("public/logo.png"));
+        String key = "avatars/kit.png";
+        Moogo.bucketUpload(key, content, "image/png").join();
+        Moogo.bucketPublish(key).join();
+        System.out.println(Moogo.bucketPublicUrl(key));
     }
 }
 ```
@@ -216,6 +253,7 @@ moogo:
   project-url: ${MOOGO_PROJECT_URL}
   secret-key: ${MOOGO_SECRET_KEY}
   bucket-endpoint: ${MOOGO_BUCKET_ENDPOINT}
+  cdn-url: ${MOOGO_CDN_URL}
   bucket-access-key-id: ${MOOGO_BUCKET_ACCESS_KEY_ID}
   bucket-secret-key: ${MOOGO_BUCKET_SECRET_KEY}
 ```
@@ -310,11 +348,13 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 
 object Moogo {
     private val PROJECT_URL = System.getenv("MOOGO_PROJECT_URL")!!
     private val SECRET_KEY = System.getenv("MOOGO_SECRET_KEY")!!
     private val BUCKET_ENDPOINT = System.getenv("MOOGO_BUCKET_ENDPOINT")!!
+    private val CDN_URL = System.getenv("MOOGO_CDN_URL").orEmpty().trimEnd('/')
     private val BUCKET_ACCESS_KEY_ID = System.getenv("MOOGO_BUCKET_ACCESS_KEY_ID")!!
     private val BUCKET_SECRET_KEY = System.getenv("MOOGO_BUCKET_SECRET_KEY")!!
 
@@ -347,9 +387,15 @@ object Moogo {
     }
 
     // Bucket
+    // Slashes are meaningful in a key, so escape each segment and keep them.
+    private fun keyPath(key: String) =
+        key.split("/").joinToString("/") {
+            java.net.URLEncoder.encode(it, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+        }
+
     suspend fun bucketUpload(key: String, content: ByteArray, contentType: String): Map<String, Any> {
         val request = HttpRequest.newBuilder()
-            .uri(URI.create("$BUCKET_ENDPOINT/$key"))
+            .uri(URI.create("$BUCKET_ENDPOINT/${keyPath(key)}"))
             .header("X-Moogo-Access-Key-Id", BUCKET_ACCESS_KEY_ID)
             .header("Authorization", "Bearer $BUCKET_SECRET_KEY")
             .header("Content-Type", contentType)
@@ -371,10 +417,35 @@ object Moogo {
         return response.body()
     }
 
+    suspend fun bucketPublish(key: String): Map<String, Any> {
+        val json = MAPPER.writeValueAsString(mapOf("is_public" to true))
+        val request = HttpRequest.newBuilder()
+            .uri(URI.create("$BUCKET_ENDPOINT/${keyPath(key)}"))
+            .header("X-Moogo-Access-Key-Id", BUCKET_ACCESS_KEY_ID)
+            .header("Authorization", "Bearer $BUCKET_SECRET_KEY")
+            .header("Content-Type", "application/json")
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(json))
+            .build()
+        val response = HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString()).await()
+        if (response.statusCode() >= 400) throw MoogoException(response.body(), response.statusCode())
+        return MAPPER.readValue(response.body())
+    }
+
     // /pub/<id>/<key> is the route that needs no credential; the bucket endpoint
-    // is the authenticated one, which an <img> tag cannot carry. Published only.
-    fun bucketPublicUrl(key: String) =
-        BUCKET_ENDPOINT.replace(Regex("/p/([^/]+)/bucket/?$"), "/pub/\$1") + "/" + key
+    // is the authenticated one, which an <img> tag cannot carry. Serves published
+    // objects only: a fresh upload is private, so publish it with bucketPublish
+    // first. Until then, public_url in the response is an empty string. When
+    // MOOGO_CDN_URL is set, public objects are served from that CDN host instead
+    // of the bucket endpoint.
+    fun bucketPublicUrl(key: String): String {
+        val base = BUCKET_ENDPOINT.replace(Regex("/p/([^/]+)/bucket/?$"), "/pub/\$1")
+        val publicBase = if (CDN_URL.isEmpty()) base else {
+            // Keep the /pub/<id> path, swap only the scheme and authority.
+            val cdn = URI.create(CDN_URL)
+            cdn.scheme + "://" + cdn.authority + base.replaceFirst(Regex("^https?://[^/]+"), "")
+        }
+        return "$publicBase/${keyPath(key)}"
+    }
 }
 
 class MoogoException(val body: String, val status: Int) : RuntimeException(body) {
@@ -405,8 +476,10 @@ fun main() = runBlocking {
     println(users)
 
     val content = File("avatar.png").readBytes()
-    Moogo.bucketUpload("avatars/kit.png", content, "image/png")
-    println(Moogo.bucketPublicUrl("public/logo.png"))
+    val key = "avatars/kit.png"
+    Moogo.bucketUpload(key, content, "image/png")
+    Moogo.bucketPublish(key)
+    println(Moogo.bucketPublicUrl(key))
 }
 ```
 
@@ -438,7 +511,7 @@ try (MockWebServer server = new MockWebServer()) {
         .setBody("{\"success\":true,\"columns\":[\"id\"],\"rows\":[[\"u1\"]],\"row_count\":1}"));
     server.start();
 
-    System.setProperty("MOOGO_PROJECT_URL", server.url("/").toString());
+    Moogo.PROJECT_URL = server.url("/").toString();
     // run tests...
 }
 ```

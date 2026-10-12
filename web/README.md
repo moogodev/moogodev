@@ -34,6 +34,20 @@ npm run build      # writes ../dist
 Run `npm run build` before `go build` whenever `web/ui` changes, then commit
 `web/dist` so the embedded copy matches the source.
 
+The build ends with `scripts/build-llms.mjs`, which writes machine-readable
+copies of the docs next to the bundle because a docs page is client-rendered:
+an agent that does not run JavaScript would otherwise read an empty shell. The
+Go server answers them from `web/dist`:
+
+| Path | File | Purpose |
+|---|---|---|
+| `/llms.txt` | `dist/llms.txt` | Link index of every page, grouped like the sidebar |
+| `/llms-full.txt` | `dist/llms-full.txt` | The whole corpus in one fetch |
+| `/docs/<slug>.md` | `dist/docs/<slug>.md` | One page's Markdown source |
+
+The index is generated from the sidebar order in `src/lib/docs.ts`, so the two
+cannot drift.
+
 ## Constraints
 
 The Go server sends a strict CSP with no `'unsafe-inline'` for scripts or
