@@ -753,7 +753,7 @@ Dari `/docs/limits.md`, batas-batas sudah transparan, tetapi beberapa pola prakt
 - **CTE vs subquery**: Untuk query kompleks, CTE umumnya lebih mudah dibaca dan sometimes performa lebih baik, tetapi hindari CTE yang rekurif di transaksi yang sama dengan operasi tulis, karena SQLite mungkin me-meg-lock halaman.
 - **Hindari `SELECT *`**: Nama kolom berubah akan memecah klien tanpa migrasi. Selalu nama kolom yang dibutuhkan.
 - **Database tidak menyusut**: `DELETE` membebaskan halaman segera, tetapi ruang fisik (`250 MB` ceiling) tidak berkurang hingga `VACUUM` dieksekusi (yang diblokir di Moogo). Jika proyek mendekati batas, hapus baris secara bertahap rather than one large deletion.
-- **Anomali performa mendekati batas 250 MB**: Saat penggunaan mendekati plafond, SQLite menambahkan overhead kecil untuk memeriksa batas sebelum setiap write. Monitoring penggunaan sehari-hari dan memigrasikan ke project baru sebelum mencapai 230 MB disarankan.
+- **Performance Anomalies Near the 250 MB Limit**: As usage approaches the ceiling, SQLite adds a small overhead to check the limit before every write. It is recommended to monitor daily usage and migrate to a new project before reaching 230 MB.
 
 ## Keamanan SQL
 

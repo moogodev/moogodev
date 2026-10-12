@@ -178,4 +178,4 @@ Jika masih ada istilah yang tidak jelas, lihat dokumentasi referensi berikut:
 
 ---
 
-**Selamat eksplorasi di Moogo!** Jika sudah paham segini, Anda siap membangun aplikasi kecil-menengah dengan cepat. Ingat: bacalah dokumentasi guide framework Anda, dan jaga kebiasaan membandingkan `error.code` bukan `error.message` saat handling error.
+If you already understand all of this, you are ready to build a small-to-medium Moogo application. Remember: read the framework documentation guide you are using, and get used to comparing `error.code` rather than `error.message` when handling errors.
