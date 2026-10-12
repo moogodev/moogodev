@@ -9227,16 +9227,19 @@ because someone could not tell which one they had hit.
 
 <!-- source: /docs/before-start.md -->
 
-# Before Start — Kamus untuk Pemula Moogo
+# Before Start — Dictionary for Moogo Newbies
 
-Selamat datang di Moogo! Halaman ini dibuat untuk membantu Anda yang baru
-masuk layanan memahami konsep-konsep dasar, perbedaan dengan SQLite biasa,
-dan seluruh istilah yang akan Anda temui selama menggunakan layanan ini.
+Welcome to Moogo! This page helps you who are new to the service understand
+the basic concepts, the differences with regular SQLite, and all the terms
+you will encounter while using this service.
+
+It is written as a short dictionary/reference to read before starting to build
+an application.
 Sifatnya kamus/reference singkat yang bisa Anda baca sebelum memulai pembangunan aplikasi.
 
 ---
 
-## Apa itu Moogo? 🏗️
+## Apa itu Moogo?
 
 **Moogo adalah hosted backend** yang memberikan setiap project SQLite database sendiri dan object storage, masing-masing dapat diakses melalui plain HTTP.
 
@@ -9254,7 +9257,7 @@ Masukkan ketiga variabel ini ke aplikasi Anda, dan Anda sudah bisa membaca dan m
 
 ---
 
-## SQLite over HTTP vs SQLite Biasa 🔄
+## SQLite over HTTP vs SQLite Biasa
 
 Ini adalah perbedaan fundamental yang harus Anda pahami sebelum mulai:
 
@@ -9283,11 +9286,11 @@ Ini adalah perbedaan fundamental yang harus Anda pahami sebelum mulai:
 
 ---
 
-## Kamus Istilah Penting 📚
+## Dictionary of Important Terms
 
 Berikut adalah kamus istilah-istilah yang akan Anda temui saat menggunakan Moogo. Dibaca seperti kamus kamus, satu per satu.
 
-### 🗄️ Database & Project
+### Database & Project
 
 | Istilah | Definisi |
 |---------|----------|
@@ -9299,7 +9302,7 @@ Berikut adalah kamus istilah-istilah yang akan Anda temui saat menggunakan Moogo
 | **Data Plane** | Lantai bawah yang menyimpan data aktual Anda di SQLite database per-project. Semua query `SELECT`, `INSERT`, `UPDATE`, `DELETE` dilakukan di sini. |
 | **Isolasi** | Karena setiap project punya file `.db` sendiri, tidak bisa terjadi "cross-project query" meski tahu project ID lawas. Project lain akan merespons `404`. |
 
-### 📝 SQL Endpoint & Pernyataan
+### SQL Endpoint & Statements
 
 | Istilah | Definisi |
 |---------|----------|
@@ -9312,7 +9315,7 @@ Berikut adalah kamus istilah-istilah yang akan Anda temui saat menggunakan Moogo
 | **DDL (Data Definition Language)** | Pernyataan yang mengubah struktur database: `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`, `CREATE INDEX`. Dapat dikirim ke `/exec` atau `/transaction`. |
 | **DML (Data Manipulation Language)** | Pernyataan yang memanipulasi data: `SELECT`, `INSERT`, `UPDATE`, `DELETE`. Beda endpoint untuk baca vs tulis. |
 
-### 📦 Object Storage & Bucket
+### Object Storage & Bucket
 
 | Istilah | Definisi |
 |---------|----------|
@@ -9324,9 +9327,9 @@ Berikut adalah kamus istilah-istilah yang akan Anda temui saat menggunakan Moogo
 | **Public URL** | URL yang dapat dibagikan siapa saja tanpa kredensial. **PENTING:** `public_url` bersifat **bearer token** — ini adalah URL yang bisa dibagikan siapa saja dan **tidak bisa direvoke** tanpa mengganti key atau unpublish object. Jika membagikan `public_url`, asalkan object masih dipublikasikan, siapa pun yang memiliki URL bisa mengaksesnya. **Workflow disarankan:** setelah upload, lakukan `PATCH is_public: true` jika ingin object bisa dibaca tanpa kredensial. |
 | **`/pub/{project_id}/{key}`** | Path publik untuk object yang dipublikasikan. **Wajib ada `project_id`** di jalur ini. **Jangan pernah gunakan `/pub/{key}` saja**, karena `project_id` adalah bagian wajid untuk mengidentifikasi project. |
 | **`max_object_size_bytes`** | Batas maksimal ukuran object per bucket. Jika bucket tidak set size, maka berlianya ceiling project 250 MB. |
-| **Storage Quota** | Batas total storage per project: **250 MB** across all buckets. Diamonitoring harian, jika mendekati 230 MB, migrasikan ke project baru sebelum mencapai 250 MB. Database tidak menyusut otomatis saat data dihapus — perlu VACUUM (diblokir di Moogo) atau hapus baris progressively. |
+| **Storage Quota** | Total storage limit per project: **250 MB** across all buckets. Monitor daily usage, and migrate to a new project before reaching 250 MB. Database does not auto-shrink when data is deleted — requires VACUUM (blocked on Moogo) or progressive row deletion. |
 
-### 🛠️ Error & Code
+### Error & Code
 
 | Istilah | Definisi |
 |---------|----------|
@@ -9335,7 +9338,7 @@ Berikut adalah kamus istilah-istilah yang akan Anda temui saat menggunakan Moogo
 | **Error Detail** | Informasi tambahan tentang kesalahan, biasanya nama token atau posisi statement yang bermasalah. |
 | **Retryable vs Non-Retryable** | - **Retryable:** `database_busy` — bisa di-retry dengan exponential backoff setelah `PRAGMA busy_timeout`.<br>- **Non-retryable:** `quota_exceeded` — jangan retry, notifikasi pengguna bahwa storage quota habis.<br>- **Tidak bisa di-retry:** `not_found`, `sql_invalid`, `too_many_statements`. |
 
-### 📊 Batasan & Limit
+### Limits & Limits
 
 | Istilah | Batas | Keterangan |
 |---------|-------|------------|
@@ -9347,7 +9350,7 @@ Berikut adalah kamus istilah-istilah yang akan Anda temui saat menggunakan Moogo
 | **Projects per account** | 2 projects | `POST /api/projects` akan response `429 quota_exceeded` untuk project ketiga. |
 | **Rows per read response** | Maks 1000 rows atau 16 MB | Jika data lebih banyak, akan truncated dan tandai `truncated: true`. |
 
-### 🐛 Debug & Tips Awal
+### Debug & Tips
 
 | Tips | Keterangan |
 |------|------------|
@@ -9355,14 +9358,14 @@ Berikut adalah kamus istilah-istilah yang akan Anda temui saat menggunakan Moogo
 | **Gunakan `LIMIT/OFFSET` untuk paging** | Untuk dataset > 100 baris, gunakan halaman kecil (contoh: 50 baris per halaman) daripada `SELECT *` seluruhnya |
 | **Hindari `SELECT *`** | Perubahan schema akan memecah klien tanpa migrasi. Selalu nama kolom yang dibutuhkan. |
 | **Database tidak menyusut sendirip** | `DELETE` membebaskan halaman, tetapi ruang fisial (`250 MB`) tidak berkurang hingga `VACUUM` dieksekusi (diblokir Moogo). |
-| **Monitor penggunaan harian** | Jika mendekati 230 MB, migrasikan ke project baru sebelum mencapai 250 MB ceiling. |
+| **Monitor Daily Usage** | If approaching 230 MB, migrate to a new project before reaching the 250 MB ceiling. |
 | **Cookie session memiliki HttpOnly + Secure + SameSite=Lax** | Mencegah XSS mengambil session dan CSRF lintas situs. |
 | **SQL key tidak pernah dikirim ke browser** | Dashboard pakai session cookie, tapi API SQL butuh secret key yang disimpan di sisi server. |
 | **Public URL butuh publish terlebih dahulu** | Object privat memiliki `public_url` kosong. Pastikan object sudah dipublikasikan (`PATCH is_public: true`) sebelum membagikan URL-nya. |
 
 ---
 
-## 🚀 Langkah Selanjutnya Setelah Paham
+## Next Steps After Understanding
 
 1. **Buat project** melalui dashboard atau `POST /api/projects`
 2. **Ambil 3 environment variables** (`MOOGO_PROJECT_URL`, `MOOGO_SECRET_KEY`, `MOOGO_BUCKET_ENDPOINT`)
@@ -9393,7 +9396,7 @@ Berikut adalah kamus istilah-istilah yang akan Anda temui saat menggunakan Moogo
 
 ---
 
-## ❓ Masih Bingung?
+## Still Confused?
 
 Jika masih ada istilah yang tidak jelas, lihat dokumentasi referensi berikut:
 - `/docs/sql-api` — dokumentasi lengkap endpoint SQL
