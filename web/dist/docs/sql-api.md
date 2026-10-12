@@ -752,7 +752,7 @@ Dari `/docs/limits.md`, batas-batas sudah transparan, tetapi beberapa pola prakt
 - **Paging vs membaca semua**: Untuk dataset di atas 100 baris, gunakan `LIMIT/OFFSET` dengan halaman kecil (misal: 50 baris per halaman) daripada `SELECT *` seluruhnya. Menggunakan `OFFSET` besar semakin lambat karena SQLite harus melewati baris-baris sebelumnya.
 - **CTE vs subquery**: Untuk query kompleks, CTE umumnya lebih mudah dibaca dan sometimes performa lebih baik, tetapi hindari CTE yang rekurif di transaksi yang sama dengan operasi tulis, karena SQLite mungkin me-meg-lock halaman.
 - **Hindari `SELECT *`**: Nama kolom berubah akan memecah klien tanpa migrasi. Selalu nama kolom yang dibutuhkan.
-- **Database tidak menyusut**: `DELETE` membebaskan halaman segera, tetapi ruang fisik (`250 MB` ceiling) tidak berkurang hingga `VACUUM` dieksekusi (yang diblokir di Moogo). Jika proyek mendekati batas, hapus baris secara bertahap rather than one large deletion.
+- **Database does not auto-shrink**: `DELETE` frees pages immediately, but physical space (`250 MB` ceiling) does not decrease until `VACUUM` executes (blocked on Moogo). If project approaches the limit, delete rows progressively rather than one large deletion.
 - **Performance Anomalies Near the 250 MB Limit**: As usage approaches the ceiling, SQLite adds a small overhead to check the limit before every write. It is recommended to monitor daily usage and migrate to a new project before reaching 230 MB.
 
 ## Keamanan SQL
