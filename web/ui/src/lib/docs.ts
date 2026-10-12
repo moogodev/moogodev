@@ -107,6 +107,7 @@ const layout: { group: string; slugs: string[] }[] = [
   {
     group: "Getting started",
     slugs: [
+      "before-start",
       "quickstart",
       "what-is-moogo",
       "why-moogo",

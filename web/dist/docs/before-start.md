@@ -1,4 +1,4 @@
-# Before Start — Dictionary for Moogo Newbies
+# Before Start
 
 Welcome to Moogo! This page helps you who are new to the service understand
 the basic concepts, the differences with regular SQLite, and all the terms

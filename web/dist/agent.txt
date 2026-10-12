@@ -4,6 +4,7 @@
 
 ## Getting started
 
+- [Before Start](/docs/before-start.md): Welcome to Moogo! This page helps you who are new to the service understand the basic concepts, the differences with regular SQLite, and all the terms you will encounter while using this service.
 - [Quickstart](/docs/quickstart.md): Two minutes from an account to a working query. If you already have an account, start at step 2.
 - [What is Moogo?](/docs/what-is-moogo.md): Moogo is a hosted backend that gives every project its own SQLite database and its own object storage, reachable over plain HTTP. There is no connection string, no driver, and no database client to install.
 - [Why Moogo?](/docs/why-moogo.md): Most hosted databases are Postgres with a nice wrapper. Moogo is not. It is built around a different bet: for a large class of applications, one SQLite file per project is a better fit than a shared Postgres cluster, and the ergonomics...
@@ -48,5 +49,4 @@
 - [Security](/docs/security.md): This page explains how Moogo is built to fail safely, and — just as importantly — what the model does not protect you from.
 - [Errors and troubleshooting](/docs/errors.md): Every error from the Moogo API has the same shape. Branch on code, not on message.
 - [Feedback](/docs/feedback.md): Moogo is built in public and shaped by what people actually try to do with it. Feedback is genuinely useful here — especially the parts that were unclear.
-- [Before Start — Dictionary for Moogo Newbies](/docs/before-start.md): Welcome to Moogo! This page helps you who are new to the service understand the basic concepts, the differences with regular SQLite, and all the terms you will encounter while using this service.
 
