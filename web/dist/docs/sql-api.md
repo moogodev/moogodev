@@ -737,71 +737,71 @@ Endpoint `/transaction` (alias `/exec/txn`) menerima sekumpulan pernyataan SQL d
 
 - **Maksimal 100 pernyataan** dalam satu transaksi.
 - **Budget 15 detik** total waktu eksekusi; melewati batas akan menyebabkan `500 timeout`.
-- **DDL + data dalam satu transaksi**: umumnya aman untuk migrasi skema kecil (menambah kolom, menambah indeks sederhana) bersama dengan manipulasi data ringan. **Jangan** menggabungkan migrasi skema besar (menambah banyak tabel/indeks) dengan manipulasi data intensif dalam satu transaksi. Jika aplikasi bergantung pada `last_insert_rowid`, pastikan pola pembacaan ini didokumentasikan untuk setiap client bahasa: nilai hanya tersedia dalam sesi yang sama dan pernyataan INSERT yang langsung dilanjutkan.
+- **DDL + data in one transaction**: generally safe for small schema migrations (adding columns, simple indexes) together with light data manipulation. **Do not** combine large schema migrations (adding many tables/indexes) with intensive data manipulation in a single transaction. If your application relies on `last_insert_rowid`, ensure this read pattern is documented for each client language: the value is only available in the same session and immediately following the INSERT statement.
 
-**Pola aman untuk migrasi skema**:
+**Safe schema migration patterns**:
 
-1. **Hilangkan DDL dari transaksi** jika melibatkan banyak tabel/indeks; jalankan terpisah sebelum atau setelah manipulasi data.
-2. **Jika harus bersama**: tutup transaksi segera setelah data dimasukkan, lalu commit. Jangan menahan transaksi terbuka selama sesi pengguna yang panjang.
-3. **Membaca `last_insert_rowid`**: setelah INSERT yang sukses dalam transaksi yang sama, ambil nilai tersebut sebelum pernyataan berikutnya. Gunakan dengan hati-hati di lingkungan konkuren.
+1. **Remove DDL from transaction** if it involves many tables/indexes; run separately before or after data manipulation.
+2. **If they must be together**: close the transaction immediately after data is inserted, then commit. Do not hold a transaction open during a long user session.
+3. **Reading `last_insert_rowid`**: after a successful INSERT in the same transaction, fetch the value before the next statement. Use with caution in concurrent environments.
 
-## Batas dan performa
+## Limits and performance
 
-Dari `/docs/limits.md`, batas-batas sudah transparan, tetapi beberapa pola praktis perlu diperjelas:
+From `/docs/limits.md`, limits are already transparent, but some practical patterns need clarification:
 
-- **Paging vs membaca semua**: Untuk dataset di atas 100 baris, gunakan `LIMIT/OFFSET` dengan halaman kecil (misal: 50 baris per halaman) daripada `SELECT *` seluruhnya. Menggunakan `OFFSET` besar semakin lambat karena SQLite harus melewati baris-baris sebelumnya.
-- **CTE vs subquery**: Untuk query kompleks, CTE umumnya lebih mudah dibaca dan sometimes performa lebih baik, tetapi hindari CTE yang rekurif di transaksi yang sama dengan operasi tulis, karena SQLite mungkin me-meg-lock halaman.
-- **Hindari `SELECT *`**: Nama kolom berubah akan memecah klien tanpa migrasi. Selalu nama kolom yang dibutuhkan.
+- **Paging vs reading all**: For datasets over 100 rows, use `LIMIT/OFFSET` with small pages (e.g., 50 rows per page) instead of `SELECT *` entirely. Using large `OFFSET` gets slower because SQLite must skip preceding rows.
+- **CTE vs subquery**: For complex queries, CTE is generally more readable and sometimes performs better, but avoid recursive CTEs in the same transaction as write operations, because SQLite may lock pages.
+- **Avoid `SELECT *`**: Column names change will break clients without migration. Always specify needed columns.
 - **Database does not auto-shrink**: `DELETE` frees pages immediately, but physical space (`250 MB` ceiling) does not decrease until `VACUUM` executes (blocked on Moogo). If project approaches the limit, delete rows progressively rather than one large deletion.
 - **Performance Anomalies Near the 250 MB Limit**: As usage approaches the ceiling, SQLite adds a small overhead to check the limit before every write. It is recommended to monitor daily usage and migrate to a new project before reaching 230 MB.
 
-## Keamanan SQL
+## SQL Security
 
-Dari `/docs/security.md` dan `/docs/sql-api.md`, validasi sudah kuat:
+From `/docs/security.md` and `/docs/sql-api.md`, validation is already strong:
 
-- `ATTACH`, `VACUUM`, `REINDEX`, `ANALYZE` diblokir.
-- Trigger dilarang.
-- Fungsi filesystem diblokir.
-- `PRAGMA` hanya di-allowlist tertentu.
+- `ATTACH`, `VACUUM`, `REINDEX`, `ANALYZE` are blocked.
+- Triggers are forbidden.
+- Filesystem functions are blocked.
+- `PRAGMA` only allowed from an allowlist.
 
-Ini rekayasa yang baik. Namun, satu hal yang perlu ditafsirkan hati-hati:
+This is good engineering. However, one thing needs careful interpretation:
 
-- **Nama kolom yang sensitif** (misalnya bernama `readfile` atau variasi lain) akan ditolak meski hanya coincidence namanya.
+- **Sensitive column names** (e.g., named `readfile` or variations) will be rejected even if it's just a naming coincidence.
 
-**Saran**:
+**Recommendations**:
 
-- Jelaskan bahwa ini adalah trade-off: ada nama kolom yang mungkin tidak boleh dipakai dalam query apa pun.
-- Sediakan daftar nama yang sensitif yang boleh dicek sebelum deploy, bukan cuma daftar fungsi.
-- contoh nama yang sensitif: `readfile`, `writefile`, `delete`, `vacuum`, `attach` (kadar nama kolom yang sesuai dengan kata kunci SQL yang diblokir).
+- Explain that this is a trade-off: there are column names that may not be used in any query.
+- Provide a list of sensitive names that can be checked before deploy, not just a list of functions.
+- Example sensitive names: `readfile`, `writefile`, `delete`, `vacuum`, `attach` (column names matching blocked SQL keywords).
 
 ## Error handling
 
-Dari `/docs/errors.md`, envelope error sudah konsisten dan bisa dicabut berdasarkan `code`. Ini bagus. Tapi untuk developer kecil-menengah, ini yang masih worth improvement:
+From `/docs/errors.md`, error envelope is consistent and can be branched by `code`. This is good. But for small-to-medium developers, this still needs improvement:
 
-- Banyak developer membandingkan `message`, bukan `code`.
-- Konsistensi antar endpoint sudah ada, tapi cara branching yang aman mungkin belum semua tahu.
+- Many developers compare `message`, not `code`.
+- Consistency across endpoints exists, but safe branching patterns may not be widely known.
 
-**Saran**:
+**Recommendations**:
 
-- Berikan contoh handling error yang lebih eksplisit, misalnya cara membedakan `database_busy` dengan error lain.
-- Jelaskan mana error yang boleh di-retry dan mana yang tidak.
+- Provide explicit error handling examples, e.g., how to distinguish `database_busy` from other errors.
+- Explain which errors are retryable and which are not.
 
 ```js
-// Contoh pola handling error yang aman:
+// Example safe error handling pattern:
 try {
   const body = await sql(query, args);
 } catch (err) {
   const code = err.error?.code;
   if (code === 'database_busy') {
-    // retry dengan exponential backoff
+    // retry with exponential backoff
     await delay(1000);
     return sql(query, args);
   }
   if (code === 'quota_exceeded') {
-    // jangan retry; notifikasi pengguna
+    // don't retry; notify user
     throw new Error('Storage quota exceeded');
   }
-  // error lain bisa dibubble ke UI
+  // other errors can bubble to UI
   throw err;
 }
 ```
