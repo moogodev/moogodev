@@ -48,4 +48,5 @@
 - [Security](/docs/security.md): This page explains how Moogo is built to fail safely, and — just as importantly — what the model does not protect you from.
 - [Errors and troubleshooting](/docs/errors.md): Every error from the Moogo API has the same shape. Branch on code, not on message.
 - [Feedback](/docs/feedback.md): Moogo is built in public and shaped by what people actually try to do with it. Feedback is genuinely useful here — especially the parts that were unclear.
+- [Before Start — Kamus untuk Pemula Moogo](/docs/before-start.md): Selamat datang di Moogo! Halaman ini dibuat untuk membantu Anda yang baru masuk layanan memahami konsep-konsep dasar, perbedaan dengan SQLite biasa, dan seluruh istilah yang akan Anda temui selama menggunakan layanan ini. Sifatnya...
 
