@@ -290,12 +290,20 @@ export default defineNuxtConfig({
 });
 ```
 
+## Production Readiness ⚠️
+
+- **SQL transaksi**: Batas 100 pernyataan per `/transaction` dan budget 15 detik. Jangan gabungkan DDL besar dengan manipulasi data intensif dalam satu transaksi.
+- **Batas database**: 250 MB per project. Database tidak menyusut otomatis — hapus baris secara bertahap jika mendekati limit, dan monitor penggunaan harian.
+- **Nama kolom sensitif**: beberapa nama (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) dilarang digunakan sebagai nama kolom dalam query SQL.
+- **Public URL object**: `public_url` bersifat bearer token — tidak bisa direvoke tanpa mengganti key atau unpublish object. Lakukan `PATCH is_public: true` setelah upload jika ingin share tanpa kredensial.
+- **Error handling**: Ambil `error.code` daripada `error.message` untuk branching yang aman (retryable vs non-retryable).
+
 The `$fetch`/`ofetch` client works in all Nitro presets.
 
 ## Next
 
 - [Next.js guide](/docs/guides/nextjs) — React equivalent
-- [Vue guide](/docs/guides/vue) — SPA without Nuxt
+- [Vue guide](/docs/guides/vue) — SPA tanpa Nuxt
 - [SQL API reference](/docs/sql-api)
 - [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)

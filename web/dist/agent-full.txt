@@ -3222,6 +3222,22 @@ try {
 }
 ```
 
+## Production Readiness ⚠️
+
+- **SQL transaksi**: Batas 100 pernyataan per `/transaction` dan budget 15 detik. Jangan gabungkan DDL besar dengan manipulasi data intensif dalam satu transaksi.
+- **Batas database**: 250 MB per project. Database tidak menyusut otomatis — hapus baris secara bertahap jika mendekati limit, dan monitor penggunaan harian.
+- **Nama kolom sensitif**: beberapa nama (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) dilarang digunakan sebagai nama kolom dalam query SQL.
+- **Public URL object**: `public_url` bersifat bearer token — tidak bisa direvoke tanpa mengganti key atau unpublish object. Lakukan `PATCH is_public: true` setelah upload jika ingin share tanpa kredensial.
+- **Error handling**: Ambil `error.code` daripada `error.message` untuk branching yang aman (retryable vs non-retryable).
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
+
 ## Next
 
 - [Next.js guide](/docs/guides/nextjs) — App Router, RSC, Server Actions
@@ -3540,6 +3556,14 @@ The [Next.js guide](/docs/guides/nextjs) covers Server Components, Server Action
 | Public URL | `getPublicUrl("avatars/me.png")` |
 
 ---
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
 
@@ -3889,6 +3913,22 @@ declare namespace Moogo {
 }
 ```
 
+## Production Readiness ⚠️
+
+- **SQL transaksi**: Batas 100 pernyataan per `/transaction` dan budget 15 detik. Jangan gabungkan DDL besar dengan manipulasi data intensif dalam satu transaksi.
+- **Batas database**: 250 MB per project. Database tidak menyusut otomatis — hapus baris secara bertahap jika mendekati limit, dan monitor penggunaan harian.
+- **Nama kolom sensitif**: beberapa nama (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) dilarang digunakan sebagai nama kolom dalam query SQL.
+- **Public URL object**: `public_url` bersifat bearer token — tidak bisa direvoke tanpa mengganti key atau unpublish object. Lakukan `PATCH is_public: true` setelah upload jika ingin share tanpa kredensial.
+- **Error handling**: Ambil `error.code` daripada `error.message` untuk branching yang aman (retryable vs non-retryable).
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
+
 ## Next
 
 - [Vanilla JS guide](/docs/guides/javascript-vanilla) — works everywhere
@@ -4193,12 +4233,20 @@ export default defineNuxtConfig({
 });
 ```
 
+## Production Readiness ⚠️
+
+- **SQL transaksi**: Batas 100 pernyataan per `/transaction` dan budget 15 detik. Jangan gabungkan DDL besar dengan manipulasi data intensif dalam satu transaksi.
+- **Batas database**: 250 MB per project. Database tidak menyusut otomatis — hapus baris secara bertahap jika mendekati limit, dan monitor penggunaan harian.
+- **Nama kolom sensitif**: beberapa nama (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) dilarang digunakan sebagai nama kolom dalam query SQL.
+- **Public URL object**: `public_url` bersifat bearer token — tidak bisa direvoke tanpa mengganti key atau unpublish object. Lakukan `PATCH is_public: true` setelah upload jika ingin share tanpa kredensial.
+- **Error handling**: Ambil `error.code` daripada `error.message` untuk branching yang aman (retryable vs non-retryable).
+
 The `$fetch`/`ofetch` client works in all Nitro presets.
 
 ## Next
 
 - [Next.js guide](/docs/guides/nextjs) — React equivalent
-- [Vue guide](/docs/guides/vue) — SPA without Nuxt
+- [Vue guide](/docs/guides/vue) — SPA tanpa Nuxt
 - [SQL API reference](/docs/sql-api)
 - [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
 - [Object storage](/docs/object-storage)
@@ -4447,6 +4495,14 @@ export const useMoogoStore = defineStore("moogo", () => {
   return { bucket, sql };
 });
 ```
+
+## Production Readiness ⚠️
+
+- **SQL transaksi**: Batas 100 pernyataan per `/transaction` dan budget 15 detik. Jangan gabungkan DDL besar dengan manipulasi data intensif dalam satu transaksi.
+- **Batas database**: 250 MB per project. Database tidak menyusut otomatis — hapus baris secara bertahap jika mendekati limit, dan monitor penggunaan harian.
+- **Nama kolom sensitif**: beberapa nama (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) dilarang digunakan sebagai nama kolom dalam query SQL.
+- **Public URL object**: `public_url` bersifat bearer token — tidak bisa direvoke tanpa mengganti key atau unpublish object. Lakukan `PATCH is_public: true` setelah upload jika ingin share tanpa kredensial.
+- **Error handling**: Ambil `error.code` daripada `error.message` untuk branching yang aman (retryable vs non-retryable).
 
 ## Next
 
@@ -4735,6 +4791,16 @@ The `fetch`-based client works in all Astro adapters (Node, Edge, Deno, Bun).
 
 ## Next
 
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
+
+## Next
+
 - [Next.js guide](/docs/guides/nextjs) — React equivalent
 - [Nuxt guide](/docs/guides/nuxt) — Vue equivalent
 - [Vanilla JS guide](/docs/guides/javascript-vanilla)
@@ -5005,6 +5071,14 @@ async def main():
 asyncio.run(main())
 ```
 
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
+
 ## Next
 
 - [FastAPI guide](/docs/guides/fastapi)
@@ -5263,6 +5337,14 @@ async def test_create_user():
     assert resp.json()["email"] == "test@example.com"
 ```
 
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
+
 ## Next
 
 - [Flask guide](/docs/guides/flask)
@@ -5498,6 +5580,14 @@ def handle_moogo_error(e):
         return jsonify({"error": "Invalid SQL"}), 400
     return jsonify({"error": e.message}), 500
 ```
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
 
@@ -5835,6 +5925,14 @@ python manage.py runserver
 gunicorn myproject.wsgi:application -w 4 -b 0.0.0.0:8000
 ```
 
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
+
 ## Next
 
 - [Flask guide](/docs/guides/flask)
@@ -6109,6 +6207,14 @@ class MoogoClient {
     }
 }
 ```
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
 
@@ -6483,6 +6589,14 @@ php artisan octane:start
 ```
 
 The `Http` facade works natively with Octane/Swoole.
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
 
@@ -6903,6 +7017,14 @@ func TestSQL(t *testing.T) {
 GOOS=linux GOARCH=amd64 go build -o myapp-linux
 GOOS=windows GOARCH=amd64 go build -o myapp.exe
 ```
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
 
@@ -7352,6 +7474,14 @@ post '/users' do
   { id: id, email: data['email'] }.to_json
 end
 ```
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
 
@@ -7893,6 +8023,14 @@ try (MockWebServer server = new MockWebServer()) {
 ```
 
 The `java.net.http.HttpClient` works in native images (since Java 17).
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
 
@@ -8486,6 +8624,14 @@ For simple schemas, use the **Dashboard Table Builder** (`/app/projects/{id}/dat
 | Drop index | `DROP INDEX IF EXISTS idx` |
 | Add FK | Requires table recreate in SQLite |
 | Several writes, all or nothing | `POST /transaction` — see [Transactions](#transactions) |
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ---
 

@@ -335,6 +335,22 @@ declare namespace Moogo {
 }
 \`\`\`
 
+## Production Readiness ⚠️
+
+- **SQL transaksi**: Batas 100 pernyataan per \`/transaction\` dan budget 15 detik. Jangan gabungkan DDL besar dengan manipulasi data intensif dalam satu transaksi.
+- **Batas database**: 250 MB per project. Database tidak menyusut otomatis — hapus baris secara bertahap jika mendekati limit, dan monitor penggunaan harian.
+- **Nama kolom sensitif**: beberapa nama (\`readfile\`, \`writefile\`, \`delete\`, \`vacuum\`, \`attach\`, \`detach\`, \`reindex\`, \`analyze\`, \`pragma\`) dilarang digunakan sebagai nama kolom dalam query SQL.
+- **Public URL object**: \`public_url\` bersifat bearer token — tidak bisa direvoke tanpa mengganti key atau unpublish object. Lakukan \`PATCH is_public: true\` setelah upload jika ingin share tanpa kredensial.
+- **Error handling**: Ambil \`error.code\` daripada \`error.message\` untuk branching yang aman (retryable vs non-retryable).
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per \`/transaction\` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (\`readfile\`, \`writefile\`, \`delete\`, \`vacuum\`, \`attach\`, \`detach\`, \`reindex\`, \`analyze\`, \`pragma\`) are blocked as column names in SQL queries.
+- **Public object URLs**: \`public_url\` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform \`PATCH is_public: true\` after upload if you want to share without credentials.
+- **Error handling**: Use \`error.code\` rather than \`error.message\` for safe branching (retryable vs non-retryable).
+
 ## Next
 
 - [Vanilla JS guide](/docs/guides/javascript-vanilla) — works everywhere
