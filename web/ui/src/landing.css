@@ -316,92 +316,77 @@
    there is nothing to override here. The block is kept as the place to put it
    if a transform comes back. */
 
-/* --- Stack marquee ---------------------------------------------------- */
+/* --- Stack grid ------------------------------------------------------- */
 
-/* Two logo rows scrolling in opposite directions continuously.
-   Each track renders its list 3x to guarantee a seamless wrap point.
-   No pause on hover — motion is the feature. Mask fade at edges only.
-   Plain CSS keyframes, no inline styles: the CSP blocks style props. */
-.stack-marquee {
-  overflow: hidden;
-  mask-image: linear-gradient(
-    90deg,
-    transparent,
-    #000 6%,
-    #000 94%,
-    transparent
-  );
+/* A flat grid of named tiles replaces the old logo marquee. The marquee read
+   as decoration: a stack drifted out of reach mid-read and its name was never
+   on screen next to the glyph. The grid is static, every tile carries its name,
+   and the rows are split by frontend/backend so the group note can say whether
+   the SQL key belongs in the browser.
+
+   Auto-fill rather than a fixed count, so the row count follows the viewport:
+   five across on a laptop, two on a phone. */
+.stack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.25rem, 1fr));
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.stack-track {
+/* The tile is one button: logo above, name below. No fill, just a green
+   outline. The logo sits directly on the tile surface. */
+.stack-tile {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 2.5rem;
-  width: max-content;
+  gap: 0.6rem;
+  padding: 1rem 0.5rem 0.85rem;
+  border: 1px solid var(--accent-strong);
+  border-radius: 0.9rem;
+  background: transparent;
+  text-align: center;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
 }
 
-.stack-track-left {
-  animation: stack-scroll-left 50s linear infinite;
+.stack-tile:hover {
+  background: var(--hover-bg);
+  transform: translateY(-2px);
 }
 
-.stack-track-right {
-  animation: stack-scroll-right 50s linear infinite;
+.stack-tile:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
 }
 
-/* Bare logo link: no card, no border. The white chip is only there so the
-   black Simple Icons glyph stays legible on dark backgrounds. */
-.stack-logo {
-  flex: none;
+/* White chip so the black Simple Icons glyph stays legible in dark mode.
+   The chip is the only filled element; the tile itself stays transparent. */
+.stack-tile-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 3.25rem;
-  height: 3.25rem;
-  border-radius: 0.9rem;
+  width: 2.9rem;
+  height: 2.9rem;
+  border-radius: 0.7rem;
   background: #fff;
-  /* The logo is a button now rather than a link, so the UA's own border and
-     padding have to be undone or every logo grows a grey outline. */
-  border: 0;
-  padding: 0;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
-  transition: transform 180ms ease;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.14);
 }
 
-.stack-logo:hover {
-  transform: translateY(-3px);
-}
-
-.stack-logo img {
+.stack-tile-chip img {
   display: block;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 1.85rem;
+  height: 1.85rem;
 }
 
-/* 3x list → -33.33% translation = exactly one full set width.
-   This lands on an identical frame so the loop is invisible. */
-@keyframes stack-scroll-left {
-  to {
-    transform: translateX(-33.3333%);
-  }
-}
-
-@keyframes stack-scroll-right {
-  from {
-    transform: translateX(-33.3333%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stack-track-left,
-  .stack-track-right {
-    animation: none;
-  }
-  .stack-logo {
-    transition: none;
-  }
+.stack-tile-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
 }
 
 /* --- Free tier chalkboard ---------------------------------------------- */

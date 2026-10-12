@@ -177,31 +177,51 @@ const faqs = [
   },
 ];
 
-// Each entry names a guide under /docs and the page it belongs on. The logos copy
-// that guide's Markdown rather than linking to it: this section answers "can Moogo
-// be used from here?", and a visitor who has just decided that wants the code, not
-// another page to read. The guide is still one click away -- the logo's title names
-// it, and the footer link below the marquee opens it. Icons are the brand SVGs from
-// Simple Icons (simpleicons.org, CC0) served via the jsDelivr CDN, pinned to v14 so
-// a re-release cannot swap artwork underneath us.
-const stacks = [
-  { name: "JavaScript", doc: "javascript-vanilla", icon: "javascript" },
-  { name: "TypeScript", doc: "javascript-vanilla", icon: "typescript" },
-  { name: "React", doc: "react", icon: "react" },
-  { name: "Node.js", doc: "javascript-vanilla", icon: "nodedotjs" },
-  { name: "Next.js", doc: "nextjs", icon: "nextdotjs" },
-  { name: "Nuxt", doc: "nuxt", icon: "nuxt" },
-  { name: "Vue", doc: "vue", icon: "vuedotjs" },
-  { name: "Astro", doc: "astro", icon: "astro" },
-  { name: "Python", doc: "python-vanilla", icon: "python" },
-  { name: "FastAPI", doc: "fastapi", icon: "fastapi" },
-  { name: "Flask", doc: "flask", icon: "flask" },
-  { name: "Django", doc: "django", icon: "django" },
-  { name: "PHP", doc: "php-vanilla", icon: "php" },
-  { name: "Laravel", doc: "laravel", icon: "laravel" },
-  { name: "Go", doc: "go", icon: "go" },
-  { name: "Rails", doc: "ruby-rails", icon: "rubyonrails" },
-  { name: "Kotlin", doc: "java-kotlin", icon: "kotlin" },
+// Each entry names a guide under /docs and the page it belongs on. The tiles
+// copy that guide's Markdown rather than linking to it: this section answers
+// "can Moogo be used from here?", and a visitor who has just decided that wants
+// the code, not another page to read.
+//
+// Grouped by where the stack runs rather than by alphabet, because the split
+// that matters to a reader is the one that decided their architecture already:
+// code in a browser cannot hold the SQL key, code on a server can. The group
+// note carries that, so a React developer learns from this row alone that the
+// guide puts the key behind a proxy — which is the difference between a guide
+// that works and one they have to debug.
+//
+// Icons are the brand SVGs from Simple Icons (simpleicons.org, CC0) served via
+// the jsDelivr CDN, pinned to v14 so a re-release cannot swap artwork
+// underneath us.
+const stackGroups = [
+  {
+    label: "Frontend & meta-frameworks",
+    note: "Key stays on your server — every guide proxies it.",
+    stacks: [
+      { name: "JavaScript", doc: "javascript-vanilla", icon: "javascript" },
+      { name: "TypeScript", doc: "javascript-vanilla", icon: "typescript" },
+      { name: "React", doc: "react", icon: "react" },
+      { name: "Node.js", doc: "javascript-vanilla", icon: "nodedotjs" },
+      { name: "Next.js", doc: "nextjs", icon: "nextdotjs" },
+      { name: "Nuxt", doc: "nuxt", icon: "nuxt" },
+      { name: "Vue", doc: "vue", icon: "vuedotjs" },
+      { name: "Astro", doc: "astro", icon: "astro" },
+    ],
+  },
+  {
+    label: "Backend",
+    note: "Call Moogo directly — no proxy needed.",
+    stacks: [
+      { name: "Python", doc: "python-vanilla", icon: "python" },
+      { name: "FastAPI", doc: "fastapi", icon: "fastapi" },
+      { name: "Flask", doc: "flask", icon: "flask" },
+      { name: "Django", doc: "django", icon: "django" },
+      { name: "PHP", doc: "php-vanilla", icon: "php" },
+      { name: "Laravel", doc: "laravel", icon: "laravel" },
+      { name: "Go", doc: "go", icon: "go" },
+      { name: "Rails", doc: "ruby-rails", icon: "rubyonrails" },
+      { name: "Kotlin", doc: "java-kotlin", icon: "kotlin" },
+    ],
+  },
 ];
 
 const STACK_ICON_CDN = "https://cdn.jsdelivr.net/npm/simple-icons@v14/icons";
@@ -416,16 +436,16 @@ function Showcase() {
   );
 }
 
-// Languages runs two marquee rows in opposite directions: the top row drifts
-// right, the bottom row drifts left. Each row renders its list twice so the
-// -50% loop point lands on an identical frame and the wrap is seamless.
-// Logos are bare links with no card outline; the white chip behind each black
-// Simple Icons glyph is only there so the artwork stays legible in both
-// light and dark themes.
+// Languages is the "can Moogo be used from here?" section. It was two rows of
+// logos scrolling in opposite directions, which read as decoration: the stack a
+// visitor came for drifted out of reach mid-read, and a name was never visible
+// next to its glyph, so half the row was guesswork.
+//
+// The grid keeps the same affordance (a tile copies that guide as Markdown) and
+// drops the motion. Grouping the rows by frontend/backend carries the piece of
+// guidance that actually prevents a failed integration — whether the SQL key
+// belongs in the browser — without turning the section into a wall of prose.
 function Languages() {
-  const top = stacks.slice(0, 8);
-  const bottom = stacks.slice(8);
-
   return (
     <section className="py-16 sm:py-20">
       <div className="mx-auto w-full max-w-[1120px] px-6">
@@ -436,68 +456,74 @@ function Languages() {
           If it speaks HTTP, it speaks Moogo.
         </h2>
         <p className="mb-10 max-w-[46em] text-muted">
-          Click a logo to copy that stack's guide as Markdown — setup to usage,
-          for SQLite and bucket storage in that language or framework.
-        </p>
-      </div>
-
-      <div className="stack-marquee" aria-label="Supported stacks, row one">
-        <div className="stack-track stack-track-right">
-          {Array(3).fill(top).flat().map((stack, index) => (
-            <StackLogo key={`${stack.name}-top-${index}`} stack={stack} />
-          ))}
-        </div>
-      </div>
-      <div className="stack-marquee" aria-label="Supported stacks, row two">
-        <div className="stack-track stack-track-left">
-          {Array(3).fill(bottom).flat().map((stack, index) => (
-            <StackLogo key={`${stack.name}-bottom-${index}`} stack={stack} />
-          ))}
-        </div>
-      </div>
-
-      <div className="mx-auto w-full max-w-[1120px] px-6">
-        <p className="mt-8 text-center text-[0.9rem] text-muted">
-          Every logo copies that stack’s guide as{" "}
+          Seventeen guides, from setup to usage — for SQLite and bucket storage
+          in that language or framework. Click a tile to copy the whole guide as{" "}
           <code className="rounded bg-panel-raised px-1.5 py-0.5 font-mono text-[0.82rem] text-foreground">
             .md
           </code>
-          . Prefer to read it?{" "}
-          {stacks.map((stack, index) => (
-            <span key={stack.name}>
-              {index > 0 && " · "}
-              <Link
-                to={`/docs/guides/${stack.doc}`}
-                className="text-accent-strong hover:underline"
-              >
-                {stack.name}
-              </Link>
-            </span>
+          .
+        </p>
+      </div>
+
+      <div className="mx-auto w-full max-w-[1120px] px-6">
+        <div className="flex flex-col gap-9">
+          {stackGroups.map((group) => (
+            <div key={group.label}>
+              <div className="mb-4 flex items-baseline gap-2.5 border-b border-edge pb-2.5">
+                <h3 className="text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-muted">
+                  {group.label}
+                </h3>
+                <span className="text-[0.8rem] text-faint">{group.note}</span>
+              </div>
+
+              <ul className="stack-grid">
+                {group.stacks.map((stack) => (
+                  <li key={stack.name}>
+                    <StackTile stack={stack} />
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
+        </div>
+
+        <p className="mt-9 text-center text-[0.9rem] text-muted">
+          Prefer to read it?{" "}
+          <Link
+            to="/docs/guides/javascript-vanilla"
+            className="text-accent-strong hover:underline"
+          >
+            Browse all 17 guides
+          </Link>{" "}
+          on the docs site.
         </p>
       </div>
     </section>
   );
 }
 
-// StackLogo copies the stack's guide. The white chip keeps the black glyph readable
-// on dark backgrounds, and the confirmation is pinned over the logo by the button
-// itself, so a row of six says which one was copied and the rest stay quiet.
-function StackLogo({ stack }: { stack: { name: string; doc: string; icon: string } }) {
+// StackTile is a logo plus its name. The name is the point: a glyph alone is a
+// quiz, and the visitor scanning for "Django" should not have to play it. The
+// whole tile is the copy button, so the click target is large enough to hit on
+// a phone, and the confirmation from CopyDocButton is pinned over the tile.
+function StackTile({ stack }: { stack: { name: string; doc: string; icon: string } }) {
   return (
     <CopyDocButton
       slug={stack.doc}
       title={`Copy the ${stack.name} guide as Markdown`}
       ariaLabel={`Copy the ${stack.name} guide as Markdown`}
-      className="stack-logo"
+      className="stack-tile"
     >
-      <img
-        src={`${STACK_ICON_CDN}/${stack.icon}.svg`}
-        alt={`${stack.name} logo`}
-        loading="lazy"
-        width={36}
-        height={36}
-      />
+      <span className="stack-tile-chip">
+        <img
+          src={`${STACK_ICON_CDN}/${stack.icon}.svg`}
+          alt={`${stack.name} logo`}
+          loading="lazy"
+          width={30}
+          height={30}
+        />
+      </span>
+      <span className="stack-tile-name">{stack.name}</span>
     </CopyDocButton>
   );
 }
