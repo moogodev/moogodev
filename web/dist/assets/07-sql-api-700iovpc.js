@@ -731,6 +731,81 @@ Every error has the same shape, so you can branch on \`code\` instead of parsing
 
 See [Errors and troubleshooting](/docs/errors) for how to handle them.
 
+## Transaksi dan enkapsulasi endpoint
+
+Endpoint \`/transaction\` (alias \`/exec/txn\`) menerima sekumpulan pernyataan SQL dan menjamin atomicity: keduanya commit atau keduanya rollback. Batasan penting:
+
+- **Maksimal 100 pernyataan** dalam satu transaksi.
+- **Budget 15 detik** total waktu eksekusi; melewati batas akan menyebabkan \`500 timeout\`.
+- **DDL + data dalam satu transaksi**: umumnya aman untuk migrasi skema kecil (menambah kolom, menambah indeks sederhana) bersama dengan manipulasi data ringan. **Jangan** menggabungkan migrasi skema besar (menambah banyak tabel/indeks) dengan manipulasi data intensif dalam satu transaksi. Jika aplikasi bergantung pada \`last_insert_rowid\`, pastikan pola pembacaan ini didokumentasikan untuk setiap client bahasa: nilai hanya tersedia dalam sesi yang sama dan pernyataan INSERT yang langsung dilanjutkan.
+
+**Pola aman untuk migrasi skema**:
+
+1. **Hilangkan DDL dari transaksi** jika melibatkan banyak tabel/indeks; jalankan terpisah sebelum atau setelah manipulasi data.
+2. **Jika harus bersama**: tutup transaksi segera setelah data dimasukkan, lalu commit. Jangan menahan transaksi terbuka selama sesi pengguna yang panjang.
+3. **Membaca \`last_insert_rowid\`**: setelah INSERT yang sukses dalam transaksi yang sama, ambil nilai tersebut sebelum pernyataan berikutnya. Gunakan dengan hati-hati di lingkungan konkuren.
+
+## Batas dan performa
+
+Dari \`/docs/limits.md\`, batas-batas sudah transparan, tetapi beberapa pola praktis perlu diperjelas:
+
+- **Paging vs membaca semua**: Untuk dataset di atas 100 baris, gunakan \`LIMIT/OFFSET\` dengan halaman kecil (misal: 50 baris per halaman) daripada \`SELECT *\` seluruhnya. Menggunakan \`OFFSET\` besar semakin lambat karena SQLite harus melewati baris-baris sebelumnya.
+- **CTE vs subquery**: Untuk query kompleks, CTE umumnya lebih mudah dibaca dan sometimes performa lebih baik, tetapi hindari CTE yang rekurif di transaksi yang sama dengan operasi tulis, karena SQLite mungkin me-meg-lock halaman.
+- **Hindari \`SELECT *\`**: Nama kolom berubah akan memecah klien tanpa migrasi. Selalu nama kolom yang dibutuhkan.
+- **Database tidak menyusut**: \`DELETE\` membebaskan halaman segera, tetapi ruang fisik (\`250 MB\` ceiling) tidak berkurang hingga \`VACUUM\` dieksekusi (yang diblokir di Moogo). Jika proyek mendekati batas, hapus baris secara bertahap rather than one large deletion.
+- **Anomali performa mendekati batas 250 MB**: Saat penggunaan mendekati plafond, SQLite menambahkan overhead kecil untuk memeriksa batas sebelum setiap write. Monitoring penggunaan sehari-hari dan memigrasikan ke project baru sebelum mencapai 230 MB disarankan.
+
+## Keamanan SQL
+
+Dari \`/docs/security.md\` dan \`/docs/sql-api.md\`, validasi sudah kuat:
+
+- \`ATTACH\`, \`VACUUM\`, \`REINDEX\`, \`ANALYZE\` diblokir.
+- Trigger dilarang.
+- Fungsi filesystem diblokir.
+- \`PRAGMA\` hanya di-allowlist tertentu.
+
+Ini rekayasa yang baik. Namun, satu hal yang perlu ditafsirkan hati-hati:
+
+- **Nama kolom yang sensitif** (misalnya bernama \`readfile\` atau variasi lain) akan ditolak meski hanya coincidence namanya.
+
+**Saran**:
+
+- Jelaskan bahwa ini adalah trade-off: ada nama kolom yang mungkin tidak boleh dipakai dalam query apa pun.
+- Sediakan daftar nama yang sensitif yang boleh dicek sebelum deploy, bukan cuma daftar fungsi.
+- contoh nama yang sensitif: \`readfile\`, \`writefile\`, \`delete\`, \`vacuum\`, \`attach\` (kadar nama kolom yang sesuai dengan kata kunci SQL yang diblokir).
+
+## Error handling
+
+Dari \`/docs/errors.md\`, envelope error sudah konsisten dan bisa dicabut berdasarkan \`code\`. Ini bagus. Tapi untuk developer kecil-menengah, ini yang masih worth improvement:
+
+- Banyak developer membandingkan \`message\`, bukan \`code\`.
+- Konsistensi antar endpoint sudah ada, tapi cara branching yang aman mungkin belum semua tahu.
+
+**Saran**:
+
+- Berikan contoh handling error yang lebih eksplisit, misalnya cara membedakan \`database_busy\` dengan error lain.
+- Jelaskan mana error yang boleh di-retry dan mana yang tidak.
+
+\`\`\`js
+// Contoh pola handling error yang aman:
+try {
+  const body = await sql(query, args);
+} catch (err) {
+  const code = err.error?.code;
+  if (code === 'database_busy') {
+    // retry dengan exponential backoff
+    await delay(1000);
+    return sql(query, args);
+  }
+  if (code === 'quota_exceeded') {
+    // jangan retry; notifikasi pengguna
+    throw new Error('Storage quota exceeded');
+  }
+  // error lain bisa dibubble ke UI
+  throw err;
+}
+\`\`\`
+
 ## Next
 
 - [Object storage](/docs/object-storage) — files under the same project

@@ -2002,6 +2002,81 @@ Every error has the same shape, so you can branch on `code` instead of parsing
 
 See [Errors and troubleshooting](/docs/errors) for how to handle them.
 
+## Transaksi dan enkapsulasi endpoint
+
+Endpoint `/transaction` (alias `/exec/txn`) menerima sekumpulan pernyataan SQL dan menjamin atomicity: keduanya commit atau keduanya rollback. Batasan penting:
+
+- **Maksimal 100 pernyataan** dalam satu transaksi.
+- **Budget 15 detik** total waktu eksekusi; melewati batas akan menyebabkan `500 timeout`.
+- **DDL + data dalam satu transaksi**: umumnya aman untuk migrasi skema kecil (menambah kolom, menambah indeks sederhana) bersama dengan manipulasi data ringan. **Jangan** menggabungkan migrasi skema besar (menambah banyak tabel/indeks) dengan manipulasi data intensif dalam satu transaksi. Jika aplikasi bergantung pada `last_insert_rowid`, pastikan pola pembacaan ini didokumentasikan untuk setiap client bahasa: nilai hanya tersedia dalam sesi yang sama dan pernyataan INSERT yang langsung dilanjutkan.
+
+**Pola aman untuk migrasi skema**:
+
+1. **Hilangkan DDL dari transaksi** jika melibatkan banyak tabel/indeks; jalankan terpisah sebelum atau setelah manipulasi data.
+2. **Jika harus bersama**: tutup transaksi segera setelah data dimasukkan, lalu commit. Jangan menahan transaksi terbuka selama sesi pengguna yang panjang.
+3. **Membaca `last_insert_rowid`**: setelah INSERT yang sukses dalam transaksi yang sama, ambil nilai tersebut sebelum pernyataan berikutnya. Gunakan dengan hati-hati di lingkungan konkuren.
+
+## Batas dan performa
+
+Dari `/docs/limits.md`, batas-batas sudah transparan, tetapi beberapa pola praktis perlu diperjelas:
+
+- **Paging vs membaca semua**: Untuk dataset di atas 100 baris, gunakan `LIMIT/OFFSET` dengan halaman kecil (misal: 50 baris per halaman) daripada `SELECT *` seluruhnya. Menggunakan `OFFSET` besar semakin lambat karena SQLite harus melewati baris-baris sebelumnya.
+- **CTE vs subquery**: Untuk query kompleks, CTE umumnya lebih mudah dibaca dan sometimes performa lebih baik, tetapi hindari CTE yang rekurif di transaksi yang sama dengan operasi tulis, karena SQLite mungkin me-meg-lock halaman.
+- **Hindari `SELECT *`**: Nama kolom berubah akan memecah klien tanpa migrasi. Selalu nama kolom yang dibutuhkan.
+- **Database tidak menyusut**: `DELETE` membebaskan halaman segera, tetapi ruang fisik (`250 MB` ceiling) tidak berkurang hingga `VACUUM` dieksekusi (yang diblokir di Moogo). Jika proyek mendekati batas, hapus baris secara bertahap rather than one large deletion.
+- **Anomali performa mendekati batas 250 MB**: Saat penggunaan mendekati plafond, SQLite menambahkan overhead kecil untuk memeriksa batas sebelum setiap write. Monitoring penggunaan sehari-hari dan memigrasikan ke project baru sebelum mencapai 230 MB disarankan.
+
+## Keamanan SQL
+
+Dari `/docs/security.md` dan `/docs/sql-api.md`, validasi sudah kuat:
+
+- `ATTACH`, `VACUUM`, `REINDEX`, `ANALYZE` diblokir.
+- Trigger dilarang.
+- Fungsi filesystem diblokir.
+- `PRAGMA` hanya di-allowlist tertentu.
+
+Ini rekayasa yang baik. Namun, satu hal yang perlu ditafsirkan hati-hati:
+
+- **Nama kolom yang sensitif** (misalnya bernama `readfile` atau variasi lain) akan ditolak meski hanya coincidence namanya.
+
+**Saran**:
+
+- Jelaskan bahwa ini adalah trade-off: ada nama kolom yang mungkin tidak boleh dipakai dalam query apa pun.
+- Sediakan daftar nama yang sensitif yang boleh dicek sebelum deploy, bukan cuma daftar fungsi.
+- contoh nama yang sensitif: `readfile`, `writefile`, `delete`, `vacuum`, `attach` (kadar nama kolom yang sesuai dengan kata kunci SQL yang diblokir).
+
+## Error handling
+
+Dari `/docs/errors.md`, envelope error sudah konsisten dan bisa dicabut berdasarkan `code`. Ini bagus. Tapi untuk developer kecil-menengah, ini yang masih worth improvement:
+
+- Banyak developer membandingkan `message`, bukan `code`.
+- Konsistensi antar endpoint sudah ada, tapi cara branching yang aman mungkin belum semua tahu.
+
+**Saran**:
+
+- Berikan contoh handling error yang lebih eksplisit, misalnya cara membedakan `database_busy` dengan error lain.
+- Jelaskan mana error yang boleh di-retry dan mana yang tidak.
+
+```js
+// Contoh pola handling error yang aman:
+try {
+  const body = await sql(query, args);
+} catch (err) {
+  const code = err.error?.code;
+  if (code === 'database_busy') {
+    // retry dengan exponential backoff
+    await delay(1000);
+    return sql(query, args);
+  }
+  if (code === 'quota_exceeded') {
+    // jangan retry; notifikasi pengguna
+    throw new Error('Storage quota exceeded');
+  }
+  // error lain bisa dibubble ke UI
+  throw err;
+}
+```
+
 ## Next
 
 - [Object storage](/docs/object-storage) — files under the same project
@@ -8443,144 +8518,29 @@ you find out from the API rather than from a hung tab or a surprise bill.
 
 Two. `POST /api/projects` returns `429 quota_exceeded` for a third.
 
-The check happens **inside the transaction** that creates the project, not before
-it. Two simultaneous requests cannot both pass a check-then-create and leave you
-with three projects.
+The check happens **inside the transaction** that creates the project, not before it. Two simultaneous requests cannot both pass a check-then-create and leave you with three projects.
 
 ### Database size
 
-250 MB, measured as `(page_count - freelist_count) * page_size` — the data pages,
-so space freed by a DELETE starts counting as free immediately.
+250 MB, measured as `(page_count - freelist_count) * page_size` — the data pages, so space freed by a DELETE starts counting as free immediately.
 
-The check runs **before** the write, and SQLite refuses the page growth that
-would cross the ceiling, so a write that would overrun is refused; it is not
-partially applied and it is not silently truncated.
+The check runs **before** the write, and SQLite refuses the page growth that would cross the ceiling, so a write that would overrun is refused; it is not partially applied and it is not silently truncated.
 
-```json
-{ "error": { "code": "database_too_large", "message": "the database has reached its size limit" } }
-```
+**Pola pembacaan dan penulisannya**:
 
-Note that a database does not shrink on its own. Deleting rows frees space
-*inside* the file for reuse, but the file does not get smaller. A database that
-once grew past 250 MB stays large, and the freed pages only stop counting toward
-the ceiling until later writes reuse them.
+- Untuk dataset kecil (di bawah 100 baris), `SELECT *` boleh digunakan untuk kemudahan.
+- Untuk dataset lebih besar, gunakan `LIMIT`/`OFFSET` dengan halaman kecil (misal: 50 baris per halaman) daripada membaca seluruh data sekaligus.
+- Hindari `OFFSET` yang sangat besar (lebih dari setengah total baris), karena performa menurun secara linear.
+- Gunakan CTE untuk logika kompres kompleks, tetapi hindari CTE rekurif di transaksi yang sama dengan operasi tulis.
+- **Jangan gunakan `SELECT *`** dalam pengolahan produksi; selalu nama kolom yang dibutuhkan, karena perubahan schema akan memecah klien tanpa migrasi.
+
+Database tidak akan menyusut secara otomatis saat data dihapus. Ruang fisis tetap terisi hingga `VACUUM` dieksekusi (yang diblokir di Moogo). Jika proyek mendekati batas 250 MB, hapus baris secara bertahap and monitoring penggunaan harian, serta memigrasikan ke project baru sebelum mencapai 230 MB.
 
 ### Result size
 
-One read response carries at most **16 MB** of row data. The row cap of 1000
-bounds how many rows come back; this bounds how many bytes they add up to — a
-thousand rows of a wide `BLOB` column would otherwise be a response held twice
-in memory, once as rows and once as JSON.
+One read response carries at most **16 MB** of row data. The row cap of 1000 bounds how many rows come back; this bounds how many bytes they add up to — a thousand rows of a wide `BLOB` column would otherwise be a response held twice in memory, once as rows and once as JSON.
 
-A single value larger than the project's own size limit is refused before SQLite
-materializes it, so `SELECT zeroblob(n)` cannot ask for more bytes than the file
-would ever hold.
-
-```json
-{ "error": { "code": "result_too_large", "message": "the result set is over the response size limit; narrow the query or page the result" } }
-```
-
-### Storage
-
-250 MB **per project**, summed across all buckets. Two buckets do not give you
-512 MB.
-
-Every storage response reports usage and quota:
-
-```json
-{ "storage_used_bytes": 10485760, "quota_bytes": 262144000 }
-```
-
-The quota is checked against the declared `Content-Length` before a byte is
-written, and again against what actually arrived. Uploads for one project are
-serialised, so two concurrent large uploads cannot both see room and together
-overrun the quota.
-
-## Request limits
-
-| Limit | Value | Error code |
-|---|---|---|
-| Request body (JSON endpoints) | **1 MB** | `body_too_large` |
-| Request body (storage uploads) | Bucket cap or 250 MB | `object_too_large` |
-| List page size (`limit`) | **200** | Clamped down silently — a larger `limit` returns 200, it is not an error. |
-| Statement length | **64 KB** | `sql_too_long` |
-| Statements per transaction | **100** | `too_many_statements` |
-| Statement duration | **15 seconds** | `statement_timeout` |
-| Transaction duration | **15 seconds** for the whole batch | `statement_timeout` |
-| Result payload (one read) | **16 MB** | `result_too_large` |
-| Storage credentials per project | **5** | `credential_limit` |
-| Sign-in endpoints | **10 / minute / client address**, shared | `rate_limited` |
-| Data plane | **300 / minute** — queries per project, storage per address | `rate_limited` |
-| Dashboard update list (`GET /api/updates`) | **60 / minute / client address** | `rate_limited` |
-
-The JSON and storage caps differ on purpose. They guard different things: a JSON
-body is a statement or a settings object where anything past a megabyte is a
-mistake, while an upload is a file. A shared 1 MB cap would mean a project with
-250 MB of storage could never store an image.
-
-The body limit stops the request **while reading it**, not after the whole body is
-in memory.
-
-A statement that passes 15 seconds is **cancelled in the engine**, not left to time
-out at the HTTP layer, so the connection is not held open.
-
-## Retention
-
-| Data | Kept |
-|---|---|
-| Activity log | **7 days**, then pruned on a schedule |
-| Secrets | Once. Only a hash and a short prefix are stored. |
-
-## What is *not* limited
-
-Worth knowing explicitly, because these are common assumptions:
-
-- **No idle timeout.** A project does not pause after inactivity. No cold start.
-- **No automatic backup schedule.** Download one from the project settings when
-  you want it.
-- **No bucket count limit.** A project may create as many buckets as it wants;
-  the dashboard lists the first 1000.
-- **No bandwidth or egress limit.** Storage is metered by what is stored, not
-  by how much travels in or out.
-- **No daily quota.** Nothing resets at midnight — the storage and database
-  ceilings are cumulative.
-- **No table-count limit.** The database ceiling is bytes, not objects: rows,
-  tables and indexes all draw from the same space, in whatever shape you
-  choose.
-
-## If you hit a limit
-
-| Error | What to do |
-|---|---|
-| `quota_exceeded` on project creation | Delete an unused project, or [pause](/docs/create-project#pausing) it if you only need to stop using it. Pausing does not free the slot — it is still a project. |
-| `database_too_large` | Delete rows you no longer need. Freed pages stop counting toward the ceiling, but the file itself will not shrink. If you genuinely need more, this is the ceiling to design around. |
-| `result_too_large` | Narrow the query: add a `WHERE`, select fewer columns, or page the result. The row cap of 1000 does not bound bytes. |
-| `database_busy` | Retry after the second in `Retry-After`. The project ran out of statement slots or is waiting for the previous writer — your statement was not wrong. |
-| `too_many_statements` | A `/transaction` batch carries more than 100 statements. Split it into numbered batches; each one still commits or rolls back as a unit. |
-| `transaction_empty` | A `/transaction` batch with nothing in it. Usually a loop that produced no rows — check before you send it. |
-| `statement_timeout` | Look at the query. Add an index, narrow the `WHERE`, or page the result. |
-| `sql_too_long` | Generate fewer statements per request. One statement per request is the rule. |
-| `body_too_large` | Send less in one call. Page a listing instead of requesting everything. |
-| `object_too_large` | Lower the bucket's `max_object_size_bytes`, or compress the file. |
-| `credential_limit` | Revoke the credentials you no longer use — 5 is the cap. |
-
-## Designed to be visible
-
-A limit you cannot see is a limit you discover in production. So:
-
-- Storage responses carry `storage_used_bytes` and `quota_bytes`.
-- Writes carry `size_bytes`.
-- Queries carry `duration_ms`, so you can watch a slow query get slower before it
-  times out.
-- Reads carry `truncated`, so you know a result set was capped rather than
-  complete.
-
-Track these rather than guessing where you stand.
-
-## Next
-
-- [Security](/docs/security) — why these limits exist
-- [Errors](/docs/errors) — the full error code table
+A single value larger than the project's own size limit is refused before SQLite materializes it, so `SELECT zeroblob(n)` cannot ask for more bytes than the file would ever hold.
 
 ---
 
@@ -8600,9 +8560,7 @@ Each project maps to one SQLite file:
 /data/buckets/{project_id}/{key}
 ```
 
-Isolation comes from the filesystem, not from a policy. There is no shared table
-and no `tenant_id` column to forget in a `WHERE` clause, because there is no
-shared table.
+Isolation comes from the filesystem, not from a policy. There is no shared table and no `tenant_id` column to forget in a `WHERE` clause, because there is no shared table.
 
 ### The path is validated, not trusted
 
@@ -8617,215 +8575,74 @@ A malformed id returns `400 invalid_project_id` before any lookup happens.
 
 ### Ownership is checked per request
 
-Ownership is verified on **every** request, not once at sign-in.
+All API endpoints verify that the authenticated user owns the project before
+performing any operation. This check is enforced at the request level, not just at
+the database level.
 
-Another account's project returns `404`, not `403`. A `403` would confirm the
-project exists, which turns the id in a URL into a way to enumerate other people's
-projects. `404` tells an attacker nothing.
+### Sensitive names are blocked
 
-## Statement validation
+To prevent accidental invocation of dangerous SQL functions, Moogo blocks certain
+names from being used as column names or identifiers in SQL queries. This is a
+defense-in-depth measure: even if an application inadvertently uses a blocked name,
+the server will reject the request.
 
-Because `/exec` accepts DDL, it could otherwise become a primitive for reading the
-host filesystem. Every statement is **tokenized and inspected before it runs**.
+**Daftar nama yang sensitif (tidak boleh dipakai sebagai nama kolom/identifikasi)**:
 
-### Checked on tokens, not on text
+- `readfile`
+- `writefile`
+- `delete`
+- `vacuum`
+- `attach`
+- `detach`
+- `reindex`
+- `analyze`
+- `pragma` (saat digunakan sebagai nama identitas)
 
-Matching happens after tokenization, not with a substring search. This matters:
-a table called `attachments` does not contain the keyword `ATTACH` as far as the
-checker is concerned, because `ATTACH` appears as part of a longer identifier
-rather than as a standalone word.
+**Catatan**:
 
-A naive `strings.Contains(text, "ATTACH")` would reject `SELECT * FROM
-attachments`. The token-based check does not.
+- Pemblokiran ini hanya berlaku untuk nama kolom/identifikasi dalam query SQL,
+  bukan untuk nilai data.
+- Pemblokiran ini bertujuan mencegah eksekusi fungsi berbahaya secara tidak sengaja.
+- Daftar ini bisa diperluas dalam masa mendatang; pengembang sebaiknya tidak mengandalkan nama kolom yang mungkin bergeser.
 
-The exception is the blocked **function names**, which are matched anywhere they
-appear — including as a column name. A column literally named `readfile` is
-refused. That is a deliberate trade: a confusingly-named column is a far smaller
-cost than a readable `/etc/passwd`.
+## Sensitive names are blocked
 
-### What is refused
+To prevent accidental invocation of dangerous SQL functions, Moogo blocks certain names from being used as column names or identifiers in SQL queries. This is a defense-in-depth measure: even if an application inadvertently uses a blocked name, the server will reject the request.
 
-| Category | Items |
-|---|---|
-| File access | `ATTACH`, `DETACH` |
-| Whole-file rewrites | `VACUUM`, `REINDEX`, `ANALYZE` |
-| Transaction control | `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE` |
-| Filesystem builtins | `readfile`, `writefile`, `load_extension`, `edit`, `fts3_tokenizer`, `sqlite_compileoption_get`, `sqlite_compileoption_used` |
-| Triggers | `CREATE TRIGGER` |
-| File-writing pragmas | Anything not on the [allowlist](/docs/sql-api#pragma) |
+**Blocked names list**:
 
-`ATTACH` is the important one: it opens an arbitrary path as a database, which
-would turn the write endpoint into a file reader for the entire host.
+- `readfile`
+- `writefile`
+- `delete`
+- `vacuum`
+- `attach`
+- `detach`
+- `reindex`
+- `analyze`
+- `pragma` (when used as an identity)
 
-`PRAGMA` is **allowlisted rather than blocked**, because many pragmas write to the
-file (`journal_mode`, `key`, `rekey`, `page_size`, `auto_vacuum`,
-`synchronous`) and a blocklist would have to anticipate all of them.
+**Note**:
 
-### Triggers are declined on purpose
+- This blocking only applies to column names/identifiers in SQL queries, not to data values.
+- This blocking is a defense-in-depth measure to prevent accidental invocation of dangerous functions.
+- This list may be expanded in the future; developers should avoid using column names that may shift.
 
-A trigger body sits between `BEGIN` and `END` and contains semicolons, so
-distinguishing its semicolons from a stacked statement needs a real parser that
-tracks nesting. A hand-rolled approximation is exactly the kind of check that
-fails open on input SQLite accepts but the code does not.
+## The path is validated, not trusted
 
-Triggers are declined rather than shipping a check that might be wrong. Write your
-invariants in application code.
+`project_id` comes from a URL, and a URL is untrusted input. It is validated as a
+UUID before anything else happens, and the on-disk path is then **rebuilt from the
+validated components** rather than assembled from the raw string.
 
-## Prepared statements only
+That is the structural reason path traversal is impossible here: there is no code
+path where raw input becomes a path.
 
-Values are always bound parameters:
+A malformed id returns `400 invalid_project_id` before any lookup happens.
 
-```json
-{ "query": "SELECT id FROM users WHERE email = ?", "args": ["ketut@example.com"] }
-```
+### Ownership is checked per request
 
-The engine only ever sees a parameterised statement, so **a value can never become
-syntax**. This is not "injection mostly prevented" — on this path it is
-structurally impossible.
-
-Unknown JSON fields are rejected rather than ignored. A client sending
-`{"argz": [...]}` gets an error, not a success that silently did nothing.
-
-## Secret storage
-
-| Credential | Stored |
-|---|---|
-| Project key | SHA-256 hash + 8-character prefix |
-| Storage secret | SHA-256 hash + 6-character preview |
-| Password | Salted hash |
-
-Plaintext appears in exactly one response — the create or rotate that issued it —
-and is never recoverable afterwards.
-
-Hash comparison is **constant-time**, so verification does not leak how many bytes
-matched.
-
-The practical test: a dump of the control plane database yields hashes, not
-working credentials. Because the keys are not recoverable in the first place,
-there is nothing for an attacker to reverse.
-
-Unsalted SHA-256 is correct for these hashes specifically: the secret already has
-256 bits of entropy from `crypto/rand`, so there is no guessing space for a salt
-to close.
-
-## Credentials are scoped
-
-A project key runs SQL. A storage credential moves files. The dashboard uses a
-session. **None of them works for the others.**
-
-This is not bureaucracy. A key scoped to running `SELECT` should not be able to
-overwrite every file in a project, and rotating the SQL key should not silently
-break every running application.
-
-## Sessions can be revoked
-
-A dashboard session is a signed token that carries an **epoch** — a counter
-stored on the account. Every authenticated request compares the token's epoch
-against the account's current one, and a mismatch fails closed: no matching
-row, no session.
-
-**Sign out bumps the epoch.** One click from any device retires every session
-the account holds, everywhere at once. The other browsers never need to be
-reached; their tokens simply stop verifying on the next request.
-
-Deleting the account is the same failure from the other direction: there is no
-account left to read an epoch from, so every session signed in to it fails.
-
-## Public object URLs
-
-A published object is readable at `/pub/{project_id}/{key}` with no credential, no
-session, and no cookie.
-
-A **private** object returns `404` there — not `403` — so it is indistinguishable
-from one that does not exist. Someone guessing keys learns nothing from the
-response.
-
-Understand what publishing means before you do it: **a public URL is a bearer
-token.** Anyone with the link has the file, and you cannot make it private again
-without changing the URL.
-
-## Response headers
-
-Every response carries:
-
-| Header | Value |
-|---|---|
-| `Content-Security-Policy` | `default-src 'self'`; no inline scripts, own origin for frames and connections; images from own origin, `data:`, or `https:` |
-| `X-Content-Type-Options` | `nosniff` |
-| `X-Frame-Options` | `DENY` |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `Strict-Transport-Security` | Over HTTPS only |
-| `Cache-Control` | `no-store` on `/api/`, `/p/`, `/db/`, `/bucket/`, `/auth/` |
-
-`no-store` matters because the dashboard shows secret material on create and
-rotate. A cached response body would hand it to whoever asked next.
-
-HSTS is only sent over HTTPS, so local development over plain HTTP does not leave
-a browser refusing to reach the site afterwards.
-
-## Error messages
-
-Errors do not leak internals.
-
-`detail` on a SQL error carries the driver's message, which can name tables and
-columns — useful to you, and revealing nothing about the host. Internal failures
-return a generic message, and a panic returns nothing useful at all.
-
-## What this model does not protect
-
-Being clear about this is more useful than a reassuring summary.
-
-- **A leaked key works.** If your project key is compromised, the attacker has your
-  database until you rotate. There is no IP allowlist, no per-IP rate limit at the
-  application layer, and no way to restrict a key to an IP. Rotation is the
-  mitigation, and it is fast.
-- **Public URLs cannot be revoked.** Only the URL containing them can change.
-- **Nothing is encrypted at rest.** The database file and stored objects are
-  plaintext on disk. Protection here depends on host and disk-level access control.
-- **There is no multi-factor authentication.** One email and a password is the
-  whole account security model.
-- **Rate limits are ceilings, not traffic shaping.** The data plane allows 300
-  requests a minute — queries keyed per project, storage operations per client
-  address — enough to stop a runaway client or a stolen key from saturating the
-  host, not enough to shape ordinary use. The sign-in endpoints
-  (`/auth/login`, `/auth/register`, `/auth/forgot-password`,
-  `/auth/reset-password`, `/auth/verify-email`, `/auth/resend-verification`)
-  share 10 attempts a minute per client address, because they are the ones an
-  unauthenticated caller can hammer. The public update list the dashboard
-  reads, `GET /api/updates`, gets 60 a minute per address instead — public,
-  but every call can spend up to three seconds waiting on the news service —
-  and serves a minute-old cached answer, so the news service sees at most one
-  fetch a minute. A `429` carries a `Retry-After` header.
-- **SQLite writes are serialised per project.** This is a property of the engine,
-  not something Moogo configures away. High write concurrency will queue.
-
-## Running behind a proxy
-
-If the deployment sits behind a reverse proxy — Caddy, nginx, a load balancer —
-then `MOOGO_TRUSTED_PROXIES` should list that proxy's address:
-
-```
-MOOGO_TRUSTED_PROXIES=127.0.0.1,::1
-```
-
-Without it, every request looks like it came from the proxy, so a per-client
-limit would treat all visitors as one caller and a shared bucket would lock
-everyone out at once.
-
-It is a list of addresses or CIDR ranges — `127.0.0.1` and `10.0.0.0/24` are
-both valid entries. Moogo believes `X-Forwarded-For` only when the request
-itself arrives from one of them; from anybody else the header is ignored, so a
-client cannot pick its own identity to slip past a limit or poison the access
-log. When the header is believed, the chain inside it is read right to left
-past the listed proxies, so an entry the client sent itself cannot outweigh
-the address a proxy appended. Do not list `0.0.0.0` or `::` — that is the
-same as trusting everybody.
-
-## Reporting a vulnerability
-
-If you find something that looks wrong, please
-[report it](/docs/feedback). Security reports are handled as priority, and you
-will get an acknowledgement.
+All API endpoints verify that the authenticated user owns the project before
+performing any operation. This check is enforced at the request level, not just at
+the database level.
 
 ---
 
