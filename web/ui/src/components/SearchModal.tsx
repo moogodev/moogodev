@@ -1,5 +1,5 @@
-// SearchModal — hijau theme + live search kerja
-import { useEffect, useState, useCallback, useRef } from "react";
+// SearchModal — hijau theme, minimal & pasti work (no React #310)
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { buildSearchIndex, type SearchIndex, type SearchResult, type SearchMatch } from "../lib/search";
 import { allDocs, ensureDocs, docsReady } from "../lib/docs";
@@ -32,9 +32,7 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
   // Perform search when query changes AND index is ready
   useEffect(() => {
     if (!searchIndex) return;
-    if (query.trim().length < 2) {
-      setResults([]); setSelectedIndex(0); return;
-    }
+    if (query.trim().length < 2) { setResults([]); setSelectedIndex(0); return; }
     const res = searchIndex.search(query, 10);
     setResults(res); setSelectedIndex(0);
   }, [query, searchIndex]);
@@ -42,14 +40,14 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
   // Focus input when opened
   useEffect(() => { if (isOpen) setTimeout(() => inputRef.current?.focus(), 50); }, [isOpen]);
 
-  // Keyboard navigation
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  // Simple keyboard navigation — Esc close, Arrows navigate, Enter select
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen) return;
     if (e.key === "Escape") { e.preventDefault(); onClose(); }
     else if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIndex(i => Math.min(i + 1, results.length - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setSelectedIndex(i => Math.max(i - 1, 0)); }
-    else if (e.key === "Enter") { e.preventDefault(); if (results[selectedIndex]) { navigateToResult(results[selectedIndex]); } }
-  }, [isOpen, results, selectedIndex, onClose, navigate]);
+    else if (e.key === "Enter") { e.preventDefault(); if (results[selectedIndex]) navigateToResult(results[selectedIndex]); }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { setQuery(e.target.value); setSelectedIndex(0); };
 
@@ -60,28 +58,28 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
     onClose(); setTimeout(() => navigate(`/docs/${page.slug}${hash}`), 100);
   };
 
-  // Highlight search terms in text
-  const highlightText = useCallback((text: string, query: string) => {
+  // Highlight search terms — simple inline, no useCallback complexity
+  const highlightText = (text: string, query: string) => {
     if (!query.trim()) return <span>{text}</span>;
     const terms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
     if (terms.length === 0) return <span>{text}</span>;
     const regex = new RegExp(`(${terms.map(escapeRegex).join("|")})`, "gi");
     const parts = text.split(regex);
-    return <span>{parts.map((part, i) => regex.test(part) ? <mark key={i} style={{backgroundColor: "rgba(16,185,129,0.3)"}} className="bg-green-500/30">{part}</mark> : <span key={i}>{part}</span>)}</span>;
-  }, []);
+    return <span>{parts.map((part, i) => regex.test(part) ? <mark key={i} style={{backgroundColor: "rgba(16,185,129,0.3)"}}>{part}</mark> : <span key={i}>{part}</span>)}</span>;
+  };
 
   if (!isOpen) return null;
 
-  // Memoized groups - only recompute when results change
-  const groups = useCallback(() => {
-    const grouped = new Map<string, SearchResult[]>();
+  // Simple groups — just split results by page.group, no useMemo/useCallback overhead
+  const groups = () => {
+    const grouped: Record<string, SearchResult[]> = {};
     for (const r of results) {
       const g = r.page.group;
-      if (!grouped.has(g)) grouped.set(g, []);
-      grouped.get(g)!.push(r);
+      if (!grouped[g]) grouped[g] = [];
+      grouped[g]!.push(r);
     }
-    return Array.from(grouped.entries());
-  }, [results]);
+    return Object.entries(grouped);
+  };
 
   return (
     <div
@@ -114,7 +112,7 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ padding: "2rem" }}>
-          // Hijau input dengan placeholder
+          // Hijau input
           <input
             ref={inputRef}
             type="search"
