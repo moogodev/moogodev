@@ -45,7 +45,12 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
     else if (e.key === "Enter") { e.preventDefault(); if (results[selectedIndex]) navigateToResult(results[selectedIndex]); }
   }, [isOpen, results, selectedIndex, onClose, navigate]);
 
+  const [isFocused, setIsFocused] = useState(false);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { setQuery(e.target.value); setSelectedIndex(0); };
+
+  const handleFocus = () => { setIsFocused(true); };
+  const handleBlur = () => { setIsFocused(false); };
 
   const navigateToResult = (result: SearchResult) => {
     const page = result.page;
@@ -110,17 +115,20 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
             value={query}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
             placeholder="Search documentation…"
             style={{
               width: "100%",
               padding: "1rem 1.5rem",
               fontSize: "1rem",
-              border: "2px solid #cccccc",
+              border: "2px solid " + (isFocused ? "#ff0000" : "#cccccc"),
               borderRadius: "0.5rem",
               marginBottom: "1rem",
               color: "#000000",
               backgroundColor: "#f8f8f8",
               outline: "none",
+              boxShadow: isFocused ? "0 0 0 3px rgba(255, 0, 0, 0.1)" : "none",
             }}
             aria-label="Search documentation"
           />
