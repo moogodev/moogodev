@@ -200,11 +200,33 @@
   background: color-mix(in srgb, var(--color-panel-raised) 45%, transparent);
 }
 
-/* A code span inside a table cell is often a whole endpoint, so let it wrap
-   instead of forcing the cell wider than the page. */
+/* A code span inside a table cell is often a whole endpoint, so on a wide
+   screen let it wrap instead of forcing the cell wider than the page. */
 .docs-prose td code {
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* On a narrow screen the prose column is barely wider than the table, so a
+   wrapping cell folds into a stack of words and the table reads as a list
+   instead of a grid. Keep every cell on one line and let the table scroll
+   sideways: the columns stay aligned, and the rest of each row is one swipe
+   away. This runs up to the width where the sidebar takes its own column. */
+@media (width < 1024px) {
+  .docs-prose th,
+  .docs-prose td {
+    white-space: nowrap;
+  }
+
+  .docs-prose td code {
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  .docs-prose table {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
 }
 
 /* --- Code blocks ------------------------------------------------------ */
