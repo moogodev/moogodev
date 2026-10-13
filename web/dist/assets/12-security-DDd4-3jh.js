@@ -38,25 +38,6 @@ names from being used as column names or identifiers in SQL queries. This is a
 defense-in-depth measure: even if an application inadvertently uses a blocked name,
 the server will reject the request.
 
-**Daftar nama yang sensitif (tidak boleh dipakai sebagai nama kolom/identifikasi)**:
-
-- \`readfile\`
-- \`writefile\`
-- \`delete\`
-- \`vacuum\`
-- \`attach\`
-- \`detach\`
-- \`reindex\`
-- \`analyze\`
-- \`pragma\` (saat digunakan sebagai nama identitas)
-
-**Catatan**:
-
-- Pemblokiran ini hanya berlaku untuk nama kolom/identifikasi dalam query SQL,
-  bukan untuk nilai data.
-- Pemblokiran ini bertujuan mencegah eksekusi fungsi berbahaya secara tidak sengaja.
-- Daftar ini bisa diperluas dalam masa mendatang; pengembang sebaiknya tidak mengandalkan nama kolom yang mungkin bergeser.
-
 ## Sensitive names are blocked
 
 To prevent accidental invocation of dangerous SQL functions, Moogo blocks certain names from being used as column names or identifiers in SQL queries. This is a defense-in-depth measure: even if an application inadvertently uses a blocked name, the server will reject the request.
