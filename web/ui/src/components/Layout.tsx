@@ -22,9 +22,10 @@ export function SiteLayout({ children }: { children: ReactNode }) {
 
 // The development notice sits above the header rather than inside it: the
 // header tells a visitor where to go, and this tells them how much weight
-// whatever they find there can carry. It has to be read first. The amber is
-// the same token the auth pages use for notices, so the bar reads as a notice
-// in both themes instead of inventing a colour of its own.
+// whatever they find there can carry. It has to be read first. It wears the
+// accent green — the same colour as the primary action — so the bar reads as
+// part of the product rather than as an error, and the on-accent ink token
+// keeps the text legible in both themes.
 //
 // It ships in every build, production included: the product is in its
 // development phase, and a visitor on the live site needs that sentence more
@@ -33,18 +34,18 @@ export function SiteLayout({ children }: { children: ReactNode }) {
 // ends.
 function AnnouncementBar() {
   return (
-    <div className="border-b border-amber/30 bg-amber/10">
-      <div className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-center gap-x-2 gap-y-1 px-6 py-2 text-center text-[0.84rem] text-muted">
+    <div className="border-b border-accent-strong bg-accent-strong text-accent-ink">
+      <div className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-center gap-x-2 gap-y-1 px-6 py-2 text-center text-[0.84rem] text-accent-ink/90">
         <span>
           moogo.dev is still in development — usable for testing,{" "}
-          <span className="font-medium text-foreground">
+          <span className="font-semibold text-accent-ink">
             not ready for production
           </span>
           .
         </span>
         <Link
           to="/announcement"
-          className="font-medium text-amber underline-offset-4 hover:underline"
+          className="font-semibold text-accent-ink underline decoration-accent-ink/40 underline-offset-4 transition-colors hover:decoration-accent-ink"
         >
           Read more
         </Link>

@@ -7,7 +7,7 @@
 
 # Moogo
 
-A true database for serverless apps. Every project gets its own SQLite file and
+A lightweight database for serverless applications. Every project gets its own SQLite file and
 its own key, and you talk to it over HTTP — no connection string, no driver, no
 connection pool to manage. Object storage lives under the same project, behind
 its own credential.

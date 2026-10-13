@@ -73,6 +73,16 @@
   }
 }
 
+/* The headline on a phone. The shared clamp bottoms out at 2.4rem, which suits
+   a short headline; this one is long enough that the same size folds into four
+   cramped lines on a small screen. Start smaller on phones and grow back to the
+   desktop value by the md breakpoint, where the utility class takes over. */
+@media (max-width: 767px) {
+  .hero-grid h1 {
+    font-size: clamp(1.75rem, 7vw, 2.4rem);
+  }
+}
+
 /* --- Section separators ---------------------------------------------- */
 
 /*
