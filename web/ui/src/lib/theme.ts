@@ -1,7 +1,7 @@
 // Theme selection.
 //
-// Light is the default. Dark is opt-in, chosen by the toggle in the footer and
-// remembered in localStorage.
+// Dark is the default. A visitor who prefers light changes it with the toggle in
+// the footer, and that choice is remembered in localStorage.
 //
 // The choice lives on <html> as a class rather than in React state because every
 // page in this app is reached by a full load: the marketing page, the auth pages
@@ -13,6 +13,12 @@ export type Theme = "light" | "dark";
 
 const STORAGE_KEY = "moogo-theme";
 const DARK_CLASS = "theme-dark";
+
+// The palette a first-time visitor gets. The same class is baked into
+// index.html so the very first paint is already dark rather than a white frame
+// that flips once this module runs (the CSP forbids an inline script in the
+// head, so this is the closest the markup gets to the choice).
+const DEFAULT_THEME: Theme = "dark";
 
 const listeners = new Set<(theme: Theme) => void>();
 
@@ -73,7 +79,7 @@ export function applyTheme(theme: Theme): Theme {
 // since #root is empty until React renders, the only thing that can show before
 // the class lands is the page background.
 export function initializeTheme(): Theme {
-  return applyTheme(readStored() ?? "light");
+  return applyTheme(readStored() ?? DEFAULT_THEME);
 }
 
 // toggleTheme switches to the other theme and returns it.
