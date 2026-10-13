@@ -112,7 +112,6 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ padding: "2rem" }}>
-          // Hijau input
           <input
             ref={inputRef}
             type="search"
