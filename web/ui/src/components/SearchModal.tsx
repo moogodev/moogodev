@@ -1,4 +1,4 @@
-// SearchModal — absolutely minimal, explicit colors, no ambiguity
+// SearchModal — absolutely minimal, explicit high-visibility colors, with stopPropagation fix
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { buildSearchIndex, type SearchIndex, type SearchResult, type SearchMatch } from "../lib/search";
@@ -92,7 +92,7 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
       aria-modal="true"
       aria-label="Search documentation"
     >
-      // Explicit bright white panel with thick border
+      // Explicit bright white panel with thick border, stopPropagation so clicking panel doesn't close modal
       <div style={{
         backgroundColor: "#ffffff",
         border: "4px solid #ff0000",
@@ -101,7 +101,7 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
         maxWidth: "800px",
         overflow: "hidden",
         fontFamily: "sans-serif",
-      }}>
+      }} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: "2rem" }}>
           // Explicit black input with clear placeholder
           <input
@@ -111,6 +111,8 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="Search documentation…"
+            aria-label="Search documentation"
+            autoComplete="off"
             style={{
               width: "100%",
               padding: "1rem 1.5rem",
@@ -122,7 +124,6 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
               backgroundColor: "#f8f8f8",
               outline: "none",
             }}
-            aria-label="Search documentation"
           />
           <div style={{ maxHeight: "60vh", overflowY: "auto", color: "#000000" }}>
             {query.trim().length < 2 && (
