@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { buildSearchIndex, type SearchIndex, type SearchResult, type SearchMatch } from "../lib/search";
-import { allDocs } from "../lib/docs";
+import { allDocs, ensureDocs, docsReady } from "../lib/docs";
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -25,9 +25,15 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
 
   // Build search index once all docs are loaded
   useEffect(() => {
-    if (allDocs().length > 0 && !searchIndex) {
-      setSearchIndex(buildSearchIndex(allDocs()));
-    }
+    const init = async () => {
+      if (!docsReady()) {
+        await ensureDocs();
+      }
+      if (allDocs().length > 0 && !searchIndex) {
+        setSearchIndex(buildSearchIndex(allDocs()));
+      }
+    };
+    init();
   }, [searchIndex]);
 
   // Perform search when query or index changes
