@@ -31,6 +31,48 @@
   pointer-events: none;
 }
 
+/* The hero's five fact pairs. On a phone they would otherwise wrap into two or
+   three rows of crushed labels, which pushes the hero down and reads as a list
+   rather than a summary. Instead the row becomes a rail: one line at natural
+   width that the finger can push, so no label is ever forced to fold. The
+   negative margin bleeds it to the section edge and the padding puts the
+   gutters back, which lets the last pair scroll fully into view. Above md the
+   utilities on the element take over untouched. */
+@media (max-width: 767px) {
+  .hero-facts {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 1.25rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-inline: 1.5rem;
+    padding-block: 0.25rem;
+    margin-inline: -1.5rem;
+  }
+
+  .hero-facts::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hero-facts > div {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .hero-facts dt {
+    font-size: 1.1rem;
+    line-height: 1.15;
+  }
+
+  .hero-facts dd {
+    font-size: 0.72rem;
+    line-height: 1.25;
+  }
+}
+
 /* --- Section separators ---------------------------------------------- */
 
 /*
@@ -142,6 +184,51 @@
    inside them, otherwise keyboard users get no indication of where they are. */
 .card-hover:focus-within {
   border-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
+}
+
+/* --- Mobile card rails ------------------------------------------------ */
+
+/*
+ * Below md, a row of cards stops stacking into a tall column and turns into a
+ * sideways scroller: one row the finger can push, with the next card peeking
+ * past the edge to say there is more.
+ *
+ * The rail is bled out to the section edge (the negative margin cancels the
+ * gutters the parent already applied, and the padding puts them back) so a card
+ * enters and leaves under the screen edge instead of inside the gutter. With
+ * overflow-x: auto, a physical scrollbar is drawn that would read as a widget
+ * rather than as content, so it is hidden — the peek carries the hint.
+ *
+ * Above md the block disappears entirely and the element's own grid utilities
+ * take over, so the desktop layout is untouched.
+ */
+@media (max-width: 767px) {
+  .card-rail {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 0.75rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-inline: 1.5rem;
+    padding-block: 0.25rem;
+    margin-inline: -1.5rem;
+  }
+
+  .card-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .card-rail > * {
+    flex: 0 0 auto;
+    width: min(78%, 20rem);
+    scroll-snap-align: start;
+  }
 }
 
 /* --- Small parts ------------------------------------------------------ */
@@ -315,108 +402,6 @@
    index.css already neutralises transitions under prefers-reduced-motion, so
    there is nothing to override here. The block is kept as the place to put it
    if a transform comes back. */
-
-/* --- Stack grid ------------------------------------------------------- */
-
-/* A flat grid of named tiles replaces the old logo marquee. The marquee read
-   as decoration: a stack drifted out of reach mid-read and its name was never
-   on screen next to the glyph. The grid is static, every tile carries its name,
-   and the rows are split by frontend/backend so the group note can say whether
-   the SQL key belongs in the browser.
-
-   Desktop: auto-fill, 5+ columns. Mobile: exactly 3 equal columns with balanced edges. */
-.stack-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(7.25rem, 1fr));
-  gap: 0.75rem;
-  list-style: none;
-  margin: 0;
-  padding: 0 1rem;
-}
-
-@media (max-width: 480px) {
-  .stack-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.5rem;
-    padding: 0 0.5rem;
-    justify-content: center;
-    align-items: start;
-  }
-}
-
-/* Make sure tiles don't overflow their grid cell on mobile */
-@media (max-width: 480px) {
-  .stack-tile {
-    min-width: 0;
-    padding: 0.85rem 0.4rem 0.7rem;
-    margin: 0; /* ensure no asymmetric margins */
-  }
-  .stack-tile-chip {
-    width: 2.6rem;
-    height: 2.6rem;
-  }
-  .stack-tile-chip img {
-    width: 1.7rem;
-    height: 1.7rem;
-  }
-  .stack-tile-name {
-    font-size: 0.8rem;
-  }
-}
-
-/* The tile is one button: logo above, name below. No fill, just a green
-   outline. The logo sits directly on the tile surface. */
-.stack-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 1rem 0.5rem 0.85rem;
-  border: 1px solid var(--color-accent-strong);
-  border-radius: 0.9rem;
-  background: transparent;
-  text-align: center;
-  transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    transform 160ms ease;
-}
-
-.stack-tile:hover {
-  background: var(--color-hover-bg);
-  transform: translateY(-2px);
-}
-
-.stack-tile:focus-visible {
-  outline: 2px solid var(--color-accent-strong);
-  outline-offset: 2px;
-}
-
-/* White chip so the black Simple Icons glyph stays legible in dark mode.
-   The chip is the only filled element; the tile itself stays transparent. */
-.stack-tile-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.9rem;
-  height: 2.9rem;
-  border-radius: 0.7rem;
-  background: #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.14);
-}
-
-.stack-tile-chip img {
-  display: block;
-  width: 1.85rem;
-  height: 1.85rem;
-}
-
-.stack-tile-name {
-  font-size: 0.86rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--color-foreground);
-}
 
 /* --- Free tier chalkboard ---------------------------------------------- */
 
@@ -598,21 +583,50 @@
   margin: 0;
 }
 
-/* Grid of stack cards - desktop: 5+ cols, tablet: 4, mobile: 3 */
-.stack-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
-  gap: 0.875rem;
+/* The rail is the sideways viewport the cards travel through. It keeps its own
+   pointer, so a finger can drag it and the compositor is free to move it; the
+   auto-scroll in StackRail just nudges scrollLeft, so a manual scroll wins.
+   The negated margin cancels the section's gutters and the padding puts them
+   back, which lets a card travel edge to edge instead of stopping in a gutter. */
+.stack-rail {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding-inline: 1.5rem;
+  padding-block: 0.25rem;
+  margin-inline: -1.5rem;
+}
+
+.stack-rail::-webkit-scrollbar {
+  display: none;
+}
+
+/* One full set of cards. It is rendered three times, the extra copies
+   aria-hidden, so the auto-scroll can wrap at a seam the eye never reaches:
+   when scrollLeft passes one set's width it is rewound by exactly that and the
+   next copy takes over from the first frame. The third copy is the runway that
+   keeps the strip endless even when one set is narrower than the viewport. */
+.stack-track {
+  display: flex;
+  flex: none;
+  gap: 0.5rem;
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-@media (max-width: 640px) {
-  .stack-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.5rem;
-    padding: 0 0.5rem;
+.stack-track > li {
+  flex: 0 0 auto;
+  width: 6rem;
+}
+
+@media (min-width: 768px) {
+  .stack-track > li {
+    width: 7rem;
   }
 }
 
@@ -718,13 +732,6 @@
 
 /* Mobile adjustments */
 @media (max-width: 480px) {
-  .stack-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.5rem;
-    padding: 0 0.5rem;
-    justify-content: center;
-  }
-
   .stack-card {
     min-height: 5rem;
     padding: 0.875rem 0.5rem;

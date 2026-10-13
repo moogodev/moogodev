@@ -1,9 +1,135 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
 import { CodeTabs } from "../components/CodeTabs";
 import { ArrowRight } from "../components/icons";
 import { newsOrigin } from "../lib/origin";
 import "../landing.css";
+
+// useAutoScroll drifts a horizontal rail and wraps it at one copy's width, so
+// the cards read as an endless strip. Direction is the rail's own: the top row
+// travels left, the bottom row travels right. A manual scroll always wins:
+// pointer, wheel and touch pause the drift, and it only resumes once the
+// interaction has been idle for a moment. prefers-reduced-motion skips the
+// drift entirely, leaving the rail scrollable by hand.
+function useAutoScroll(
+  railRef: React.RefObject<HTMLDivElement | null>,
+  direction: "left" | "right",
+) {
+  useEffect(() => {
+    const el = railRef.current;
+    if (!el) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    // Pixels per second: slow enough to read a card, quick enough to register.
+    const SPEED = 18;
+    // How long after an interaction before the drift picks up again.
+    const RESUME_AFTER = 1200;
+    // +1 walks the viewport forward (cards slide left); -1 walks it back
+    // (cards slide right).
+    const sign = direction === "left" ? 1 : -1;
+
+    // The distance one copy of the track occupies. The rail renders the set
+    // more than once, so scrolling by exactly this is invisible: the next copy
+    // takes over pixel for pixel.
+    const copyWidth = () => {
+      const tracks = el.querySelectorAll<HTMLElement>(".stack-track");
+      if (tracks.length < 2) return 0;
+      return tracks[1].offsetLeft - tracks[0].offsetLeft;
+    };
+
+    let paused = false;
+    let visible = true;
+    let last = performance.now();
+    let frameId = 0;
+
+    // The offset is tracked here instead of being read back from the element.
+    // Some engines round scrollLeft to whole pixels, which would swallow the
+    // sub-pixel step of a slow drift and leave the strip frozen; keeping the
+    // fraction in JS means the element is only ever told where to go.
+    let position = el.scrollLeft;
+
+    // Keep an offset inside one copy, in either direction.
+    const wrap = (value: number, width: number) =>
+      ((value % width) + width) % width;
+
+    const step = (now: number) => {
+      const dt = Math.min(now - last, 64);
+      last = now;
+      if (!paused && visible) {
+        const width = copyWidth();
+        if (width > 0) {
+          position = wrap(position + (sign * SPEED * dt) / 1000, width);
+          el.scrollLeft = position;
+        }
+      }
+      frameId = requestAnimationFrame(step);
+    };
+    frameId = requestAnimationFrame(step);
+
+    const onVisibility = () => {
+      visible = document.visibilityState === "visible";
+      last = performance.now();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    let cooldown = 0;
+    const hold = () => {
+      paused = true;
+      // Adopt whatever the hand left behind, so a resume continues from there.
+      position = el.scrollLeft;
+      window.clearTimeout(cooldown);
+    };
+    const release = () => {
+      window.clearTimeout(cooldown);
+      // Wait out the interaction, then normalise the position back inside one
+      // copy so a release can never resume mid-gap.
+      cooldown = window.setTimeout(() => {
+        const width = copyWidth();
+        if (width > 0) {
+          position = wrap(el.scrollLeft, width);
+          el.scrollLeft = position;
+        } else {
+          position = el.scrollLeft;
+        }
+        last = performance.now();
+        paused = false;
+      }, RESUME_AFTER);
+    };
+
+    el.addEventListener("pointerdown", hold);
+    el.addEventListener("touchstart", hold, { passive: true });
+    el.addEventListener("pointerup", release);
+    el.addEventListener("touchend", release);
+    el.addEventListener("pointercancel", release);
+    el.addEventListener("pointerleave", release);
+    el.addEventListener("focusin", hold);
+    el.addEventListener("focusout", release);
+    // A wheel has no matching "up", so it holds and releases on its own timer:
+    // staying paused for a moment after the last notch is what makes a trackpad
+    // scroll of the rail feel like the rail, not a tug of war.
+    const onWheel = () => {
+      hold();
+      release();
+    };
+    el.addEventListener("wheel", onWheel, { passive: true });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.clearTimeout(cooldown);
+      document.removeEventListener("visibilitychange", onVisibility);
+      el.removeEventListener("pointerdown", hold);
+      el.removeEventListener("touchstart", hold);
+      el.removeEventListener("pointerup", release);
+      el.removeEventListener("touchend", release);
+      el.removeEventListener("pointercancel", release);
+      el.removeEventListener("pointerleave", release);
+      el.removeEventListener("focusin", hold);
+      el.removeEventListener("focusout", release);
+      el.removeEventListener("wheel", onWheel);
+    };
+  }, [railRef, direction]);
+}
 
 // The feature copy is kept next to the section that renders it rather than in a
 // separate data file, because each entry exists to justify the card it sits in.
@@ -289,7 +415,7 @@ function Hero() {
             Read the docs
           </Link>
         </div>
-        <dl className="flex flex-wrap justify-center gap-x-8 gap-y-4 border-t border-edge pt-7">
+        <dl className="hero-facts flex flex-wrap justify-center gap-x-8 gap-y-4 border-t border-edge pt-7">
           <Fact value="250 MB" label="SQLite / project" />
           <Fact value="2" label="projects / user" />
           <Fact value="250 MB" label="storage / project" />
@@ -376,7 +502,7 @@ function Problem() {
           application. It is the database underneath it.
         </p>
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="card-rail grid gap-4 md:grid-cols-3">
           {pains.map((pain, index) => (
             <article
               key={pain.title}
@@ -412,7 +538,7 @@ function HowItWorks() {
           connection to keep alive.
         </p>
 
-        <ol className="steps-rail grid gap-4 md:grid-cols-3">
+        <ol className="steps-rail card-rail grid gap-4 md:grid-cols-3">
           {steps.map((step, index) => (
             <li key={step.title} className="surface card-hover p-6">
               <span className="step-marker mb-4">
@@ -480,8 +606,15 @@ function Languages() {
         </div>
 
         <div className="space-y-12">
-          {stackGroups.map((group) => (
-            <StackCategory key={group.label} group={group} />
+          {stackGroups.map((group, index) => (
+            <StackCategory
+              key={group.label}
+              group={group}
+              // The two rows drift against each other: the top row slides
+              // left, the bottom row slides right, so the section reads as
+              // one moving surface rather than two strips racing the same way.
+              direction={index === 0 ? "left" : "right"}
+            />
           ))}
         </div>
 
@@ -499,8 +632,14 @@ function Languages() {
   );
 }
 
-// StackCategory renders a single category section with header and card grid
-function StackCategory({ group }: { group: { label: string; note: string; icon: string; stacks: Array<{ name: string; doc: string; icon: string }> } }) {
+// StackCategory renders a single category section with header and the rail.
+function StackCategory({
+  group,
+  direction,
+}: {
+  group: { label: string; note: string; icon: string; stacks: Array<{ name: string; doc: string; icon: string }> };
+  direction: "left" | "right";
+}) {
   const categoryIcon = CategoryIcons[group.icon as keyof typeof CategoryIcons];
 
   return (
@@ -515,13 +654,43 @@ function StackCategory({ group }: { group: { label: string; note: string; icon: 
         </div>
       </div>
 
-      <ul className="stack-grid" role="list">
-        {group.stacks.map((stack) => (
-          <li key={stack.name}>
-            <StackCard stack={stack} />
-          </li>
-        ))}
-      </ul>
+      <StackRail stacks={group.stacks} direction={direction} />
+    </div>
+  );
+}
+
+// StackRail is the horizontal strip of stack cards. The set is rendered three
+// times over: the first copy is the real, focusable one and the extra copies
+// are inert and aria-hidden. They exist only so useAutoScroll can wrap at a
+// seam the eye never reaches — one copy's width of runway is what keeps the
+// strip endless even when a single set is narrower than the viewport.
+function StackRail({
+  stacks,
+  direction,
+}: {
+  stacks: Array<{ name: string; doc: string; icon: string }>;
+  direction: "left" | "right";
+}) {
+  const railRef = useRef<HTMLDivElement>(null);
+  useAutoScroll(railRef, direction);
+
+  return (
+    <div className="stack-rail" ref={railRef}>
+      {["lead", "mid", "tail"].map((copy) => (
+        <ul
+          key={copy}
+          className="stack-track"
+          role="list"
+          aria-hidden={copy === "lead" ? undefined : true}
+          inert={copy === "lead" ? undefined : true}
+        >
+          {stacks.map((stack) => (
+            <li key={`${copy}-${stack.name}`}>
+              <StackCard stack={stack} />
+            </li>
+          ))}
+        </ul>
+      ))}
     </div>
   );
 }
@@ -645,7 +814,7 @@ function DashboardSection() {
             </Link>
           </div>
 
-          <ul className="grid gap-3 sm:grid-cols-2">
+          <ul className="card-rail grid gap-3 sm:grid-cols-2">
             {dashboardTools.map((tool, index) => (
               <li
                 key={tool.title}

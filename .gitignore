@@ -16,6 +16,7 @@ node_modules/
 # Go build artifacts.
 /bin/
 *.exe
+/moogo-server
 
 # Local development services and data (Postgres cluster, SQLite files).
 .local/
