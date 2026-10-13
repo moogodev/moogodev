@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent, RefObject } from "react";
+import type { KeyboardEvent, MouseEvent, RefObject } from "react";
 import {
   Link,
   useNavigate,
@@ -23,6 +23,7 @@ import {
   type DocPage,
 } from "../lib/docs";
 import { CopyDocButton } from "../components/CopyDocButton";
+import { SearchModal } from "../components/SearchModal";
 import "../docs.css";
 
 // Documentation is a normal page: /docs shows the first page, and /docs/:slug
@@ -213,9 +214,22 @@ function DocsPage() {
   // re-render on every pixel of a drag. On wide screens the drawer never
   // mounts, so the state stays untouched and the layout is static.
   const [navOpen, setNavOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
-  const [query, setQuery] = useState("");
   const [activeId, setActiveId] = useState<string>("");
+
+  // Global Cmd/Ctrl+K to open search modal
+  useEffect(() => {
+    const onKeyDown = (event: Event) => {
+      const ke = event as unknown as KeyboardEvent;
+      if ((ke.metaKey || ke.ctrlKey) && ke.key === "k") {
+        ke.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Reading the hash on navigation rather than listening for it keeps the
   // scroll behaviour in one place: when the slug changes, jump to the anchor if
@@ -229,7 +243,6 @@ function DocsPage() {
   // already navigated away from.
   const closeNav = () => {
     setNavOpen(false);
-    setQuery("");
   };
 
   // While the drawer is open the page behind it must not scroll, Escape has to
@@ -258,10 +271,9 @@ function DocsPage() {
       drawerRef.current?.focus();
     }
 
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setNavOpen(false);
-      setQuery("");
+    const onKeyDown = (event: Event) => {
+      if ((event as unknown as KeyboardEvent).key !== "Escape") return;
+      closeNav();
     };
     document.addEventListener("keydown", onKeyDown);
 
@@ -365,8 +377,7 @@ function DocsPage() {
         <div className="grid gap-10 pb-20 lg:grid-cols-[236px_minmax(0,1fr)] xl:grid-cols-[236px_minmax(0,1fr)_212px]">
           <Sidebar
             className="hidden lg:sticky lg:top-[90px] lg:block lg:max-h-[calc(100vh-120px)] lg:self-start lg:overflow-y-auto lg:pr-2"
-            query={query}
-            onQuery={setQuery}
+            onSearchClick={() => setSearchOpen(true)}
             onNavigate={closeNav}
             activeSlug={page.slug}
           />
@@ -417,12 +428,15 @@ function DocsPage() {
           <DocsDrawer
             panelRef={drawerRef}
             onClose={closeNav}
-            query={query}
-            onQuery={setQuery}
             onNavigate={closeNav}
+            onSearchClick={() => {
+              closeNav();
+              setSearchOpen(true);
+            }}
             activeSlug={page.slug}
           />
         )}
+        <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
       </div>
     </SiteLayout>
   );
@@ -632,37 +646,16 @@ async function copyCode(text: string, button: HTMLElement) {
 
 function Sidebar({
   className,
-  query,
-  onQuery,
+  onSearchClick,
   onNavigate,
   activeSlug,
 }: {
   className?: string;
-  query: string;
-  onQuery: (value: string) => void;
+  onSearchClick: () => void;
   onNavigate: () => void;
   activeSlug: string;
 }) {
   const groups = docGroups();
-
-  // Filtering happens here rather than on a pre-built index because fifteen
-  // pages is small enough that rebuilding the list per keystroke costs nothing,
-  // and it avoids a second copy of the titles that could drift from the real
-  // ones.
-  const needle = query.trim().toLowerCase();
-  const matches = (page: DocPage) =>
-    needle === "" ||
-    page.title.toLowerCase().includes(needle) ||
-    page.description.toLowerCase().includes(needle);
-
-  const visible = groups
-    .map((group) => ({
-      ...group,
-      pages: group.pages.filter(matches),
-    }))
-    .filter((group) => group.pages.length > 0);
-
-  const noResults = visible.length === 0;
 
   return (
     <nav aria-label="Documentation" className={className}>
@@ -677,50 +670,50 @@ function Sidebar({
           <circle cx="9" cy="9" r="5.5" />
           <path d="M13.5 13.5 17 17" strokeLinecap="round" />
         </svg>
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
-          placeholder="Search docs"
-          aria-label="Search documentation"
-          className="w-full rounded-lg border border-edge bg-background py-2 pr-3 pl-8.5 text-[0.88rem] text-foreground placeholder:text-faint focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent/20"
-        />
+        <button
+          type="button"
+          onClick={onSearchClick}
+          aria-label="Search documentation (⌘K)"
+          className="w-full px-10 py-2.5 pl-8.5 text-left rounded-lg border border-edge bg-background text-[0.88rem] text-foreground placeholder:text-faint hover:border-accent-strong hover:bg-hover-bg focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent/20 transition-colors"
+        >
+          <span className="text-faint">Search docs…</span>
+          <kbd className="ml-2 hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 text-[0.6rem] font-mono text-faint bg-background-alt border border-edge rounded">
+            <svg className="h-2.5 w-2.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M4 8h8M8 4v8" />
+            </svg>
+            ⌘K
+          </kbd>
+        </button>
       </div>
 
-      {noResults ? (
-        <p className="px-1 text-[0.85rem] text-faint">
-          No page matches “{query}”.
-        </p>
-      ) : (
-        visible.map((group) => (
-          <div key={group.group} className="mb-6">
-            <p className="mb-2 px-3 text-[0.72rem] font-semibold uppercase tracking-[0.11em] text-faint">
-              {group.group}
-            </p>
-            <ul className="flex flex-col gap-0.5">
-              {group.pages.map((page) => {
-                const isActive = page.slug === activeSlug;
-                return (
-                  <li key={page.slug}>
-                    <Link
-                      to={`/docs/${page.slug}`}
-                      onClick={onNavigate}
-                      aria-current={isActive ? "page" : undefined}
-                      className={`block rounded-lg px-3 py-1.5 text-[0.89rem] leading-snug transition-colors ${
-                        isActive
-                          ? "bg-background-alt font-medium text-foreground"
-                          : "text-muted hover:bg-hover-bg hover:text-foreground"
-                      }`}
-                    >
-                      {page.title}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))
-      )}
+      {groups.map((group) => (
+        <div key={group.group} className="mb-6">
+          <p className="mb-2 px-3 text-[0.72rem] font-semibold uppercase tracking-[0.11em] text-faint">
+            {group.group}
+          </p>
+          <ul className="flex flex-col gap-0.5">
+            {group.pages.map((page) => {
+              const isActive = page.slug === activeSlug;
+              return (
+                <li key={page.slug}>
+                  <Link
+                    to={`/docs/${page.slug}`}
+                    onClick={onNavigate}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`block rounded-lg px-3 py-1.5 text-[0.89rem] leading-snug transition-colors ${
+                      isActive
+                        ? "bg-background-alt font-medium text-foreground"
+                        : "text-muted hover:bg-hover-bg hover:text-foreground"
+                    }`}
+                  >
+                    {page.title}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
 
       <p className="mt-2 px-3 text-[0.78rem] text-faint">
         {allDocs().length} pages
@@ -745,16 +738,14 @@ function Sidebar({
 function DocsDrawer({
   panelRef,
   onClose,
-  query,
-  onQuery,
   onNavigate,
+  onSearchClick,
   activeSlug,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
   onClose: () => void;
-  query: string;
-  onQuery: (value: string) => void;
   onNavigate: () => void;
+  onSearchClick: () => void;
   activeSlug: string;
 }) {
   return (
@@ -799,8 +790,7 @@ function DocsDrawer({
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <Sidebar
-            query={query}
-            onQuery={onQuery}
+            onSearchClick={onSearchClick}
             onNavigate={onNavigate}
             activeSlug={activeSlug}
           />
