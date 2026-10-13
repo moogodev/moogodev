@@ -3,7 +3,8 @@
 A self-contained reference to Moogo — a hosted SQLite database and object
 storage over HTTP — written for AI coding agents. Save this page as `moogo.md`
 in your project and point your agent at it, so it knows what Moogo is and how
-to call it before it writes a line of code.
+to call it before it writes a line of code. Covers the **MCP server** (stdio
+and HTTP transport), SQL API, transactions, and object storage (buckets).
 
 ## What Moogo is
 
