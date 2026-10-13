@@ -135,15 +135,19 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
   }, [results]);
 
   return (
-    <div className="fixed inset-0 z-[100]" onKeyDown={handleKeyDown} role="dialog" aria-modal="true" aria-label="Search documentation">
-      {/* Backdrop */}
-      <div className="animate-fade-in fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
-
-      {/* Search Panel - centered */}
-      <div className="fixed inset-0 flex items-start justify-center pt-16 px-4">
-        <div className="animate-slide-down w-full max-w-2xl">
-          {/* Search Input */}
-          <div className="relative mb-4">
+    // Single container: backdrop + centering (same pattern as CreateProjectModal)
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Search documentation"
+    >
+      {/* Panel - stops propagation so backdrop click doesn't close */}
+      <div className="animate-slide-down w-full max-w-2xl surface-raised" onClick={(e) => e.stopPropagation()}>
+        {/* Search Input */}
+        <div className="p-4 border-b border-edge">
+          <div className="relative">
             <svg className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-faint pointer-events-none" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="11" cy="11" r="8" />
               <path d="M21 21l-4.35-4.35" />
@@ -152,25 +156,35 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
               <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 8h8M8 4v8" /></svg>
               <span>⌘K</span>
             </kbd>
-            <input ref={inputRef} type="search" value={query} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder="Search documentation…" aria-label="Search documentation" autoComplete="off" className="w-full px-12 py-3.5 pl-10 pr-20 text-[1rem] bg-background border border-edge-strong rounded-xl focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent/20 transition-all placeholder:text-faint" />
+            <input
+              ref={inputRef}
+              type="search"
+              value={query}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Search documentation…"
+              aria-label="Search documentation"
+              autoComplete="off"
+              className="w-full px-12 py-3.5 pl-10 pr-20 text-[1rem] bg-background border border-edge-strong rounded-xl focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent/20 transition-all placeholder:text-faint"
+            />
           </div>
+        </div>
 
-          {/* Results */}
-          <div className="bg-background border border-edge-strong rounded-xl overflow-hidden shadow-xl max-h-[60vh] overflow-y-auto">
-            {query.trim().length < 2 && (
-              <EmptyState />
-            )}
+        {/* Results */}
+        <div className="max-h-[60vh] overflow-y-auto">
+          {query.trim().length < 2 && (
+            <EmptyState />
+          )}
 
-            {query.trim().length >= 2 && results.length === 0 && (
-              <NoResults query={query} />
-            )}
+          {query.trim().length >= 2 && results.length === 0 && (
+            <NoResults query={query} />
+          )}
 
-            {groups.map(([groupName, groupResults]) => (
-              <GroupResults key={groupName} groupName={groupName} groupResults={groupResults} results={results} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} navigateToResult={navigateToResult} query={query} highlightText={highlightText} />
-            ))}
+          {groups.map(([groupName, groupResults]) => (
+            <GroupResults key={groupName} groupName={groupName} groupResults={groupResults} results={results} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} navigateToResult={navigateToResult} query={query} highlightText={highlightText} />
+          ))}
 
-            <Footer results={results} />
-          </div>
+          <Footer results={results} />
         </div>
       </div>
     </div>
