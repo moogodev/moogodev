@@ -1,0 +1,148 @@
+package mcp
+
+import (
+	"strings"
+	"testing"
+)
+
+// env builds a getenv function over a fixed map, so the configuration rules can
+// be tested without touching the process environment.
+func env(values map[string]string) func(string) string {
+	return func(key string) string {
+		return values[key]
+	}
+}
+
+// completeEnv is the smallest environment that satisfies ParseEnv.
+func completeEnv() map[string]string {
+	return map[string]string{
+		"MOOGO_PROJECT_URL": "https://api.moogo.dev/p/1234",
+		"MOOGO_SECRET_KEY":  "moogo_secret",
+	}
+}
+
+func TestParseEnvSuccess(t *testing.T) {
+	t.Parallel()
+
+	values := completeEnv()
+	config, err := ParseEnv(env(values))
+	if err != nil {
+		t.Fatalf("ParseEnv() error = %v, want nil", err)
+	}
+
+	if config.ProjectURL != values["MOOGO_PROJECT_URL"] {
+		t.Errorf("ProjectURL = %q, want %q", config.ProjectURL, values["MOOGO_PROJECT_URL"])
+	}
+	if config.SecretKey != values["MOOGO_SECRET_KEY"] {
+		t.Errorf("SecretKey = %q, want %q", config.SecretKey, values["MOOGO_SECRET_KEY"])
+	}
+	if config.Transport != TransportStdio {
+		t.Errorf("Transport = %q, want %q", config.Transport, TransportStdio)
+	}
+}
+
+func TestParseEnvTrimsTrailingSlash(t *testing.T) {
+	t.Parallel()
+
+	values := completeEnv()
+	values["MOOGO_PROJECT_URL"] = " https://api.moogo.dev/p/1234/ "
+	values["MOOGO_SECRET_KEY"] = " moogo_secret "
+
+	config, err := ParseEnv(env(values))
+	if err != nil {
+		t.Fatalf("ParseEnv() error = %v, want nil", err)
+	}
+	if config.ProjectURL != "https://api.moogo.dev/p/1234" {
+		t.Errorf("ProjectURL = %q, want trailing slash and spaces removed", config.ProjectURL)
+	}
+	if config.SecretKey != "moogo_secret" {
+		t.Errorf("SecretKey = %q, want surrounding spaces removed", config.SecretKey)
+	}
+}
+
+func TestParseEnvMissingRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		values  map[string]string
+		wantMsg string
+	}{
+		{
+			name:    "no project url",
+			values:  map[string]string{"MOOGO_SECRET_KEY": "moogo_secret"},
+			wantMsg: "MOOGO_PROJECT_URL",
+		},
+		{
+			name:    "no secret key",
+			values:  map[string]string{"MOOGO_PROJECT_URL": "https://api.moogo.dev/p/1234"},
+			wantMsg: "MOOGO_SECRET_KEY",
+		},
+		{
+			name:    "neither",
+			values:  map[string]string{},
+			wantMsg: "MOOGO_PROJECT_URL",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := ParseEnv(env(test.values))
+			if err == nil {
+				t.Fatal("ParseEnv() error = nil, want a required-variable error")
+			}
+			if !strings.Contains(err.Error(), test.wantMsg) {
+				t.Errorf("ParseEnv() error = %q, want it to name %s", err, test.wantMsg)
+			}
+		})
+	}
+}
+
+func TestParseEnvRejectsUnsupportedTransport(t *testing.T) {
+	t.Parallel()
+
+	values := completeEnv()
+	values["MOOGO_MCP_TRANSPORT"] = "http"
+
+	_, err := ParseEnv(env(values))
+	if err == nil {
+		t.Fatal("ParseEnv() error = nil, want the http transport to be refused")
+	}
+	if !strings.Contains(err.Error(), "MOOGO_MCP_TRANSPORT") {
+		t.Errorf("ParseEnv() error = %q, want it to name MOOGO_MCP_TRANSPORT", err)
+	}
+}
+
+func TestParseEnvAllowsExplicitStdio(t *testing.T) {
+	t.Parallel()
+
+	values := completeEnv()
+	values["MOOGO_MCP_TRANSPORT"] = TransportStdio
+
+	config, err := ParseEnv(env(values))
+	if err != nil {
+		t.Fatalf("ParseEnv() error = %v, want nil", err)
+	}
+	if config.Transport != TransportStdio {
+		t.Errorf("Transport = %q, want %q", config.Transport, TransportStdio)
+	}
+}
+
+func TestParseEnvReportsEveryProblem(t *testing.T) {
+	t.Parallel()
+
+	values := map[string]string{"MOOGO_MCP_TRANSPORT": "http"}
+	_, err := ParseEnv(env(values))
+	if err == nil {
+		t.Fatal("ParseEnv() error = nil, want an error")
+	}
+
+	message := err.Error()
+	for _, want := range []string{"MOOGO_PROJECT_URL", "MOOGO_SECRET_KEY", "MOOGO_MCP_TRANSPORT"} {
+		if !strings.Contains(message, want) {
+			t.Errorf("ParseEnv() error = %q, want it to mention %s", message, want)
+		}
+	}
+}

@@ -924,6 +924,48 @@ On moogo.dev the base is `https://api.moogo.dev`; a self-hosted deployment uses
 its own public URL. Read credentials from the environment. Never ask the user to
 paste them, and never print them.
 
+## MCP server
+
+Moogo ships a Model Context Protocol server (`cmd/mcp`) for agents that can call
+MCP tools. Connected this way, the same SQL API appears as four tools — no HTTP
+request to build:
+
+| Tool | Does |
+|---|---|
+| `list_schema` | Lists every table and view, with the SQL that created each one. Call this first. |
+| `query` | One read statement; returns `columns`, `rows`, `row_count` and `truncated`. |
+| `exec` | One write statement; returns `rows_affected`, `size_bytes` and `last_insert_rowid`. |
+| `transaction` | Up to 100 writes as one atomic batch. |
+
+`sql` carries the statement and `args` the bound values, the same as the HTTP
+API below: one statement per call, placeholders for every value. `query` also
+takes an optional `limit` (default 100, capped at 1000).
+
+Build it, then point the client at the binary:
+
+```bash
+go build -o moogo-mcp ./cmd/mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "moogo": {
+      "command": "/path/to/moogo-mcp",
+      "env": {
+        "MOOGO_PROJECT_URL": "https://api.moogo.dev/p/<project_id>",
+        "MOOGO_SECRET_KEY": "..."
+      }
+    }
+  }
+}
+```
+
+The server reads both variables once at startup and speaks stdio, the transport
+most desktop agents use. Every tool call is an HTTP request to the same data
+plane, so the key check, the rate limit, the sanitizer and the size caps are
+unchanged.
+
 ## SQL API
 
 | Endpoint | Accepts | Rejects |

@@ -48,6 +48,10 @@ update feed.
 - **News service** — a second binary (`cmd/news`, frontend in `news/`) behind
   the dashboard's announcement feed `GET /api/updates` and its own site.
   Separate process, separate database.
+- **MCP server** — a separate binary (`cmd/mcp`) that exposes the SQL API as
+  Model Context Protocol tools over stdio, so a coding agent can call `query`,
+  `exec` and `transaction` without hand-writing an HTTP client. It talks only to
+  the data plane, never to the database directly.
 
 The two planes share no tables. A client on the data plane never learns whether
 a project exists on the control plane; a signed-in user never holds a secret
@@ -62,6 +66,7 @@ fresh clone `web/dist` is committed, so this is only needed after changing
 ```bash
 cd web/ui && npm install && npm run build && cd ../..
 go build ./cmd/api
+go build ./cmd/mcp   # optional: the MCP server for coding agents
 ```
 
 Frontend scripts (in `web/ui`):
