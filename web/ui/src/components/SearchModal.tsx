@@ -1,5 +1,4 @@
-// SearchModal — minimal working version matching CreateProjectModal pattern
-
+// SearchModal — absolutely minimal, explicit colors, no ambiguity
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { buildSearchIndex, type SearchIndex, type SearchResult, type SearchMatch } from "../lib/search";
@@ -60,7 +59,7 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
     const terms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
     const regex = new RegExp(`(${terms.map(escapeRegex).join("|")})`, "gi");
     const parts = text.split(regex);
-    return <span>{parts.map((part, i) => regex.test(part) ? <mark key={i} className="bg-accent/30 text-accent-strong px-0.5 rounded">{part}</mark> : <span key={i}>{part}</span>)}</span>;
+    return <span>{parts.map((part, i) => regex.test(part) ? <mark key={i} style={{backgroundColor: "rgba(255,0,0,0.3)"}}>{part}</mark> : <span key={i} style={{color: "red"}}>{part}</span>)}</span>;
   };
 
   if (!isOpen) return null;
@@ -76,70 +75,120 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
   }, [results]);
 
   return (
+    // z-9999 to be absolutely on top, explicit white background
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/50 backdrop-blur-sm"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        backgroundColor: "rgba(0,0,0,0.8)",
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "center",
+        paddingTop: "4rem",
+      }}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Search documentation"
     >
-      <div className="animate-slide-down w-full max-w-2xl surface-raised" onClick={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-edge">
-          <div className="relative">
-            <svg className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-faint pointer-events-none" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
-            <input ref={inputRef} type="search" value={query} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder="Search documentation…" aria-label="Search documentation" autoComplete="off" className="w-full px-12 py-3.5 pl-10 pr-20 text-[1rem] bg-background border border-edge-strong rounded-xl focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent/20 transition-all placeholder:text-faint" />
+      // Explicit bright white panel with thick border
+      <div style={{
+        backgroundColor: "#ffffff",
+        border: "4px solid #ff0000",
+        borderRadius: "1rem",
+        width: "100%",
+        maxWidth: "800px",
+        overflow: "hidden",
+        fontFamily: "sans-serif",
+      }}>
+        <div style={{ padding: "2rem" }}>
+          // Explicit black input with clear placeholder
+          <input
+            ref={inputRef}
+            type="search"
+            value={query}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Search documentation…"
+            style={{
+              width: "100%",
+              padding: "1rem 1.5rem",
+              fontSize: "1rem",
+              border: "2px solid #cccccc",
+              borderRadius: "0.5rem",
+              marginBottom: "1rem",
+              color: "#000000",
+              backgroundColor: "#f8f8f8",
+              outline: "none",
+            }}
+            aria-label="Search documentation"
+          />
+          <div style={{ maxHeight: "60vh", overflowY: "auto", color: "#000000" }}>
+            {query.trim().length < 2 && (
+              <div style={{ textAlign: "center", padding: "2rem", color: "#333333" }}>
+                <p style={{ fontWeight: "500", marginBottom: "0.5rem" }}>Type to search</p>
+                <p>Searches titles, headings, and content</p>
+              </div>
+            )}
+            {query.trim().length >= 2 && results.length === 0 && (
+              <div style={{ textAlign: "center", padding: "2rem", color: "#333333" }}>
+                <p style={{ fontWeight: "500", marginBottom: "0.5rem" }}>No results for "{query}"</p>
+                <p>Try different keywords or check spelling</p>
+              </div>
+            )}
+            {groups.map(([groupName, groupResults]) => (
+              <div key={groupName} style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid #e0e0e0" }}>
+                <p style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.1em", color: "#666666" }}>{groupName}</p>
+                <ul style={{ margin: 0, padding: 0 }}>
+                  {groupResults.map(r => {
+                    const idx = results.indexOf(r);
+                    const sel = idx === selectedIndex;
+                    const hm = r.matches.find((m: SearchMatch) => m.type === "heading");
+                    const ht = hm ? ` → ${hm.text}` : "";
+                    return (
+                      <li key={r.page.slug + ht} style={{ listStyle: "none", margin: "0.5rem 0" }}>
+                        <button
+                          role="option"
+                          aria-selected={sel}
+                          onClick={() => navigateToResult(r)}
+                          onMouseEnter={() => setSelectedIndex(idx)}
+                          style={{
+                            width: "100%",
+                            padding: "0.75rem 1rem",
+                            border: sel ? "1px solid #ff0000" : "1px solid #dddddd",
+                            borderRadius: "0.5rem",
+                            backgroundColor: sel ? "#fff0f0" : "#ffffff",
+                            color: "#000000",
+                            fontSize: "0.9rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontWeight: 500, margin: 0 }}>{highlightText(r.page.title, query)}</p>
+                            <p style={{ fontSize: "0.8rem", margin: "0.25rem 0", color: "#555555" }}>{highlightText(r.page.description, query)}{ht && <span style={{ color: "#777777", fontSize: "0.7rem" }}> → {highlightText(ht, query)}</span>}</p>
+                            {r.matches.some((m: SearchMatch) => m.type === "content") && <p style={{ fontSize: "0.7rem", margin: "0.25rem 0", color: "#555555" }}>{highlightText(r.matches.find((m: SearchMatch) => m.type === "content")?.text.slice(0, 120) ?? "", query)}</p>}
+                          </div>
+                          {sel && <svg style={{ width: "1rem", height: "1rem", marginLeft: "0.5rem" }} fill="none" stroke="#ff0000" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" /></svg>}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+            <div style={{ padding: "1rem", borderTop: "1px solid #e0e0e0", marginTop: "1rem", color: "#333333" }}>
+              <span style={{ fontSize: "0.75rem" }}>{results.length} result{results.length !== 1 ? "s" : ""}</span>
+              <kbd style={{ fontSize: "0.65rem", backgroundColor: "#f0f0f0", border: "1px solid #cccccc", padding: "0.2rem 0.5rem", borderRadius: "3px", color: "#000000" }}>
+                <svg style={{ width: "0.8rem", height: "0.8rem", marginRight: "0.3rem" }} viewBox="0 0 16 16" fill="none" stroke="#000000" strokeWidth="1.5"><path d="M4 8h8M8 4v8" /></svg>
+                <span style={{ marginLeft: "0.3rem" }}>⌘K</span>
+              </kbd>
+            </div>
           </div>
         </div>
-        <div className="max-h-[60vh] overflow-y-auto">
-          {query.trim().length < 2 && <EmptyState />}
-          {query.trim().length >= 2 && results.length === 0 && <NoResults query={query} />}
-          {groups.map(([groupName, groupResults]) => (
-            <GroupResults key={groupName} groupName={groupName} groupResults={groupResults} results={results} selectedIndex={selectedIndex} setSelectedIndex={setSelectedIndex} navigateToResult={navigateToResult} query={query} highlightText={highlightText} />
-          ))}
-          <Footer results={results} />
-        </div>
       </div>
     </div>
   );
-}
-
-function EmptyState() {
-  return (
-    <div className="p-8 text-center text-faint">
-      <p className="font-medium text-muted mb-2">Type to search</p>
-      <p className="text-[0.85rem]">Searches titles, headings, and content</p>
-      <div className="mt-4 flex flex-wrap justify-center gap-2">
-        {["query","transaction","bucket","credentials","mcp"].map(s => (
-          <button key={s} type="button" onClick={()=>{}} className="px-3 py-1.5 text-[0.8rem] bg-background-alt border border-edge rounded-full hover:border-accent-strong hover:text-accent-strong transition-colors">{s}</button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function NoResults({ query }: { query: string }) {
-  return <div className="p-8 text-center text-faint"><p className="font-medium text-muted">No results for "{query}"</p><p className="text-[0.85rem] mt-1">Try different keywords</p></div>;
-}
-
-function GroupResults({ groupName, groupResults, results, selectedIndex, setSelectedIndex, navigateToResult, query, highlightText }: { groupName: string; groupResults: SearchResult[]; results: SearchResult[]; selectedIndex: number; setSelectedIndex: (i: number) => void; navigateToResult: (r: SearchResult) => void; query: string; highlightText: (t: string, q: string) => React.ReactNode; }) {
-  return (
-    <div className="border-t border-edge first:border-t-0">
-      <div className="px-4 py-2 text-[0.7rem] font-semibold uppercase tracking-[0.1em] text-faint bg-background-alt">{groupName}</div>
-      <ul role="listbox" aria-label={`${groupName} results`}>
-        {groupResults.map(r => {
-          const idx = results.indexOf(r);
-          const sel = idx === selectedIndex;
-          const hm = r.matches.find((m: SearchMatch) => m.type === "heading");
-          const ht = hm ? ` → ${hm.text}` : "";
-          return <li key={r.page.slug + ht}><button role="option" aria-selected={sel} onClick={() => navigateToResult(r)} onMouseEnter={() => setSelectedIndex(idx)} className={`w-full px-4 py-3 text-left transition-colors ${sel ? "bg-accent/10 text-foreground" : "text-muted hover:bg-hover-bg hover:text-foreground"} flex items-start gap-3`}><div className="flex-1 min-w-0"><p className="font-medium truncate">{highlightText(r.page.title, query)}</p><p className="text-[0.82rem] truncate text-faint mt-0.5">{highlightText(r.page.description, query)}{ht && <span className="text-faint">{highlightText(ht, query)}</span>}</p>{r.matches.some((m: SearchMatch) => m.type === "content") && <p className="text-[0.75rem] text-faint mt-1 line-clamp-1">{highlightText(r.matches.find((m: SearchMatch) => m.type === "content")?.text.slice(0, 120) ?? "", query)}</p>}</div>{sel && <svg className="shrink-0 h-5 w-5 text-accent-strong" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" /></svg>}</button></li>;
-        })}
-      </ul>
-    </div>
-  );
-}
-
-function Footer({ results }: { results: SearchResult[] }) {
-  return <div className="px-4 py-3 border-t border-edge bg-background-alt flex items-center justify-between text-[0.75rem] text-faint"><span>{results.length} result{results.length !== 1 ? "s" : ""}</span><kbd className="px-2 py-0.5 text-[0.65rem] font-mono bg-background border border-edge rounded"><svg className="h-3 w-3 inline-block" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 8h8M8 4v8" /></svg><span className="ml-1">⌘K</span></kbd></div>;
 }
 
 function escapeRegex(str: string) { return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
