@@ -161,6 +161,58 @@ journalctl -u moogo-news -f
 The database seeds its first three posts on first start, so a fresh
 deployment has a changelog to link to rather than an empty page.
 
+## MCP Server (moogo-mcp), optional
+
+The MCP server is a **third binary** (`moogo-mcp`) that exposes one project's
+data plane (SQL + object storage) over the Model Context Protocol. It is
+designed for coding agents (Claude, Cursor, etc.) and runs in two modes:
+
+- **stdio** (default): the agent launches the binary directly, JSON-RPC on
+  stdin/stdout. No network exposure, no systemd unit needed.
+- **HTTP** (Streamable HTTP): the binary listens on `127.0.0.1:4618` by default
+  at `/mcp`. Use this when the agent runs on a different machine — **always**
+  behind an authenticated tunnel (SSH, WireGuard, Cloudflare Tunnel). Never
+  bind `0.0.0.0` without a tunnel; the process holds the project secret.
+
+To run it as a managed service on the VPS, three things are needed once:
+
+**1. The environment file** — the script never writes it, for the same reason
+as `moogo.env`:
+
+```bash
+sudo install -m 0640 -o root -g moogo /dev/null /etc/moogo/mcp.env
+sudo editor /etc/moogo/mcp.env
+```
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `MOOGO_PROJECT_URL` | yes | — | e.g. `https://api.moogo.dev/p/<project_id>` |
+| `MOOGO_SECRET_KEY` | yes | — | SQL credential (project secret) |
+| `MOOGO_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http` |
+| `MOOGO_MCP_ADDR` | no | `127.0.0.1:4618` | Only used when `transport=http` |
+| `MOOGO_BUCKET_ACCESS_KEY_ID` | no* | — | Object tools need **both** this and the secret |
+| `MOOGO_BUCKET_SECRET_KEY` | no* | — | Object tools need **both** this and the access key id |
+
+\* Bucket tools are registered only when **both** bucket variables are set.
+When neither is set, the server exposes SQL tools only.
+
+**2. Re-run the deploy** so the binary, unit and service are enabled:
+
+```bash
+sudo ./deploy/deploy.sh YOUR-DOMAIN
+systemctl status moogo-mcp
+# If HTTP mode:
+curl -fsS http://127.0.0.1:4618/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
+journalctl -u moogo-mcp -f
+```
+
+The unit is `moogo-mcp.service` (not templated — one project per unit; copy
+and rename for multiple projects). The deploy script installs the unit only
+when `/etc/moogo/mcp.env` exists, so the default deploy is unchanged.
+
 ## Migrations
 
 They run automatically at startup, one transaction per file, under an advisory

@@ -37,14 +37,17 @@ BACKUP_DIR=/var/backups/moogo
 BINARY_BACKUP_DIR=/var/backups/moogo-binaries
 BIN_PATH=/usr/local/bin/moogo
 NEWS_BIN_PATH=/usr/local/bin/moogo-news
+MCP_BIN_PATH=/usr/local/bin/moogo-mcp
 INSTALL_DIR=/opt/moogo
 ENV_FILE=/etc/moogo/moogo.env
 NEWS_ENV_FILE=/etc/moogo/news.env
+MCP_ENV_FILE=/etc/moogo/mcp.env
 NGINX_SITE_FILE=""
 NGINX_SITE_LINK=""
 NGINX_INCLUDE_HINT=""
 BEHIND_TUNNEL=0
 news_enabled=0
+mcp_enabled=0
 
 if [[ $EUID -ne 0 ]]; then
 	echo "run as root: sudo $0 <domain>" >&2
@@ -83,6 +86,7 @@ binary_dest() {
 	case "$1" in
 	moogo) printf '%s' "$BIN_PATH" ;;
 	moogo-news) printf '%s' "$NEWS_BIN_PATH" ;;
+	moogo-mcp) printf '%s' "$MCP_BIN_PATH" ;;
 	*) return 1 ;;
 	esac
 }
@@ -215,6 +219,12 @@ fi
 # news.$DOMAIN would be claimed too.
 if [[ -f "$NEWS_ENV_FILE" ]]; then
 	news_enabled=1
+fi
+
+# The MCP server is optional: it runs only when its own env file exists.
+# It serves one project's SQL + object storage over MCP (stdio or HTTP).
+if [[ -f "$MCP_ENV_FILE" ]]; then
+	mcp_enabled=1
 fi
 
 # The CDN host is opt-in: it exists only when the deployment names one in
@@ -362,11 +372,19 @@ trap 'rm -rf "$STAGE_DIR"' EXIT
 (cd "$REPO_ROOT" &&
 	go build -trimpath -o "$STAGE_DIR/moogo" ./cmd/api &&
 	go build -trimpath -o "$STAGE_DIR/moogo-news" ./cmd/news)
+if [[ $mcp_enabled -eq 1 ]]; then
+	(cd "$REPO_ROOT" && go build -trimpath -o "$STAGE_DIR/moogo-mcp" ./cmd/mcp)
+	echo "    built moogo-mcp into $STAGE_DIR"
+fi
 echo "    built into $STAGE_DIR"
 
 echo "==> installing units and helper scripts"
 install -m 0644 "$REPO_ROOT/deploy/moogo.service" /etc/systemd/system/moogo.service
 install -m 0644 "$REPO_ROOT/deploy/news.service" /etc/systemd/system/moogo-news.service
+if [[ $mcp_enabled -eq 1 ]]; then
+	install -m 0644 "$REPO_ROOT/deploy/moogo-mcp.service" /etc/systemd/system/moogo-mcp.service
+	echo "    installed moogo-mcp.service"
+fi
 install -m 0644 "$REPO_ROOT/deploy/backup.sh" /usr/local/bin/moogo-backup
 install -m 0644 "$REPO_ROOT/deploy/verify-backup.sh" /usr/local/bin/moogo-verify-backup
 install -m 0644 "$REPO_ROOT/deploy/healthcheck.sh" /usr/local/bin/moogo-healthcheck
@@ -394,6 +412,9 @@ install_binary() {
 }
 install_binary moogo "$STAGE_DIR/moogo" "$BIN_PATH"
 install_binary moogo-news "$STAGE_DIR/moogo-news" "$NEWS_BIN_PATH"
+if [[ $mcp_enabled -eq 1 ]]; then
+	install_binary moogo-mcp "$STAGE_DIR/moogo-mcp" "$MCP_BIN_PATH"
+fi
 
 echo "==> validating configuration before restarting anything"
 # A mistyped environment file would otherwise produce a service that restarts
@@ -405,6 +426,14 @@ if ! systemd-run --wait --pipe --quiet \
 	--setenv=MOOGO_ADDR=127.0.0.1:0 \
 	"$BIN_PATH" --check-config; then
 	die_rolledback "the service refused its configuration; the previous binary has been put back." 0 moogo
+fi
+if [[ $mcp_enabled -eq 1 ]]; then
+	# MCP validates at startup; static check that required vars are present.
+	# The actual runtime validation happens during restart_and_verify.
+	if ! grep -qE '^MOOGO_PROJECT_URL=' "$MCP_ENV_FILE" || \
+	   ! grep -qE '^MOOGO_SECRET_KEY=' "$MCP_ENV_FILE"; then
+		die_rolledback "mcp.env missing MOOGO_PROJECT_URL or MOOGO_SECRET_KEY." 0 moogo
+	fi
 fi
 
 # --- nginx (skipped entirely behind a Cloudflare Tunnel) ---
@@ -956,6 +985,14 @@ if [[ $news_enabled -eq 1 ]]; then
 else
 	echo "    news: skipped — create $NEWS_ENV_FILE and re-run to enable it"
 fi
+if [[ $mcp_enabled -eq 1 ]]; then
+	systemctl enable moogo-mcp
+	if ! restart_and_verify moogo-mcp; then
+		die_rolledback "moogo-mcp did not come back cleanly on the new binary." 1 moogo-mcp
+	fi
+else
+	echo "    mcp: skipped — create $MCP_ENV_FILE and re-run to enable it"
+fi
 
 echo
 echo "waiting for readiness"
@@ -993,6 +1030,7 @@ echo "==> verifying the deployment"
 # enabled. A failure rolls the binaries back and restarts.
 main_failed=0
 news_failed=0
+mcp_failed=0
 verify_base=http://127.0.0.1:8080
 if ! curl -fsS --max-time 5 "$verify_base/healthz" >/dev/null; then
 	echo "!! check failed: $verify_base/healthz did not answer 200" >&2
@@ -1025,16 +1063,35 @@ if [[ $news_enabled -eq 1 ]]; then
 		news_failed=1
 	fi
 fi
-if [[ $main_failed -eq 1 && $news_failed -eq 1 ]]; then
+if [[ $mcp_enabled -eq 1 ]]; then
+	# MCP runs as an MCP server; verify the systemd unit is active.
+	# (restart_and_verify already checked MainPID change and NRestarts=0)
+	if ! systemctl is-active --quiet moogo-mcp; then
+		echo "!! check failed: moogo-mcp service is not active" >&2
+		mcp_failed=1
+	fi
+fi
+if [[ $main_failed -eq 1 && $news_failed -eq 1 && $mcp_failed -eq 1 ]]; then
+	die_rolledback "post-deploy verification failed (see above)." 1 moogo moogo-news moogo-mcp
+elif [[ $main_failed -eq 1 && $news_failed -eq 1 ]]; then
 	die_rolledback "post-deploy verification failed (see above)." 1 moogo moogo-news
+elif [[ $main_failed -eq 1 && $mcp_failed -eq 1 ]]; then
+	die_rolledback "post-deploy verification failed (see above)." 1 moogo moogo-mcp
+elif [[ $news_failed -eq 1 && $mcp_failed -eq 1 ]]; then
+	die_rolledback "post-deploy verification failed (see above)." 1 moogo-news moogo-mcp
 elif [[ $main_failed -eq 1 ]]; then
 	die_rolledback "post-deploy verification failed (see above)." 1 moogo
 elif [[ $news_failed -eq 1 ]]; then
 	die_rolledback "post-deploy verification failed (see above)." 1 moogo-news
+elif [[ $mcp_failed -eq 1 ]]; then
+	die_rolledback "post-deploy verification failed (see above)." 1 moogo-mcp
 fi
 echo "    /healthz, /auth/session, the app shell and the embedded bundle all answer"
 if [[ $news_enabled -eq 1 ]]; then
 	echo "    news /healthz answers"
+fi
+if [[ $mcp_enabled -eq 1 ]]; then
+	echo "    moogo-mcp service active"
 fi
 
 cat <<'NOTE'
