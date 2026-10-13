@@ -1,245 +1,240 @@
 # Security
 
-This page explains how Moogo is built to fail safely, and — just as importantly — what the model does **not** protect you from.
+This page explains how Moogo is built to fail safely, and — just as importantly —
+what the model does **not** protect you from.
 
 ## Multi-tenancy
 
 Each project maps to one SQLite file:
 
 ```
- /data/dbs/{project_id}.db
- /data/buckets/{project_id}/{key}
+/data/dbs/{project_id}.db
+/data/buckets/{project_id}/{key}
 ```
 
-Isolasi datang dari filesystem, bukan dari kebijakan. Tidak ada tabel yang
-terbagi dan tidak ada kolom `tenant_id` yang lupa dilewati dalam klausa `WHERE`,
-karena tidak ada tabel yang terbagi.
+Isolation comes from the filesystem, not from a policy. There is no shared table
+and no `tenant_id` column to forget in a `WHERE` clause, because there is no
+shared table.
 
-### Path divalidasi, tidak dipercaya
+### The path is validated, not trusted
 
-`project_id` datang dari URL, dan URL adalah input yang tidak dipercaya. Ia
-divalidasi sebagai UUID sebelum terjadi apa pun, dan path di-disk kemudian
-dibangun dari komponen yang divalidasi, bukan dikumpulkan dari string mentah.
+`project_id` comes from a URL, and a URL is untrusted input. It is validated as a
+UUID before anything else happens, and the on-disk path is then **rebuilt from the
+validated components** rather than assembled from the raw string.
 
-Itu adalah alasan struktural mengapa path traversal mustahil di sini: tidak ada
-kode di mana input mentah menjadi path.
+That is the structural reason path traversal is impossible here: there is no code
+path where raw input becomes a path.
 
-ID yang tidak valid mengembalikan `400 invalid_project_id` sebelum apapun
-pengecekan terjadi.
+A malformed id returns `400 invalid_project_id` before any lookup happens.
 
-### Kepemilikan diverifikasi per-request
+### Ownership is checked per request
 
-Kepemilikan diverifikasi pada **Setiap permintaan**, bukan hanya sekali di
-sign-in.
+Ownership is verified on **every** request, not once at sign-in.
 
-Akun lain mengembalikan `404`, bukan `403`. `403` akan mengonfirmasi bahwa
-projek ada, yang menghadirkan ID di URL sebagai cara untuk menelusuri projek
-orang lain. `404` memberitahu penyerang tidak ada sedikit pun tentang projek
-tertentu.
+Another account's project returns `404`, not `403`. A `403` would confirm the
+project exists, which turns the id in a URL into a way to enumerate other people's
+projects. `404` tells an attacker nothing.
 
-## Validasi pernyataan
+## Statement validation
 
-Karena `/exec` menerima DDL, itu bisa menjadi pemacu baca filesystem host.
-Setiap pernyataan **ditokenisasi dan diperiksa sebelum dijalankan**.
+Because `/exec` accepts DDL, it could otherwise become a primitive for reading the
+host filesystem. Every statement is **tokenized and inspected before it runs**.
 
-### Dicek pada token, bukan pada teks
+### Checked on tokens, not on text
 
-Pemetaan terjadi setelah tokenisasi, bukan dengan pencarian substring. Hal ini
-perlu karena: tabel bernama `attachments` tidak mengandung kata kunci `ATTACH`
-secara kata, karena `ATTACH` muncul sebagai bagian dari identifikator yang
-panjang rather than sebagai kata sendiri.
+Matching happens after tokenization, not with a substring search. This matters:
+a table called `attachments` does not contain the keyword `ATTACH` as far as the
+checker is concerned, because `ATTACH` appears as part of a longer identifier
+rather than as a standalone word.
 
-`strings.Contains(text, "ATTACH")` naive akan menolak `SELECT * FROM
-attachments`. Pemeriksa berbasis token tidak melakukannya.
+A naive `strings.Contains(text, "ATTACH")` would reject `SELECT * FROM
+attachments`. The token-based check does not.
 
-Kecuali nama **fungsi yang diblokir**, yang cocok di mana saja mereka muncul —
-termasuk sebagai nama kolom. Kolom dengan nama `readfile` benar-benar ditolak.
-Ini adalah perdeliberatan: kolom yang nama-nya membingungkan adalah biaya yang
-kecil dibandingkan baca `/etc/passwd`.
+The exception is the blocked **function names**, which are matched anywhere they
+appear — including as a column name. A column literally named `readfile` is
+refused. That is a deliberate trade: a confusingly-named column is a far smaller
+cost than a readable `/etc/passwd`.
 
-### Daftar yang ditolak
+### What is refused
 
-| Kategori | Item |
+| Category | Items |
 |---|---|
-| Akses file | `ATTACH`, `DETACH` |
-| Tulis ulang utuh | `VACUUM`, `REINDEX`, `ANALYZE` |
-| Kontrol transaksi | `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE` |
-| Bawaan filesystem | `readfile`, `writefile`, `load_extension`, `edit`, `fts3_tokenizer`, `sqlite_compileoption_get`, `sqlite_compileoption_used` |
-| Trigger | `CREATE TRIGGER` |
-| Pragma penulis file | Apa saja yang tidak ada di [daftar izinkan](/docs/sql-api#pragma) |
+| File access | `ATTACH`, `DETACH` |
+| Whole-file rewrites | `VACUUM`, `REINDEX`, `ANALYZE` |
+| Transaction control | `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE` |
+| Filesystem builtins | `readfile`, `writefile`, `load_extension`, `edit`, `fts3_tokenizer`, `sqlite_compileoption_get`, `sqlite_compileoption_used` |
+| Triggers | `CREATE TRIGGER` |
+| File-writing pragmas | Anything not on the [allowlist](/docs/sql-api#pragma) |
 
-`ATTACH` adalah yang penting: membuka database acak sebagai path, yang akan mengubah
-endpoint tulis menjadi pembaca file untuk seluruh host.
+`ATTACH` is the important one: it opens an arbitrary path as a database, which
+would turn the write endpoint into a file reader for the entire host.
 
-`PRAGMA` **dipilihizinkan rather than diblokir**, karena banyak pragma menulis ke
+`PRAGMA` is **allowlisted rather than blocked**, because many pragmas write to the
 file (`journal_mode`, `key`, `rekey`, `page_size`, `auto_vacuum`,
-`synchronous`) dan daftar blokir harus meramalkan semua dari mereka.
+`synchronous`) and a blocklist would have to anticipate all of them.
 
-### Trigger ditolak pada tujuan
+### Triggers are declined on purpose
 
-Body trigger berada antara `BEGIN` dan `END` dan berisi titik koma, sehingga
-membedakan titik koma trigger dari stacked statement memerlukan parser nyata yang
-melacak nesting. Estimasi tangan adalah persekatan yang tepat jenis pemeriksaan
-yang gagal terbuka pada input SQLite yang diterima tetapi kode tidak.
+A trigger body sits between `BEGIN` and `END` and contains semicolons, so
+distinguishing its semicolons from a stacked statement needs a real parser that
+tracks nesting. A hand-rolled approximation is exactly the kind of check that
+fails open on input SQLite accepts but the code does not.
 
-Trigger ditolak daripada dikirimkan pemeriksa yang mungkin salah. Tulis invarian
-anda di kode aplikasi.
+Triggers are declined rather than shipping a check that might be wrong. Write your
+invariants in application code.
 
-## Hanya prepared statements only
+## Prepared statements only
 
-Nilai selalu melalui parameter bound:
+Values are always bound parameters:
 
 ```json
 { "query": "SELECT id FROM users WHERE email = ?", "args": ["ketut@example.com"] }
 ```
 
-Mesin hanya pernah melihat pernyataan parameterisasi, jadi **nilakan pernah menjadi
-syntax**. Ini bukan "injection mostly prevented" — pada jalur ini strukturally
-mustahil.
+The engine only ever sees a parameterised statement, so **a value can never become
+syntax**. This is not "injection mostly prevented" — on this path it is
+structurally impossible.
 
-Field JSON yang tidak dikenal ditolak rather than diabaikan. Pengirim `{"argz": [...]}`
-kesalahan, tidak keberhasilan yang sunyi tidak melakukan apa-apa.
+Unknown JSON fields are rejected rather than ignored. A client sending
+`{"argz": [...]}` gets an error, not a success that silently did nothing.
 
-## Penyimpanan rahasia
+## Secret storage
 
-| Kredensial | Disimpan |
+| Credential | Stored |
 |---|---|
-| Kunci proyek | SHA-256 hash + 8-character prefix |
-| Rahasia penyimpanan | SHA-256 hash + 6-character preview |
-| Kata sandi | Hash dengan garam |
+| Project key | SHA-256 hash + 8-character prefix |
+| Storage secret | SHA-256 hash + 6-character preview |
+| Password | Salted hash |
 
-Plaintext muncul dalam respons tepat satu — create atau rotate yang mengeluarkannya — dan
- tidak pulih kembali setelahnya.
+Plaintext appears in exactly one response — the create or rotate that issued it —
+and is never recoverable afterwards.
 
-Perbandingan hash adalah **waktu konstan**, sehingga verifikasi tidak leak seberapa
-banyak byte yang cocok.
+Hash comparison is **constant-time**, so verification does not leak how many bytes
+matched.
 
-Uji praktis: pengampian database kontrol plane menghasilkan hash, bukan kredensial
-yang bekerja. Karena kunci tidak dapat dipulihkan dari awal, tidak ada apa-apa
-untuk attacker reverse-engineer.
+The practical test: a dump of the control plane database yields hashes, not
+working credentials. Because the keys are not recoverable in the first place,
+there is nothing for an attacker to reverse.
 
-SHA-256 tanpa garam benar untuk hash-hash ini khusus: rahasia sudah memiliki
-256 bit entropy dari `crypto/rand`, sehingga tidak ada ruang tebakan bagi garam
-untuk menutup.
+Unsalted SHA-256 is correct for these hashes specifically: the secret already has
+256 bits of entropy from `crypto/rand`, so there is no guessing space for a salt
+to close.
 
-## Kredensial sudah difilter
+## Credentials are scoped
 
-Kunci proyek menjalankan SQL. Kredensial penyimpanan memindahkan file. Dashboard
-menggunakan sesi. **Tidak ada dari mereka bekerja untuk yang lainnya.**
+A project key runs SQL. A storage credential moves files. The dashboard uses a
+session. **None of them works for the others.**
 
-Bukanlah birokrasi. Kunci yang scope untuk menjalankan `SELECT` tidak harus
-dapat menuliskan setiap file di proyek, dan rotasi kunci SQL tidak harus
-sendengar putus setiap aplikasi yang berjalan.
+This is not bureaucracy. A key scoped to running `SELECT` should not be able to
+overwrite every file in a project, and rotating the SQL key should not silently
+break every running application.
 
-## Sesi bisa dicabut
+## Sessions can be revoked
 
-Sesi dashboard adalah token yang ditandai dengan **epoch** — counter yang
-disimpan pada akun. Setiap permintah yang autentik membandingkan epoch token
-dengan epoch saat ini akun, dan ketidakcocokan gagal tertutup: tidak ada baris,
-tidak ada sesi.
+A dashboard session is a signed token that carries an **epoch** — a counter
+stored on the account. Every authenticated request compares the token's epoch
+against the account's current one, and a mismatch fails closed: no matching
+row, no session.
 
-**Keluar login menaikkan epoch.** Satu klik dari setiap perangkat pensiun setiap
-sesi yang dimiliki akun, di mana saja sekaligus. Browser lain tidak perlu
-direach; token-t mereka hanya berhenti diverifikasi pada permintaan selanjutnya.
+**Sign out bumps the epoch.** One click from any device retires every session
+the account holds, everywhere at once. The other browsers never need to be
+reached; their tokens simply stop verifying on the next request.
 
-Menghapus akun adalah kegagalan dari arah lain: tidak ada akun yang baca dari
-epoch, sehingga setiap sesi ditandai pada dirinya gagal.
+Deleting the account is the same failure from the other direction: there is no
+account left to read an epoch from, so every session signed in to it fails.
 
-## URL publik objek
+## Public object URLs
 
-Objek yang dipublikasi dapat dibaca di `/pub/{project_id}/{key}` tanpa kredensial,
-sesuatu, dan cookie.
+A published object is readable at `/pub/{project_id}/{key}` with no credential, no
+session, and no cookie.
 
-Objek **private** mengembalikan `404` di sana — bukan `403` — sehingga tidak
-terdistinguish dari satu yang tidak ada. Mengingat kunci mempelajari tidak
-mendapat apa-apa dari respons.
+A **private** object returns `404` there — not `403` — so it is indistinguishable
+from one that does not exist. Someone guessing keys learns nothing from the
+response.
 
-Mengerti apa yang berarti publishing sebelum melakukannya: **URL publik adalah
-token membawa.** Siapa pun yang memiliki tautan memiliki file, dan Anda tidak
-bisa membuatnya privat lagi tanpa mengubah URL.
+Understand what publishing means before you do it: **a public URL is a bearer
+token.** Anyone with the link has the file, and you cannot make it private again
+without changing the URL.
 
-## Header respons
+## Response headers
 
-Setiap respons membawa:
+Every response carries:
 
-| Header | Nilai |
+| Header | Value |
 |---|---|
-| `Content-Security-Policy` | `default-src 'self'`; tidak ada skrip inline, own origin untuk frames and connections; images dari own origin, `data:`, atau `https:` |
+| `Content-Security-Policy` | `default-src 'self'`; no inline scripts, own origin for frames and connections; images from own origin, `data:`, or `https:` |
 | `X-Content-Type-Options` | `nosniff` |
 | `X-Frame-Options` | `DENY` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `Strict-Transport-Security` | Hanya atas HTTPS |
-| `Cache-Control` | `no-store` pada `/api/`, `/p/`, `/db/`, `/bucket/`, `/auth/` |
+| `Strict-Transport-Security` | Over HTTPS only |
+| `Cache-Control` | `no-store` on `/api/`, `/p/`, `/db/`, `/bucket/`, `/auth/` |
 
-`no-store` penting karena dashboard menampilkan material rahasia pada create dan
-rotate. Respons body yang di-cache akan menyerahkannya kepada siapa saja yang
-bertanya setelahnya.
+`no-store` matters because the dashboard shows secret material on create and
+rotate. A cached response body would hand it to whoever asked next.
 
-HSTS hanya dikirim atas HTTPS, sehingga lokal development atas plain HTTP tidak
-meninggalkan browser menolak untuk mencapai situsnya setelahnya.
+HSTS is only sent over HTTPS, so local development over plain HTTP does not leave
+a browser refusing to reach the site afterwards.
 
-## Pesan kesalahan
+## Error messages
 
-Kesalahan tidak leak internals.
+Errors do not leak internals.
 
-`detail` pada SQL error membawa pesan driver, yang dapat menyebutkan tabel dan
-kolom — berguna untuk Anda, dan tidak revealing tentang host. Kesalahan internal
-mengembalikan pesan umum, dan panic tidak mengembalikan apa-apa gunakan.
+`detail` on a SQL error carries the driver's message, which can name tables and
+columns — useful to you, and revealing nothing about the host. Internal failures
+return a generic message, and a panic returns nothing useful at all.
 
-## Model ini tidak melindungi
+## What this model does not protect
 
 Being clear about this is more useful than a reassuring summary.
 
-- **Kunci bocor works.** Jika kunci proyek Anda terkompromi, attacker memiliki
-  database hingga Anda rotasi. Tidak ada IP allowlist, tidak ada per-IP rate limit
-  di lapisan aplikasi, dan tidak ada cara untuk membatasi kunci ke IP. Rotasi
-  adalah mitigasi, dan ia cepat.
-- **URL publik tidak bisa dicabut.** Hanya URL yang mengandungnya yang bisa
-  diubah.
-- **Tidak ada enkripsi di resting.** File database dan objek yang disimpan adalah
-  plaintext di disk. Proteksi di sini bergantung pada host dan disk-level access
-  control.
-- **Tidak ada multi-factor authentication.** Satu email dan password adalah
-  seluruh model keamanan akun.
-- **Rate limits are ceilings, not traffic shaping.** Data plane memungkinkan 300
-  request menit — queries per project, storage operations per client address —
-  cukup untuk menghentikan klien runaway atau stolen key menyenggangi host, tidak
-  cukup untuk shape penggunaan ordinari. Endpoint sign-in (`/auth/login`,
-  `/auth/register`, `/auth/forgot-password`, `/auth/reset-password`,
-  `/auth/verify-email`, `/auth/resend-verification`) berbagi 10 upaya menit
-  per client address, karena mereka adalah satu-satunya yang bisa dilanda oleh
-  pemanggil unauthenticated. Daftar update dashboard dibaca, `GET /api/updates`,
-  mendapatkan 60 menit per address sekalipun — public, tetapi setiap panggilan
-  bisa menghabiskan hingga tiga detik menunggu pada news service — dan melayani
-  jawaban yang menit kuno, sehingga news service melihat paling satu fetch menit.
-  `429` membawa header `Retry-After`.
-- **SQLite writes are serialised per project.** Ini adalah properti mesin, bukan
-  sesuatu Moogo konfigurasi. Tulisans concurrently tinggi akan antrean.
+- **A leaked key works.** If your project key is compromised, the attacker has your
+  database until you rotate. There is no IP allowlist, no per-IP rate limit at the
+  application layer, and no way to restrict a key to an IP. Rotation is the
+  mitigation, and it is fast.
+- **Public URLs cannot be revoked.** Only the URL containing them can change.
+- **Nothing is encrypted at rest.** The database file and stored objects are
+  plaintext on disk. Protection here depends on host and disk-level access control.
+- **There is no multi-factor authentication.** One email and a password is the
+  whole account security model.
+- **Rate limits are ceilings, not traffic shaping.** The data plane allows 300
+  requests a minute — queries keyed per project, storage operations per client
+  address — enough to stop a runaway client or a stolen key from saturating the
+  host, not enough to shape ordinary use. The sign-in endpoints
+  (`/auth/login`, `/auth/register`, `/auth/forgot-password`,
+  `/auth/reset-password`, `/auth/verify-email`, `/auth/resend-verification`)
+  share 10 attempts a minute per client address, because they are the ones an
+  unauthenticated caller can hammer. The public update list the dashboard
+  reads, `GET /api/updates`, gets 60 a minute per address instead — public,
+  but every call can spend up to three seconds waiting on the news service —
+  and serves a minute-old cached answer, so the news service sees at most one
+  fetch a minute. A `429` carries a `Retry-After` header.
+- **SQLite writes are serialised per project.** This is a property of the engine,
+  not something Moogo configures away. High write concurrency will queue.
 
-## Berjalan di balik proxy
+## Running behind a proxy
 
-Jika deployment berada di balik reverse proxy — Caddy, nginx, load balancer —
-maka `MOOGO_TRUSTED_PROXIES` harus mencantumkan alamat proxy:
+If the deployment sits behind a reverse proxy — Caddy, nginx, a load balancer —
+then `MOOGO_TRUSTED_PROXIES` should list that proxy's address:
 
 ```
 MOOGO_TRUSTED_PROXIES=127.0.0.1,::1
 ```
 
-Tanpa itu, setiap permintaan terlihat seperti datang dari proxy, sehingga batas
-per-client akan memperlakukan semua pengunjung sebagai satu pemanggil dan satu
-bucket akan kunci semua orang sekaligus.
+Without it, every request looks like it came from the proxy, so a per-client
+limit would treat all visitors as one caller and a shared bucket would lock
+everyone out at once.
 
-Ini adalah daftar alamat atau CIDR ranges — `127.0.0.1` dan `10.0.0.0/24` adalah
-masukannya yang valid. Moogo percaya `X-Forwarded-For` hanya ketika permintaan
-sampai dari satu dari mereka; dari siapa pun lainnya header diabaikan, sehingga
-pemicu tidak dapat memilih identitas mereka sendiri untuk meloloskan batas atau
-menyakiti log akses. Ketika header dipercaya, rantai di dalamnya dibaca dari
-kanan ke kiri melewati proxy yang tercatat, sehingga entri yang dikirim klien
-sendiri tidak boleh outweigh alamat proxy yang ditambahkan. Jangan daftarkan
-`0.0.0.0` atau `::` — itu sama dengan mempercayai semua.
+It is a list of addresses or CIDR ranges — `127.0.0.1` and `10.0.0.0/24` are
+both valid entries. Moogo believes `X-Forwarded-For` only when the request
+itself arrives from one of them; from anybody else the header is ignored, so a
+client cannot pick its own identity to slip past a limit or poison the access
+log. When the header is believed, the chain inside it is read right to left
+past the listed proxies, so an entry the client sent itself cannot outweigh
+the address a proxy appended. Do not list `0.0.0.0` or `::` — that is the
+same as trusting everybody.
 
-## Mengeluhkan kerentanan
+## Reporting a vulnerability
 
-Jika Anda menemukan sesuatu yang keliru, silakan
-[lapor it](/docs/feedback). Laporan keamanan ditangani dengan prioritas, dan Anda
-akan mendapatkan pengakuan.
+If you find something that looks wrong, please
+[report it](/docs/feedback). Security reports are handled as priority, and you
+will get an acknowledgement.

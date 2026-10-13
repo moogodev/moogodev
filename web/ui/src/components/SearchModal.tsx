@@ -119,8 +119,8 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
             value={query}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Cari di dokumentasi..."
-            aria-label="Cari dokumentasi"
+            placeholder="Search documentation…"
+            aria-label="Search documentation"
             autoComplete="off"
             style={{
               width: "100%",
@@ -138,14 +138,14 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
           <div style={{ maxHeight: "60vh", overflowY: "auto", color: "#1f2937" }}>
             {query.trim().length < 2 && (
               <div style={{ textAlign: "center", padding: "2rem", color: "#6b7280" }}>
-                <p style={{ fontWeight: 500, marginBottom: "0.5rem" }}>Cari dokumentasi</p>
-                <p>Tuliskan kata kunci untuk mencari di seluruh halaman</p>
+                <p style={{ fontWeight: 500, marginBottom: "0.5rem" }}>Type to search</p>
+                <p>Searches titles, headings, and content across all pages</p>
               </div>
             )}
             {query.trim().length >= 2 && results.length === 0 && (
               <div style={{ textAlign: "center", padding: "2rem", color: "#6b7280" }}>
-                <p style={{ fontWeight: 500, marginBottom: "0.5rem" }}>Tidak ada hasil</p>
-                <p>Coba kata kunci lain atau periksa ketikkan</p>
+                <p style={{ fontWeight: 500, marginBottom: "0.5rem" }}>No results for "{query}"</p>
+                <p>Try different keywords or check spelling</p>
               </div>
             )}
             {groups().map(([groupName, groupResults]) => (
