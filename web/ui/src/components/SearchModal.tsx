@@ -1,5 +1,5 @@
-// SearchModal — hijau theme + live search + dark mode support
-import { useEffect, useState, useCallback, useRef } from "react";
+// SearchModal — absolutely minimal, explicit colors, no ambiguity
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { buildSearchIndex, type SearchIndex, type SearchResult, type SearchMatch } from "../lib/search";
 import { allDocs, ensureDocs, docsReady } from "../lib/docs";
@@ -17,20 +17,7 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [searchIndex, setSearchIndex] = useState<SearchIndex | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [scheme, setScheme] = useState<'light' | 'dark'>('light');
 
-  // Detect color scheme on mount and when it changes
-  useEffect(() => {
-    const updateScheme = () => {
-      setScheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    };
-    updateScheme();
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
-    mql.addEventListener('change', updateScheme);
-    return () => mql.removeEventListener('change', updateScheme);
-  }, []);
-
-  // Build search index once when modal first opens
   useEffect(() => {
     const init = async () => {
       if (!docsReady()) await ensureDocs();
@@ -41,7 +28,6 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
     init();
   }, [searchIndex]);
 
-  // Perform search when query changes AND index is ready
   useEffect(() => {
     if (!searchIndex) return;
     if (query.trim().length < 2) { setResults([]); setSelectedIndex(0); return; }
@@ -49,10 +35,8 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
     setResults(res); setSelectedIndex(0);
   }, [query, searchIndex]);
 
-  // Focus input when opened
   useEffect(() => { if (isOpen) setTimeout(() => inputRef.current?.focus(), 50); }, [isOpen]);
 
-  // Simple keyboard navigation — Esc close, Arrows navigate, Enter select
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (!isOpen) return;
     if (e.key === "Escape") { e.preventDefault(); onClose(); }
@@ -70,47 +54,34 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
     onClose(); setTimeout(() => navigate(`/docs/${page.slug}${hash}`), 100);
   };
 
-  // Highlight search terms — simple inline, no useCallback complexity
-  const highlightText = useCallback((text: string, query: string) => {
+  const highlightText = (text: string, query: string) => {
     if (!query.trim()) return <span>{text}</span>;
     const terms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
-    if (terms.length === 0) return <span>{text}</span>;
     const regex = new RegExp(`(${terms.map(escapeRegex).join("|")})`, "gi");
     const parts = text.split(regex);
-    return <span>{parts.map((part, i) => regex.test(part) ? <mark key={i} style={{backgroundColor: scheme === 'dark' ? 'rgba(16,185,129,0.3)' : 'rgba(16,185,129,0.1)'}} className="bg-green-500/30">{part}</mark> : <span key={i}>{part}</span>)}</span>;
-  }, [scheme]);
+    return <span>{parts.map((part, i) => regex.test(part) ? <mark key={i} style={{backgroundColor: "rgba(255,0,0,0.3)"}}>{part}</mark> : <span key={i} style={{color: "red"}}>{part}</span>)}</span>;
+  };
 
   if (!isOpen) return null;
 
-  // Simple groups — just split results by page.group, no useMemo/useCallback overhead
-  const groups = useCallback(() => {
-    const grouped: Record<string, SearchResult[]> = {};
+  const groups = useMemo(() => {
+    const grouped = new Map<string, SearchResult[]>();
     for (const r of results) {
       const g = r.page.group;
-      if (!grouped[g]) grouped[g] = [];
-      grouped[g]!.push(r);
+      if (!grouped.has(g)) grouped.set(g, []);
+      grouped.get(g)!.push(r);
     }
-    return Object.entries(grouped);
+    return Array.from(grouped.entries());
   }, [results]);
 
-  // Dynamic colors based on color scheme
-  const isDark = scheme === 'dark';
-  const panelBg = isDark ? '#1f2937' : '#ffffff';
-  const panelBorder = isDark ? '#374151' : '#10b981';
-  const inputBg = isDark ? '#3f4451' : '#f9fafb';
-  const inputBorder = isDark ? '#525f73' : '#e5e7eb';
-  const inputText = isDark ? '#f3f4f6' : '#1f2937';
-  const resultText = isDark ? '#d1d5db' : '#1f2937';
-  const mutedText = isDark ? '#9ca3af' : '#6b7280';
-  const groupBg = isDark ? '#374151' : '#f3f4f6';
-
   return (
+    // z-9999 to be absolutely on top, explicit white background
     <div
       style={{
         position: "fixed",
         inset: 0,
         zIndex: 9999,
-        backgroundColor: isDark ? 'rgba(0,0,0,0.9)' : 'rgba(0,0,0,0.8)',
+        backgroundColor: "rgba(0,0,0,0.8)",
         display: "flex",
         alignItems: "flex-start",
         justifyContent: "center",
@@ -121,21 +92,18 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
       aria-modal="true"
       aria-label="Search documentation"
     >
-      // Hijau theme panel with dark mode support
-      <div
-        style={{
-          backgroundColor: panelBg,
-          border: `4px solid ${panelBorder}`,
-          borderRadius: "1rem",
-          width: "100%",
-          maxWidth: "800px",
-          overflow: "hidden",
-          fontFamily: "sans-serif",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+      // Explicit bright white panel with thick border
+      <div style={{
+        backgroundColor: "#ffffff",
+        border: "4px solid #ff0000",
+        borderRadius: "1rem",
+        width: "100%",
+        maxWidth: "800px",
+        overflow: "hidden",
+        fontFamily: "sans-serif",
+      }}>
         <div style={{ padding: "2rem" }}>
-          // Hijau input dengan warna auto berdasarkan scheme
+          // Explicit black input with clear placeholder
           <input
             ref={inputRef}
             type="search"
@@ -143,37 +111,35 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="Search documentation…"
-            aria-label="Search documentation"
-            autoComplete="off"
             style={{
               width: "100%",
               padding: "1rem 1.5rem",
               fontSize: "1rem",
-              border: `2px solid ${inputBorder}`,
+              border: "2px solid #cccccc",
               borderRadius: "0.5rem",
               marginBottom: "1rem",
-              color: inputText,
-              backgroundColor: inputBg,
+              color: "#000000",
+              backgroundColor: "#f8f8f8",
               outline: "none",
-              fontFamily: "inherit",
             }}
+            aria-label="Search documentation"
           />
-          <div style={{ maxHeight: "60vh", overflowY: "auto", color: resultText }}>
+          <div style={{ maxHeight: "60vh", overflowY: "auto", color: "#000000" }}>
             {query.trim().length < 2 && (
-              <div style={{ textAlign: "center", padding: "2rem", color: mutedText }}>
-                <p style={{ fontWeight: 500, marginBottom: "0.5rem" }}>Type to search</p>
-                <p>Searches titles, headings, and content across all pages</p>
+              <div style={{ textAlign: "center", padding: "2rem", color: "#333333" }}>
+                <p style={{ fontWeight: "500", marginBottom: "0.5rem" }}>Type to search</p>
+                <p>Searches titles, headings, and content</p>
               </div>
             )}
             {query.trim().length >= 2 && results.length === 0 && (
-              <div style={{ textAlign: "center", padding: "2rem", color: mutedText }}>
-                <p style={{ fontWeight: 500, marginBottom: "0.5rem" }}>No results for "{query}"</p>
+              <div style={{ textAlign: "center", padding: "2rem", color: "#333333" }}>
+                <p style={{ fontWeight: "500", marginBottom: "0.5rem" }}>No results for "{query}"</p>
                 <p>Try different keywords or check spelling</p>
               </div>
             )}
-            {groups().map(([groupName, groupResults]) => (
-              <div key={groupName} style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: `1px solid ${groupBg}` }}>
-                <p style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.1em", color: mutedText }}>{groupName}</p>
+            {groups.map(([groupName, groupResults]) => (
+              <div key={groupName} style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid #e0e0e0" }}>
+                <p style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.1em", color: "#666666" }}>{groupName}</p>
                 <ul style={{ margin: 0, padding: 0 }}>
                   {groupResults.map(r => {
                     const idx = results.indexOf(r);
@@ -190,20 +156,20 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
                           style={{
                             width: "100%",
                             padding: "0.75rem 1rem",
-                            border: sel ? `1px solid ${panelBorder}` : `1px solid ${inputBorder}`,
+                            border: sel ? "1px solid #ff0000" : "1px solid #dddddd",
                             borderRadius: "0.5rem",
-                            backgroundColor: sel ? (isDark ? '#3f4451' : '#ecfdf5') : '#ffffff',
-                            color: inputText,
+                            backgroundColor: sel ? "#fff0f0" : "#ffffff",
+                            color: "#000000",
                             fontSize: "0.9rem",
                             cursor: "pointer",
                           }}
                         >
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <p style={{ fontWeight: 500, margin: 0 }}>{highlightText(r.page.title, query)}</p>
-                            <p style={{ fontSize: "0.8rem", margin: "0.25rem 0", color: mutedText }}>{highlightText(r.page.description, query)}{ht && <span style={{ color: mutedText, fontSize: "0.7rem" }}> → {highlightText(ht, query)}</span>}</p>
-                            {r.matches.some((m: SearchMatch) => m.type === "content") && <p style={{ fontSize: "0.7rem", margin: "0.25rem 0", color: mutedText }}>{highlightText(r.matches.find((m: SearchMatch) => m.type === "content")?.text.slice(0, 120) ?? "", query)}</p>}
+                            <p style={{ fontSize: "0.8rem", margin: "0.25rem 0", color: "#555555" }}>{highlightText(r.page.description, query)}{ht && <span style={{ color: "#777777", fontSize: "0.7rem" }}> → {highlightText(ht, query)}</span>}</p>
+                            {r.matches.some((m: SearchMatch) => m.type === "content") && <p style={{ fontSize: "0.7rem", margin: "0.25rem 0", color: "#555555" }}>{highlightText(r.matches.find((m: SearchMatch) => m.type === "content")?.text.slice(0, 120) ?? "", query)}</p>}
                           </div>
-                          {sel && <svg style={{ width: "1rem", height: "1rem", marginLeft: "0.5rem" }} fill="none" stroke={panelBorder} strokeWidth="2" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" /></svg>}
+                          {sel && <svg style={{ width: "1rem", height: "1rem", marginLeft: "0.5rem" }} fill="none" stroke="#ff0000" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" /></svg>}
                         </button>
                       </li>
                     );
@@ -211,10 +177,10 @@ export function SearchModal({ isOpen, onClose, initialQuery = "" }: SearchModalP
                 </ul>
               </div>
             ))}
-            <div style={{ padding: "1rem", borderTop: `1px solid ${groupBg}`, marginTop: "1rem", color: mutedText }}>
+            <div style={{ padding: "1rem", borderTop: "1px solid #e0e0e0", marginTop: "1rem", color: "#333333" }}>
               <span style={{ fontSize: "0.75rem" }}>{results.length} result{results.length !== 1 ? "s" : ""}</span>
-              <kbd style={{ fontSize: "0.65rem", backgroundColor: isDark ? '#3f4451' : '#f3f4f6', border: `1px solid ${inputBorder}`, padding: "0.2rem 0.5rem", borderRadius: "3px", color: inputText }}>
-                <svg style={{ width: "0.8rem", height: "0.8rem", marginRight: "0.3rem" }} viewBox="0 0 16 16" fill="none" stroke={panelBorder} strokeWidth="1.5"><path d="M4 8h8M8 4v8" /></svg>
+              <kbd style={{ fontSize: "0.65rem", backgroundColor: "#f0f0f0", border: "1px solid #cccccc", padding: "0.2rem 0.5rem", borderRadius: "3px", color: "#000000" }}>
+                <svg style={{ width: "0.8rem", height: "0.8rem", marginRight: "0.3rem" }} viewBox="0 0 16 16" fill="none" stroke="#000000" strokeWidth="1.5"><path d="M4 8h8M8 4v8" /></svg>
                 <span style={{ marginLeft: "0.3rem" }}>⌘K</span>
               </kbd>
             </div>
