@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { ArrowLeft } from "../components/icons";
 import { HomeLink } from "../components/HomeLink";
 import { SiteLayout } from "../components/Layout";
 import { api, ApiError } from "../lib/api";
@@ -179,7 +180,7 @@ export default function VerifyEmail() {
 
           <p className="mt-6 text-center">
             <HomeLink className="text-[0.9rem] text-faint hover:text-foreground">
-              ← Back to the landing page
+              <ArrowLeft className="inline w-4 h-4 align-middle" /> Back to the landing page
             </HomeLink>
           </p>
         </div>

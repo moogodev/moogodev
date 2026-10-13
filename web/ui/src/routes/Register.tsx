@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { ArrowLeft } from "../components/icons";
 import { HomeLink } from "../components/HomeLink";
 import { GoogleSignInButton } from "../components/GoogleSignInButton";
 import { SiteLayout } from "../components/Layout";
@@ -114,7 +115,7 @@ export default function Register() {
 
             <p className="mt-6 text-center">
               <HomeLink className="text-[0.9rem] text-faint hover:text-foreground">
-                ← Back to the landing page
+                <ArrowLeft className="inline w-4 h-4 align-middle" /> Back to the landing page
               </HomeLink>
             </p>
           </div>
@@ -235,7 +236,7 @@ export default function Register() {
 
           <p className="mt-6 text-center">
             <HomeLink className="text-[0.9rem] text-faint hover:text-foreground">
-              ← Back to the landing page
+              <ArrowLeft className="inline w-4 h-4 align-middle" /> Back to the landing page
             </HomeLink>
           </p>
         </div>

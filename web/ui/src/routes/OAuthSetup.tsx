@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
+import { ArrowRight } from "../components/icons";
 import { api } from "../lib/api";
 import { appOrigin } from "../lib/origin";
 
@@ -114,10 +115,10 @@ export default function OAuthSetup() {
               <h3 className="mb-3 text-lg font-semibold">How to Create Credentials</h3>
               <ol className="space-y-3 text-sm text-muted list-decimal list-inside">
                 <li>
-                  Go to the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-accent-strong hover:underline">Google Cloud Console → APIs & Services → Credentials</a>.
+                  Go to the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-accent-strong hover:underline">Google Cloud Console <ArrowRight className="inline w-4 h-4 align-middle" /> APIs & Services <ArrowRight className="inline w-4 h-4 align-middle" /> Credentials</a>.
                 </li>
                 <li>
-                  Click <strong>Create Credentials</strong> → <strong>OAuth client ID</strong>.
+                  Click <strong>Create Credentials</strong> <ArrowRight className="inline w-4 h-4 align-middle" /> <strong>OAuth client ID</strong>.
                 </li>
                 <li>
                   Select <strong>Web application</strong> as the application type.

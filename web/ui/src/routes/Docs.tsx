@@ -7,6 +7,7 @@ import {
   type NavigateFunction,
 } from "react-router-dom";
 import { SiteLayout } from "../components/Layout";
+import { ArrowLeft, ArrowRight } from "../components/icons";
 import { copyToClipboard } from "../lib/clipboard";
 import { appOrigin } from "../lib/origin";
 import {
@@ -862,7 +863,12 @@ function Pager({ page, onNavigate }: { page: DocPage; onNavigate: () => void }) 
           className="text-left"
         >
           <span className="pager-direction">Previous</span>
-          <span className="pager-title">← {page.previous.title}</span>
+          <span className="pager-title">
+            <span className="inline-flex items-center gap-1.5">
+              <ArrowLeft className="w-4 h-4 shrink-0" />
+              {page.previous.title}
+            </span>
+          </span>
         </Link>
       ) : (
         <span />
@@ -874,7 +880,12 @@ function Pager({ page, onNavigate }: { page: DocPage; onNavigate: () => void }) 
           className="text-left sm:col-start-2 sm:text-right"
         >
           <span className="pager-direction">Next</span>
-          <span className="pager-title">{page.next.title} →</span>
+          <span className="pager-title">
+            <span className="inline-flex items-center gap-1.5">
+              {page.next.title}
+              <ArrowRight className="w-4 h-4 shrink-0" />
+            </span>
+          </span>
         </Link>
       )}
     </nav>

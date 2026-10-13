@@ -1,9 +1,7 @@
 import { Link } from "react-router-dom";
-import { useState } from "react";
 import { SiteLayout } from "../components/Layout";
 import { CodeTabs } from "../components/CodeTabs";
-import { copyToClipboard } from "../lib/clipboard";
-import { docFileName, ensureDoc } from "../lib/docs";
+import { ArrowRight } from "../components/icons";
 import { newsOrigin } from "../lib/origin";
 import "../landing.css";
 
@@ -477,11 +475,7 @@ function Languages() {
           </h2>
           <p className="mb-10 max-w-[46em] mx-auto text-muted">
             Seventeen guides, from setup to usage — for SQLite and bucket storage
-            in that language or framework. Click a card to copy the whole guide as{" "}
-            <code className="rounded bg-panel-raised px-1.5 py-0.5 font-mono text-[0.82rem] text-foreground">
-              .md
-            </code>
-            .
+            in that language or framework. Click a card to open its guide.
           </p>
         </div>
 
@@ -497,10 +491,7 @@ function Languages() {
             className="inline-flex items-center gap-1.5 text-accent-strong hover:underline font-medium text-[0.9rem]"
           >
             Browse all 17 guides on the docs site
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" aria-hidden="true">
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-              <polyline points="12 5 19 12 5 19"></polyline>
-            </svg>
+            <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
       </div>
@@ -535,35 +526,15 @@ function StackCategory({ group }: { group: { label: string; note: string; icon: 
   );
 }
 
-// StackCard is a polished card that copies the guide as Markdown. It features:
-// - Logo with colored background chip (unique per brand)
-// - Name + subtle "guide" label
-// - Hover: subtle elevation, border color change, copy icon appears
-// - Click: copies full guide as .md via CopyDocButton
+// StackCard opens the guide for one stack. The visual is a brand chip and the
+// framework name; hovering reveals a "read" arrow rather than the old copy
+// button, because the next step from here is the guide itself.
 function StackCard({ stack }: { stack: { name: string; doc: string; icon: string } }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      const source = await ensureDoc(stack.doc);
-      if (source !== undefined) {
-        await copyToClipboard(source);
-      }
-    } catch {
-      // error handled by CopyDocButton internally
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const file = docFileName(stack.doc);
-
   return (
-    <button
-      type="button"
-      onClick={handleCopy}
+    <Link
+      to={`/docs/guides/${stack.doc}`}
       className="stack-card"
-      aria-label={copied ? `Copied ${file}` : `Copy ${stack.name} guide as Markdown`}
+      aria-label={`Read the ${stack.name} guide`}
     >
       <div className="stack-card-icon">
         <img
@@ -578,18 +549,9 @@ function StackCard({ stack }: { stack: { name: string; doc: string; icon: string
         <span className="stack-card-name">{stack.name}</span>
       </div>
       <div className="stack-card-action" aria-hidden="true">
-        {copied ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-accent-strong" aria-hidden="true">
-            <polyline points="20 6 9 17 4 12"></polyline>
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-faint" aria-hidden="true">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-          </svg>
-        )}
+        <ArrowRight className="w-5 h-5 text-faint" />
       </div>
-    </button>
+    </Link>
   );
 }
 
@@ -679,7 +641,7 @@ function DashboardSection() {
               className="inline-flex items-center gap-1.5 font-semibold text-accent-strong transition-colors hover:text-accent"
             >
               Tour the dashboard
-              <span aria-hidden="true">→</span>
+              <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
 
