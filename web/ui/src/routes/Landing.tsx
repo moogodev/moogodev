@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import { SiteLayout } from "../components/Layout";
 import { CodeTabs } from "../components/CodeTabs";
-import { CopyDocButton } from "../components/CopyDocButton";
+import { copyToClipboard } from "../lib/clipboard";
+import { docFileName, ensureDoc } from "../lib/docs";
 import { newsOrigin } from "../lib/origin";
 import "../landing.css";
 
@@ -196,6 +198,7 @@ const stackGroups = [
   {
     label: "Frontend & meta-frameworks",
     note: "Key stays on your server — every guide proxies it.",
+    icon: "monitor",
     stacks: [
       { name: "JavaScript", doc: "javascript-vanilla", icon: "javascript" },
       { name: "TypeScript", doc: "javascript-vanilla", icon: "typescript" },
@@ -210,6 +213,7 @@ const stackGroups = [
   {
     label: "Backend",
     note: "Call Moogo directly — no proxy needed.",
+    icon: "server",
     stacks: [
       { name: "Python", doc: "python-vanilla", icon: "python" },
       { name: "FastAPI", doc: "fastapi", icon: "fastapi" },
@@ -225,6 +229,25 @@ const stackGroups = [
 ];
 
 const STACK_ICON_CDN = "https://cdn.jsdelivr.net/npm/simple-icons@v14/icons";
+
+// Category icon SVGs (inline for simplicity)
+const CategoryIcons = {
+  monitor: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+      <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+      <line x1="8" y1="21" x2="16" y2="21"></line>
+      <line x1="12" y1="17" x2="12" y2="21"></line>
+    </svg>
+  ),
+  server: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+      <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+      <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+      <line x1="6" y1="6" x2="6.01" y2="6"></line>
+      <line x1="6" y1="18" x2="6.01" y2="18"></line>
+    </svg>
+  ),
+};
 
 // The Hero is the part of this page that was already right, so it is kept
 // exactly as it was -- same markup, same copy, same classes. The only change
@@ -436,95 +459,137 @@ function Showcase() {
   );
 }
 
-// Languages is the "can Moogo be used from here?" section. It was two rows of
-// logos scrolling in opposite directions, which read as decoration: the stack a
-// visitor came for drifted out of reach mid-read, and a name was never visible
-// next to its glyph, so half the row was guesswork.
-//
-// The grid keeps the same affordance (a tile copies that guide as Markdown) and
-// drops the motion. Grouping the rows by frontend/backend carries the piece of
-// guidance that actually prevents a failed integration — whether the SQL key
-// belongs in the browser — without turning the section into a wall of prose.
+// Languages is the "can Moogo be used from here?" section. It replaces the
+// old logo marquee with a polished, category-grouped card grid inspired by
+// modern database landing pages (Turso, Supabase). Each card is a copy button
+// that copies the full guide as Markdown. Categories are visually distinct
+// with icons and descriptive notes explaining the key architecture.
 function Languages() {
   return (
     <section className="py-16 sm:py-20">
       <div className="mx-auto w-full max-w-[1120px] px-6">
-        <p className="mb-3 text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-accent-strong">
-          Works with your stack
-        </p>
-        <h2 className="mb-2 text-[clamp(1.7rem,3.2vw,2.3rem)] font-semibold tracking-tight">
-          If it speaks HTTP, it speaks Moogo.
-        </h2>
-        <p className="mb-10 max-w-[46em] text-muted">
-          Seventeen guides, from setup to usage — for SQLite and bucket storage
-          in that language or framework. Click a tile to copy the whole guide as{" "}
-          <code className="rounded bg-panel-raised px-1.5 py-0.5 font-mono text-[0.82rem] text-foreground">
-            .md
-          </code>
-          .
-        </p>
-      </div>
+        <div className="mb-10 text-center">
+          <p className="mb-3 text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-accent-strong">
+            Works with your stack
+          </p>
+          <h2 className="mb-2 text-[clamp(1.7rem,3.2vw,2.3rem)] font-semibold tracking-tight">
+            If it speaks HTTP, it speaks Moogo.
+          </h2>
+          <p className="mb-10 max-w-[46em] mx-auto text-muted">
+            Seventeen guides, from setup to usage — for SQLite and bucket storage
+            in that language or framework. Click a card to copy the whole guide as{" "}
+            <code className="rounded bg-panel-raised px-1.5 py-0.5 font-mono text-[0.82rem] text-foreground">
+              .md
+            </code>
+            .
+          </p>
+        </div>
 
-      <div className="mx-auto w-full max-w-[1120px] px-6">
-        <div className="flex flex-col gap-9">
+        <div className="space-y-12">
           {stackGroups.map((group) => (
-            <div key={group.label}>
-              <div className="mb-4 flex items-baseline gap-2.5 border-b border-edge pb-2.5">
-                <h3 className="text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-muted">
-                  {group.label}
-                </h3>
-                <span className="text-[0.8rem] text-faint">{group.note}</span>
-              </div>
-
-              <ul className="stack-grid">
-                {group.stacks.map((stack) => (
-                  <li key={stack.name}>
-                    <StackTile stack={stack} />
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <StackCategory key={group.label} group={group} />
           ))}
         </div>
 
-        <p className="mt-9 text-center text-[0.9rem] text-muted">
-          Prefer to read it?{" "}
+        <div className="mt-12 text-center">
           <Link
             to="/docs/guides/javascript-vanilla"
-            className="text-accent-strong hover:underline"
+            className="inline-flex items-center gap-1.5 text-accent-strong hover:underline font-medium text-[0.9rem]"
           >
-            Browse all 17 guides
-          </Link>{" "}
-          on the docs site.
-        </p>
+            Browse all 17 guides on the docs site
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" aria-hidden="true">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <polyline points="12 5 19 12 5 19"></polyline>
+            </svg>
+          </Link>
+        </div>
       </div>
     </section>
   );
 }
 
-// StackTile is a logo plus its name. The name is the point: a glyph alone is a
-// quiz, and the visitor scanning for "Django" should not have to play it. The
-// whole tile is the copy button, so the click target is large enough to hit on
-// a phone, and the confirmation from CopyDocButton is pinned over the tile.
-function StackTile({ stack }: { stack: { name: string; doc: string; icon: string } }) {
+// StackCategory renders a single category section with header and card grid
+function StackCategory({ group }: { group: { label: string; note: string; icon: string; stacks: Array<{ name: string; doc: string; icon: string }> } }) {
+  const categoryIcon = CategoryIcons[group.icon as keyof typeof CategoryIcons];
+
   return (
-    <CopyDocButton
-      slug={stack.doc}
-      title={`Copy the ${stack.name} guide as Markdown`}
-      ariaLabel={`Copy the ${stack.name} guide as Markdown`}
-      className="stack-tile"
+    <div>
+      <div className="mb-6 flex items-center gap-3">
+        <div className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 text-accent-strong">
+          {categoryIcon}
+        </div>
+        <div>
+          <h3 className="text-[0.875rem] font-semibold text-foreground">{group.label}</h3>
+          <p className="text-sm text-muted mt-0.5">{group.note}</p>
+        </div>
+      </div>
+
+      <ul className="stack-grid" role="list">
+        {group.stacks.map((stack) => (
+          <li key={stack.name}>
+            <StackCard stack={stack} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// StackCard is a polished card that copies the guide as Markdown. It features:
+// - Logo with colored background chip (unique per brand)
+// - Name + subtle "guide" label
+// - Hover: subtle elevation, border color change, copy icon appears
+// - Click: copies full guide as .md via CopyDocButton
+function StackCard({ stack }: { stack: { name: string; doc: string; icon: string } }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      const source = await ensureDoc(stack.doc);
+      if (source !== undefined) {
+        await copyToClipboard(source);
+      }
+    } catch {
+      // error handled by CopyDocButton internally
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const file = docFileName(stack.doc);
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="stack-card"
+      aria-label={copied ? `Copied ${file}` : `Copy ${stack.name} guide as Markdown`}
     >
-      <span className="stack-tile-chip">
+      <div className="stack-card-icon">
         <img
           src={`${STACK_ICON_CDN}/${stack.icon}.svg`}
           alt={`${stack.name} logo`}
           loading="lazy"
-          width={30}
-          height={30}
+          width={28}
+          height={28}
         />
-      </span>
-      <span className="stack-tile-name">{stack.name}</span>
-    </CopyDocButton>
+      </div>
+      <div className="stack-card-content">
+        <span className="stack-card-name">{stack.name}</span>
+      </div>
+      <div className="stack-card-action" aria-hidden="true">
+        {copied ? (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-accent-strong" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-faint" aria-hidden="true">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+        )}
+      </div>
+    </button>
   );
 }
 

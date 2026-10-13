@@ -324,8 +324,7 @@
    and the rows are split by frontend/backend so the group note can say whether
    the SQL key belongs in the browser.
 
-   Auto-fill rather than a fixed count, so the row count follows the viewport:
-   five across on a laptop, two on a phone. */
+   Desktop: auto-fill, 5+ columns. Mobile: exactly 3 equal columns with balanced edges. */
 .stack-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(7.25rem, 1fr));
@@ -337,7 +336,31 @@
 
 @media (max-width: 480px) {
   .stack-grid {
-    padding: 0 0.75rem;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+    padding: 0 0.5rem;
+    justify-content: center;
+    align-items: start;
+  }
+}
+
+/* Make sure tiles don't overflow their grid cell on mobile */
+@media (max-width: 480px) {
+  .stack-tile {
+    min-width: 0;
+    padding: 0.85rem 0.4rem 0.7rem;
+    margin: 0; /* ensure no asymmetric margins */
+  }
+  .stack-tile-chip {
+    width: 2.6rem;
+    height: 2.6rem;
+  }
+  .stack-tile-chip img {
+    width: 1.7rem;
+    height: 1.7rem;
+  }
+  .stack-tile-name {
+    font-size: 0.8rem;
   }
 }
 
@@ -349,7 +372,7 @@
   align-items: center;
   gap: 0.6rem;
   padding: 1rem 0.5rem 0.85rem;
-  border: 1px solid var(--accent-strong);
+  border: 1px solid var(--color-accent-strong);
   border-radius: 0.9rem;
   background: transparent;
   text-align: center;
@@ -360,12 +383,12 @@
 }
 
 .stack-tile:hover {
-  background: var(--hover-bg);
+  background: var(--color-hover-bg);
   transform: translateY(-2px);
 }
 
 .stack-tile:focus-visible {
-  outline: 2px solid var(--accent-strong);
+  outline: 2px solid var(--color-accent-strong);
   outline-offset: 2px;
 }
 
@@ -392,7 +415,7 @@
   font-size: 0.86rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-  color: var(--foreground);
+  color: var(--color-foreground);
 }
 
 /* --- Free tier chalkboard ---------------------------------------------- */
@@ -533,6 +556,206 @@
   }
   .free-tier .card-value {
     font-size: 1.75rem;
+  }
+}
+
+/* --- Stack cards (polished, Turso/Supabase-inspired) -------------------- */
+
+/* Category header with icon and note */
+.stack-category-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.stack-category-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
+.stack-category-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.stack-category-text h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-foreground);
+  margin: 0 0 0.125rem;
+}
+
+.stack-category-text p {
+  font-size: 0.8rem;
+  color: var(--color-faint);
+  margin: 0;
+}
+
+/* Grid of stack cards - desktop: 5+ cols, tablet: 4, mobile: 3 */
+.stack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.875rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 640px) {
+  .stack-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+    padding: 0 0.5rem;
+  }
+}
+
+/* Polished stack card - elevated, with subtle hover */
+.stack-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0.75rem;
+  border: 1px solid var(--color-edge);
+  border-radius: 1rem;
+  background: var(--color-panel);
+  text-align: center;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+  min-height: 5.5rem;
+}
+
+.stack-card:hover {
+  border-color: var(--color-accent);
+  background: var(--color-hover-bg);
+  transform: translateY(-3px);
+}
+
+.stack-card:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Logo area with colored background chip */
+.stack-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-strong));
+  margin-bottom: 0.25rem;
+}
+
+.stack-card-icon img {
+  display: block;
+  width: 1.75rem;
+  height: 1.75rem;
+  filter: brightness(0) invert(1);
+}
+
+/* Content area */
+.stack-card-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  flex: 1;
+}
+
+.stack-card-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-foreground);
+  letter-spacing: -0.01em;
+}
+
+
+/* Action icon on hover - copy/checkmark */
+.stack-card-action {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  background: var(--color-panel);
+  border: 1px solid var(--color-edge);
+  opacity: 0;
+  transform: translateY(4px) scale(0.9);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+  pointer-events: none;
+}
+
+.stack-card:hover .stack-card-action {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.stack-card:focus-visible .stack-card-action {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .stack-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+    padding: 0 0.5rem;
+    justify-content: center;
+  }
+
+  .stack-card {
+    min-height: 5rem;
+    padding: 0.875rem 0.5rem;
+    border-radius: 0.875rem;
+  }
+
+  .stack-card-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.625rem;
+  }
+
+  .stack-card-icon img {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .stack-card-name {
+    font-size: 0.78rem;
+  }
+
+  .stack-card-label {
+    font-size: 0.6rem;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .stack-card,
+  .stack-card-action {
+    transition: none;
   }
 }
 

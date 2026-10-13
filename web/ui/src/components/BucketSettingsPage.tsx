@@ -445,7 +445,7 @@ function VisibilityOption({
         checked={chosen}
         onChange={onChoose}
         aria-label={title}
-        className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent-strong)]"
+        className="mt-1 h-4 w-4 shrink-0 accent-[var(--color-accent-strong)]"
       />
       <span className="min-w-0">
         <span className="block text-sm font-semibold text-foreground">{title}</span>
