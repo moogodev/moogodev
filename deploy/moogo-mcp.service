@@ -1,0 +1,43 @@
+[Unit]
+Description=Moogo MCP Server (Model Context Protocol)
+Documentation=https://github.com/moogodev/moogodev
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=moogo
+Group=moogo
+
+# Kredensial proyek & bucket. Satu file per proyek.
+# chmod 0640, owner root:moogo — readable by service via group.
+EnvironmentFile=/etc/moogo/mcp.env
+
+# WorkingDirectory hanya agar config.Load() tidak membaca .env stray.
+WorkingDirectory=/opt/moogo
+ExecStart=/usr/local/bin/moogo-mcp
+
+# Hardening standar Moogo.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadWritePaths=/opt/moogo/data
+CapabilityBoundingSet=
+
+# Restart agresif: MCP server hold secret, tidak boleh stay down.
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

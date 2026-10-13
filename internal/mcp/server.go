@@ -14,7 +14,7 @@ import (
 // ServerName and ServerVersion identify this server during initialize.
 const (
 	ServerName    = "moogo"
-	ServerVersion = "0.1.0"
+	ServerVersion = "0.2.0"
 )
 
 // Query limits for the query tool.
@@ -28,6 +28,23 @@ const (
 	maxQueryLimit     = 1000
 )
 
+// Object listing limits. They match the storage catalog's own page size, so a
+// listing read here cannot silently return a shorter page than a client asked
+// the API for.
+const (
+	defaultObjectLimit = 100
+	maxObjectLimit     = 1000
+)
+
+// Download caps for download_object.
+//
+// An object can be 250 MB and a tool result is a JSON string in a transcript,
+// so a download is capped rather than serialised whole.
+const (
+	defaultDownloadBytes = 1 << 20
+	maxDownloadBytes     = 8 << 20
+)
+
 // listSchemaStatement is the read behind list_schema. It is the sqlite_master
 // catalogue, so it lists the schema the project's own queries will see.
 const listSchemaStatement = "SELECT name, type, sql FROM sqlite_master WHERE type IN ('table', 'view') ORDER BY name"
@@ -35,24 +52,40 @@ const listSchemaStatement = "SELECT name, type, sql FROM sqlite_master WHERE typ
 // instructions are handed to the agent once, at initialize. They state the
 // rules that matter most before the first call, so a correct tool is chosen
 // before any SQL is written.
-const instructions = "Moogo is a hosted SQLite database reached over HTTP. " +
-	"Call list_schema to discover tables before writing queries. " +
-	"query is read-only, exec runs one write, and transaction groups up to 100 writes so they commit together or not at all. " +
-	"Always bind values through args; never build SQL by concatenation."
+//
+// The object paragraph is included only when the bucket credential pair was
+// configured, because the object tools are registered only then.
+func instructions(storage bool) string {
+	text := "Moogo is a hosted SQLite database reached over HTTP. " +
+		"Call list_schema to discover tables before writing queries. " +
+		"query is read-only, exec runs one write, and transaction groups up to 100 writes so they commit together or not at all. " +
+		"Always bind values through args; never build SQL by concatenation."
+	if storage {
+		text += " Files live in buckets: list_objects and download_object are reads, upload_object stores a file, and delete_object removes one. " +
+			"Keys are paths such as \"avatars/kit.png\"; an object stored with no bucket named goes to the default bucket. " +
+			"Ask before deleting or overwriting a key: both act on the stored object."
+	}
+	return text
+}
 
 // Server holds the tool handlers over one data-plane client.
+//
+// storage is nil when the bucket credential pair was not configured, and then
+// no object tool is registered: the surface a client sees is exactly what the
+// environment can back.
 type Server struct {
-	client *Client
+	client  *Client
+	storage *StorageClient
 }
 
 // NewServer registers every Moogo tool on a fresh MCP server.
-func NewServer(client *Client) *mcpserver.MCPServer {
-	handlers := &Server{client: client}
+func NewServer(client *Client, storage *StorageClient) *mcpserver.MCPServer {
+	handlers := &Server{client: client, storage: storage}
 
 	instance := mcpserver.NewMCPServer(
 		ServerName,
 		ServerVersion,
-		mcpserver.WithInstructions(instructions),
+		mcpserver.WithInstructions(instructions(storage != nil)),
 		mcpserver.WithToolCapabilities(false),
 		mcpserver.WithRecovery(),
 	)
@@ -61,6 +94,13 @@ func NewServer(client *Client) *mcpserver.MCPServer {
 	instance.AddTool(execTool(), handlers.exec)
 	instance.AddTool(transactionTool(), handlers.transaction)
 	instance.AddTool(listSchemaTool(), handlers.listSchema)
+
+	if storage != nil {
+		instance.AddTool(listObjectsTool(), handlers.listObjects)
+		instance.AddTool(uploadObjectTool(), handlers.uploadObject)
+		instance.AddTool(downloadObjectTool(), handlers.downloadObject)
+		instance.AddTool(deleteObjectTool(), handlers.deleteObject)
+	}
 
 	return instance
 }
@@ -168,6 +208,110 @@ func listSchemaTool() mcplib.Tool {
 		"List every table and view in the project's database, with the SQL that created it. "+
 			"Call this first when you do not already know the schema, then query the tables it names.",
 		toolAnnotations{readOnly: true, destructive: false, idempotent: true},
+	))
+}
+
+// listObjectsTool is the object read tool.
+func listObjectsTool() mcplib.Tool {
+	return mcplib.NewTool("list_objects", toolOptions(
+		"List one page of objects in a bucket. Objects are addressed by key, a path such as \"avatars/kit.png\". "+
+			"Use bucket to choose one; without it the default bucket is listed. Narrow with prefix (a folder) or search (text in the key). "+
+			"The answer carries total, so page with offset until every object has been seen.",
+		toolAnnotations{readOnly: true, destructive: false, idempotent: true},
+		mcplib.WithString("bucket",
+			mcplib.Description("Bucket to list. The default bucket when omitted."),
+		),
+		mcplib.WithString("prefix",
+			mcplib.Description("Only objects whose key starts with this, for example \"avatars/\"."),
+		),
+		mcplib.WithString("search",
+			mcplib.Description("Only objects whose key contains this text."),
+		),
+		mcplib.WithInteger("limit",
+			mcplib.Description("Objects per page, 1 to 1000. Defaults to 100."),
+			mcplib.DefaultNumber(100),
+			mcplib.Min(1),
+			mcplib.Max(1000),
+		),
+		mcplib.WithInteger("offset",
+			mcplib.Description("Objects to skip before this page."),
+			mcplib.Min(0),
+		),
+		mcplib.WithString("order",
+			mcplib.Enum("key", "size", "created", "updated", "contenttype"),
+			mcplib.Description("Sort column. Defaults to created."),
+		),
+		mcplib.WithString("dir",
+			mcplib.Enum("asc", "desc"),
+			mcplib.Description("Sort direction. Defaults to desc."),
+		),
+	))
+}
+
+// uploadObjectTool is the object write tool.
+func uploadObjectTool() mcplib.Tool {
+	return mcplib.NewTool("upload_object", toolOptions(
+		"Store one object at key. The key is a path such as \"avatars/kit.png\", and storing it under a key that already exists replaces the object. "+
+			"content holds the bytes themselves, not a file path: ordinary text as-is, or base64 with encoding=\"base64\" for a binary file. "+
+			"content_type is the type stored and served, for example image/png; when it is omitted the type follows the encoding. "+
+			"Without a bucket name the object goes to the default bucket.",
+		toolAnnotations{readOnly: false, destructive: true, idempotent: true},
+		mcplib.WithString("key",
+			mcplib.Required(),
+			mcplib.Description("Object key: a path such as \"avatars/kit.png\"."),
+		),
+		mcplib.WithString("content",
+			mcplib.Required(),
+			mcplib.Description("The object's bytes: ordinary text, or base64 when encoding is \"base64\"."),
+		),
+		mcplib.WithString("content_type",
+			mcplib.Description("The type stored and served, for example image/png. Defaults to text/plain for text and application/octet-stream for base64."),
+		),
+		mcplib.WithString("encoding",
+			mcplib.Enum("utf-8", "base64"),
+			mcplib.DefaultString("utf-8"),
+			mcplib.Description("How content carries the bytes."),
+		),
+		mcplib.WithString("bucket",
+			mcplib.Description("Bucket to store in. The default bucket when omitted."),
+		),
+	))
+}
+
+// downloadObjectTool is the object payload tool.
+func downloadObjectTool() mcplib.Tool {
+	return mcplib.NewTool("download_object", toolOptions(
+		"Read one object's bytes by key and return them as an embedded resource. "+
+			"max_bytes caps the read: it defaults to 1 MiB and may not exceed 8 MiB. "+
+			"An object larger than the cap comes back with the first part only and a note saying so, so do not treat a capped read as the whole file.",
+		toolAnnotations{readOnly: true, destructive: false, idempotent: true},
+		mcplib.WithString("key",
+			mcplib.Required(),
+			mcplib.Description("Object key: a path such as \"avatars/kit.png\"."),
+		),
+		mcplib.WithInteger("max_bytes",
+			mcplib.Description("Most bytes to return. Defaults to 1 MiB, capped at 8 MiB."),
+			mcplib.DefaultNumber(defaultDownloadBytes),
+			mcplib.Min(1),
+			mcplib.Max(maxDownloadBytes),
+		),
+	))
+}
+
+// deleteObjectTool is the object removal tool.
+func deleteObjectTool() mcplib.Tool {
+	return mcplib.NewTool("delete_object", toolOptions(
+		"Remove one object by key, or every object under a key prefix when prefix is true. "+
+			"A bare delete of \"photos\" removes that one object; the folder needs prefix=true. "+
+			"Deleting cannot be undone, so read the object back before removing it when any doubt remains.",
+		toolAnnotations{readOnly: false, destructive: true, idempotent: true},
+		mcplib.WithString("key",
+			mcplib.Required(),
+			mcplib.Description("Object key to remove, or the prefix when prefix is true."),
+		),
+		mcplib.WithBoolean("prefix",
+			mcplib.Description("Treat key as a folder prefix and delete every object beneath it."),
+		),
 	))
 }
 

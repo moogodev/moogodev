@@ -51,8 +51,8 @@ paste them, and never print them.
 ## MCP server
 
 Moogo ships a Model Context Protocol server (`cmd/mcp`) for agents that can call
-MCP tools. Connected this way, the same SQL API appears as four tools — no HTTP
-request to build:
+MCP tools. Connected this way, the same SQL API **and** object storage appear as
+tools — no HTTP request to build:
 
 | Tool | Does |
 |---|---|
@@ -60,12 +60,30 @@ request to build:
 | `query` | One read statement; returns `columns`, `rows`, `row_count` and `truncated`. |
 | `exec` | One write statement; returns `rows_affected`, `size_bytes` and `last_insert_rowid`. |
 | `transaction` | Up to 100 writes as one atomic batch. |
+| `list_objects` | One page of objects in a bucket; filter by prefix, search, order, dir. |
+| `upload_object` | Store one object at `key`; body is UTF-8 text or base64. |
+| `download_object` | Read one object by key; returns an embedded resource (text or base64 blob). Capped at 1 MiB default / 8 MiB max. |
+| `delete_object` | Remove one object by key, or every object under a prefix with `prefix=true`. |
 
 `sql` carries the statement and `args` the bound values, the same as the HTTP
 API below: one statement per call, placeholders for every value. `query` also
 takes an optional `limit` (default 100, capped at 1000).
 
-Build it, then point the client at the binary:
+### Environment
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `MOOGO_PROJECT_URL` | yes | — | e.g. `https://api.moogo.dev/p/<project_id>` |
+| `MOOGO_SECRET_KEY` | yes | — | SQL credential (project secret) |
+| `MOOGO_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http` |
+| `MOOGO_MCP_ADDR` | no | `127.0.0.1:4618` | Only for `http` transport |
+| `MOOGO_BUCKET_ACCESS_KEY_ID` | no* | — | Bucket tools need **both** this and the secret |
+| `MOOGO_BUCKET_SECRET_KEY` | no* | — | Bucket tools need **both** this and the access key id |
+
+\* Bucket tools are registered only when **both** bucket variables are set.
+When neither is set, the server exposes SQL tools only.
+
+### stdio transport (default, for local agents)
 
 ```bash
 go build -o moogo-mcp ./cmd/mcp
@@ -78,17 +96,39 @@ go build -o moogo-mcp ./cmd/mcp
       "command": "/path/to/moogo-mcp",
       "env": {
         "MOOGO_PROJECT_URL": "https://api.moogo.dev/p/<project_id>",
-        "MOOGO_SECRET_KEY": "..."
+        "MOOGO_SECRET_KEY": "...",
+        "MOOGO_BUCKET_ACCESS_KEY_ID": "...",   // optional
+        "MOOGO_BUCKET_SECRET_KEY": "..."       // optional
       }
     }
   }
 }
 ```
 
-The server reads both variables once at startup and speaks stdio, the transport
-most desktop agents use. Every tool call is an HTTP request to the same data
-plane, so the key check, the rate limit, the sanitizer and the size caps are
-unchanged.
+The server reads all variables once at startup and speaks stdio. Every tool call
+is an HTTP request to the data plane, so the key check, rate limit, sanitizer
+and size caps are unchanged.
+
+### HTTP transport (for remote agents)
+
+```bash
+MOOGO_MCP_TRANSPORT=http MOOGO_MCP_ADDR=127.0.0.1:4618 ./moogo-mcp
+# → listening on http://127.0.0.1:4618/mcp
+```
+
+The endpoint is `/mcp` (Streamable HTTP). An agent initializes with:
+
+```bash
+curl -X POST http://127.0.0.1:4618/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
+```
+
+**Security**: the default `127.0.0.1:4618` binds loopback on purpose — the
+process holds the project secret. Do **not** bind `0.0.0.0` unless you run it
+behind an authenticated tunnel (SSH, WireGuard, Cloudflare Tunnel). The secret
+is never logged, never in tool args, never in tool results.
 
 ## SQL API
 

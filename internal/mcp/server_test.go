@@ -66,16 +66,26 @@ func resultText(t *testing.T, result *mcplib.CallToolResult) string {
 func TestNewServerRegistersEveryTool(t *testing.T) {
 	t.Parallel()
 
-	instance := NewServer(&Client{})
+	// A client with no bucket credential gets the SQL tools and nothing else,
+	// so it can never be handed a tool whose calls would all fail.
+	sqlOnly := NewServer(&Client{}, nil)
+	if got := len(sqlOnly.ListTools()); got != 4 {
+		t.Errorf("SQL-only server registered %d tool(s), want 4", got)
+	}
+
+	instance := NewServer(&Client{}, NewStorageClient("https://api.example/p/1", "ak", "sk", nil))
 	tools := instance.ListTools()
 
-	for _, name := range []string{"query", "exec", "transaction", "list_schema"} {
+	for _, name := range []string{
+		"query", "exec", "transaction", "list_schema",
+		"list_objects", "upload_object", "download_object", "delete_object",
+	} {
 		if _, ok := tools[name]; !ok {
 			t.Errorf("tool %q is not registered", name)
 		}
 	}
-	if len(tools) != 4 {
-		t.Errorf("registered %d tool(s), want 4", len(tools))
+	if len(tools) != 8 {
+		t.Errorf("registered %d tool(s), want 8", len(tools))
 	}
 
 	// A missing description is the mistake an agent pays for, so assert the

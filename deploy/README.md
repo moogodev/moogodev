@@ -306,6 +306,61 @@ Stops take up to 30 seconds, because in-flight requests are allowed to finish;
 `TimeoutStopSec=45s` in the unit is deliberately longer. A `systemctl stop` that
 takes 30 seconds is working, not hanging.
 
+## MCP Server (optional, per-project)
+
+The MCP binary (`moogo-mcp`) is a developer tool that proxies one project's
+data plane (SQL + object storage) over the Model Context Protocol. It is **not**
+started by `deploy.sh` — every project needs its own credentials.
+
+### Quick start (manual)
+
+```bash
+# 1. Buat environment file per proyek
+sudo mkdir -p /etc/moogo
+cat >/etc/moogo/mcp.env <<'EOF'
+MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project_id>
+MOOGO_SECRET_KEY=moogo_sk_...          # SQL credential
+MOOGO_MCP_TRANSPORT=http               # atau stdio (default)
+MOOGO_MCP_ADDR=127.0.0.1:4618          # default loopback — JANGAN 0.0.0.0
+# Opsional: object storage tools
+MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
+MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
+EOF
+sudo chmod 0640 /etc/moogo/mcp.env
+sudo chown root:moogo /etc/moogo/mcp.env
+
+# 2. Install unit (copy, don't symlink — systemd follows symlinks but
+#    the file must be readable by root:moogo)
+sudo cp deploy/moogo-mcp.service /etc/systemd/system/moogo-mcp@myproject.service
+
+# 3. Start
+sudo systemctl daemon-reload
+sudo systemctl enable --now moogo-mcp@myproject
+journalctl -u moogo-mcp@myproject -f
+```
+
+### Keamanan
+
+- **Default `127.0.0.1`**: MCP server memegang project secret. Binding ke
+  `0.0.0.0` membuka SQL exec ke siapa saja yang bisa reach port. Gunakan SSH
+  tunnel / WireGuard / Cloudflare Tunnel untuk akses remote.
+- **Transport `stdio`**: Untuk agent lokal (Claude Desktop, Cursor, dll.),
+  jalankan binary langsung tanpa systemd — stdout adalah JSON-RPC stream.
+- **Credential terpisah**: Bucket tools hanya aktif bila **keduanya** diset.
+  Tanpa keduanya, server hanya expose SQL tools.
+- **Satu unit per proyek**: Gunakan instance systemd (`moogo-mcp@myproject`)
+  dengan `EnvironmentFile` berbeda.
+
+### Verifikasi
+
+```bash
+curl -fsS http://127.0.0.1:4618/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
+# → 200 OK, serverInfo.name=moogo, tools: query,exec,transaction,list_schema,(+bucket tools)
+```
+
 ## What this does not give you
 
 - **No high availability.** One node. If the VPS is down the product is down.

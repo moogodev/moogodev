@@ -104,14 +104,119 @@ func TestParseEnvRejectsUnsupportedTransport(t *testing.T) {
 	t.Parallel()
 
 	values := completeEnv()
-	values["MOOGO_MCP_TRANSPORT"] = "http"
+	values["MOOGO_MCP_TRANSPORT"] = "carrier-pigeon"
 
 	_, err := ParseEnv(env(values))
 	if err == nil {
-		t.Fatal("ParseEnv() error = nil, want the http transport to be refused")
+		t.Fatal("ParseEnv() error = nil, want the transport to be refused")
 	}
 	if !strings.Contains(err.Error(), "MOOGO_MCP_TRANSPORT") {
 		t.Errorf("ParseEnv() error = %q, want it to name MOOGO_MCP_TRANSPORT", err)
+	}
+}
+
+func TestParseEnvHTTPTransportDefaultsAddr(t *testing.T) {
+	t.Parallel()
+
+	values := completeEnv()
+	values["MOOGO_MCP_TRANSPORT"] = TransportHTTP
+
+	config, err := ParseEnv(env(values))
+	if err != nil {
+		t.Fatalf("ParseEnv() error = %v, want nil", err)
+	}
+	if config.Transport != TransportHTTP {
+		t.Errorf("Transport = %q, want %q", config.Transport, TransportHTTP)
+	}
+	if config.Addr != defaultAddr {
+		t.Errorf("Addr = %q, want %q", config.Addr, defaultAddr)
+	}
+}
+
+func TestParseEnvHTTPTransportKeepsAddr(t *testing.T) {
+	t.Parallel()
+
+	values := completeEnv()
+	values["MOOGO_MCP_TRANSPORT"] = TransportHTTP
+	values["MOOGO_MCP_ADDR"] = "0.0.0.0:9000"
+
+	config, err := ParseEnv(env(values))
+	if err != nil {
+		t.Fatalf("ParseEnv() error = %v, want nil", err)
+	}
+	if config.Addr != "0.0.0.0:9000" {
+		t.Errorf("Addr = %q, want it left as given", config.Addr)
+	}
+}
+
+func TestParseEnvStdioHasNoAddr(t *testing.T) {
+	t.Parallel()
+
+	config, err := ParseEnv(env(completeEnv()))
+	if err != nil {
+		t.Fatalf("ParseEnv() error = %v, want nil", err)
+	}
+	if config.Addr != "" {
+		t.Errorf("Addr = %q, want empty for stdio", config.Addr)
+	}
+}
+
+func TestParseEnvStorageCredentialPair(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		value   map[string]string
+		wantErr bool
+		want    bool
+	}{
+		{name: "neither", want: false},
+		{
+			name: "both",
+			value: map[string]string{
+				"MOOGO_BUCKET_ACCESS_KEY_ID": "moogo_ak_1",
+				"MOOGO_BUCKET_SECRET_KEY":    "moogo_sk_1",
+			},
+			want: true,
+		},
+		{
+			name:    "access key id alone",
+			value:   map[string]string{"MOOGO_BUCKET_ACCESS_KEY_ID": "moogo_ak_1"},
+			wantErr: true,
+		},
+		{
+			name:    "secret alone",
+			value:   map[string]string{"MOOGO_BUCKET_SECRET_KEY": "moogo_sk_1"},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			values := completeEnv()
+			for key, value := range test.value {
+				values[key] = value
+			}
+
+			config, err := ParseEnv(env(values))
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("ParseEnv() error = nil, want a half-set credential refused")
+				}
+				if !strings.Contains(err.Error(), "MOOGO_BUCKET_ACCESS_KEY_ID") {
+					t.Errorf("ParseEnv() error = %q, want it to name the credential variables", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseEnv() error = %v, want nil", err)
+			}
+			if config.StorageEnabled() != test.want {
+				t.Errorf("StorageEnabled() = %v, want %v", config.StorageEnabled(), test.want)
+			}
+		})
 	}
 }
 
@@ -133,7 +238,7 @@ func TestParseEnvAllowsExplicitStdio(t *testing.T) {
 func TestParseEnvReportsEveryProblem(t *testing.T) {
 	t.Parallel()
 
-	values := map[string]string{"MOOGO_MCP_TRANSPORT": "http"}
+	values := map[string]string{"MOOGO_MCP_TRANSPORT": "carrier-pigeon"}
 	_, err := ParseEnv(env(values))
 	if err == nil {
 		t.Fatal("ParseEnv() error = nil, want an error")
