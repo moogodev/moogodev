@@ -86,26 +86,44 @@ func (reconciler *Reconciler) RunOnce(ctx context.Context) {
 	}
 }
 
+// backupRunner is the slice of the backup service the scheduler drives.
+//
+// It is an interface rather than the concrete *backup.Service so the scheduler
+// can be built in a test without object storage, and so the scheduler does not
+// grow a dependency on the backup package's configuration.
+type backupRunner interface {
+	// Interval is how often the backup loop should run.
+	Interval() time.Duration
+	// RunOnce backs up the projects that are due.
+	RunOnce(ctx context.Context) (int, error)
+}
+
 // Scheduler runs the periodic maintenance jobs.
 type Scheduler struct {
 	store      *dbcontrol.Store
 	reconciler *Reconciler
-	log        *logger.Logger
+	// backup is nil when off-site backups are not configured.
+	backup backupRunner
+	log    *logger.Logger
 
 	interval          time.Duration
 	activityRetention time.Duration
 }
 
 // NewScheduler creates a Scheduler.
+//
+// backup may be nil, in which case the backup loop is skipped entirely.
 func NewScheduler(
 	store *dbcontrol.Store,
 	reconciler *Reconciler,
+	backup backupRunner,
 	log *logger.Logger,
 	activityRetention time.Duration,
 ) *Scheduler {
 	return &Scheduler{
 		store:             store,
 		reconciler:        reconciler,
+		backup:            backup,
 		log:               log,
 		interval:          time.Minute,
 		activityRetention: activityRetention,
@@ -124,6 +142,15 @@ func (scheduler *Scheduler) Run(ctx context.Context) {
 	activity := time.NewTicker(scheduler.activityInterval())
 	defer activity.Stop()
 
+	// A nil channel blocks forever, so when backups are disabled the case
+	// simply never fires.
+	var backupTick <-chan time.Time
+	if scheduler.backup != nil {
+		ticker := time.NewTicker(scheduler.backup.Interval())
+		defer ticker.Stop()
+		backupTick = ticker.C
+	}
+
 	scheduler.runOnce(ctx)
 
 	for {
@@ -134,6 +161,8 @@ func (scheduler *Scheduler) Run(ctx context.Context) {
 			scheduler.reconciler.RunOnce(ctx)
 		case <-activity.C:
 			scheduler.pruneActivity(ctx)
+		case <-backupTick:
+			scheduler.runBackup(ctx)
 		}
 	}
 }
@@ -149,6 +178,17 @@ func (scheduler *Scheduler) activityInterval() time.Duration {
 func (scheduler *Scheduler) runOnce(ctx context.Context) {
 	scheduler.reconciler.RunOnce(ctx)
 	scheduler.pruneActivity(ctx)
+	scheduler.runBackup(ctx)
+}
+
+// runBackup performs one backup pass, if backups are configured.
+func (scheduler *Scheduler) runBackup(ctx context.Context) {
+	if scheduler.backup == nil {
+		return
+	}
+	if _, err := scheduler.backup.RunOnce(ctx); err != nil && ctx.Err() == nil {
+		scheduler.log.Warn("backup pass failed", logger.Fields{"error": err.Error()})
+	}
 }
 
 // pruneActivity deletes audit rows past the retention window.

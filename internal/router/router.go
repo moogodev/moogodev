@@ -67,6 +67,9 @@ type ControlPlaneHandlers interface {
 	DeleteProject(http.ResponseWriter, *http.Request)
 	Activity(http.ResponseWriter, *http.Request)
 	DownloadDatabase(http.ResponseWriter, *http.Request)
+	ListBackups(http.ResponseWriter, *http.Request)
+	CreateBackup(http.ResponseWriter, *http.Request)
+	RestoreBackup(http.ResponseWriter, *http.Request)
 	DeleteAccount(http.ResponseWriter, *http.Request)
 }
 
@@ -391,6 +394,19 @@ func New(deps Deps) http.Handler {
 				// the same ownership check as the rest of this group, and takes no
 				// project key: the dashboard already knows who is asking.
 				project.Get("/database-backup", deps.Control.DownloadDatabase)
+
+				// Off-site backups. These call ownedProject themselves rather
+				// than sitting behind RequireOwnedProject, because that
+				// middleware refuses a paused project and a paused project is
+				// exactly one that may need restoring.
+				project.Route("/backups", func(backups chi.Router) {
+					backups.Get("/", deps.Control.ListBackups)
+					backups.Post("/", deps.Control.CreateBackup)
+
+					backups.Route("/{backup_id}", func(backup chi.Router) {
+						backup.Post("/restore", deps.Control.RestoreBackup)
+					})
+				})
 
 				// The bucket catalog and its objects. These go through the
 				// bucket handlers rather than the control plane's own, so the

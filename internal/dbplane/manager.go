@@ -50,6 +50,10 @@ var (
 	// before calling, so this is a backstop: the manager refuses to build a
 	// path outside the project even if a caller skipped that step.
 	ErrInvalidObjectKey = errors.New("invalid object key")
+	// ErrRestoring means the project is being replaced from a backup and cannot
+	// serve requests for the moment. It is transient: a retry once the restore
+	// finishes gets a normal answer.
+	ErrRestoring = errors.New("project restore in progress")
 )
 
 // SQLite application_id and user_version.
@@ -111,6 +115,10 @@ type Manager struct {
 	// as the write locks for the same reason: two gates for one project
 	// would double its budget across an eviction.
 	gates map[uuid.UUID]chan struct{}
+	// restoring marks projects with a restore in progress. While set, acquire
+	// refuses new handles so no connection is opened against a file that is
+	// about to be replaced.
+	restoring map[uuid.UUID]bool
 	// slots is the process-wide statement budget.
 	slots  chan struct{}
 	closed bool
@@ -186,6 +194,7 @@ func NewManager(dataDir string, maxDBBytes int64, queryTimeout time.Duration, ma
 		used:              make(map[uuid.UUID]time.Time),
 		writeLocks:        make(map[uuid.UUID]chan struct{}),
 		gates:             make(map[uuid.UUID]chan struct{}),
+		restoring:         make(map[uuid.UUID]bool),
 		slots:             newSlotChannel(),
 	}, nil
 }
@@ -259,6 +268,14 @@ func (manager *Manager) acquire(projectID uuid.UUID) (*projectConnection, func()
 	if manager.closed {
 		manager.mu.Unlock()
 		return nil, noop, ErrClosed
+	}
+
+	// A restore is replacing this project's file. Opening a handle now would
+	// point it at the file being swapped out, so the request is refused and the
+	// caller can retry once the restore finishes.
+	if manager.restoring[projectID] {
+		manager.mu.Unlock()
+		return nil, noop, ErrRestoring
 	}
 
 	handle, found := manager.dbs[projectID]
@@ -454,6 +471,7 @@ func (manager *Manager) Close() error {
 	manager.used = make(map[uuid.UUID]time.Time)
 	manager.writeLocks = make(map[uuid.UUID]chan struct{})
 	manager.gates = make(map[uuid.UUID]chan struct{})
+	manager.restoring = make(map[uuid.UUID]bool)
 	manager.mu.Unlock()
 
 	var closeErrors []error

@@ -66,6 +66,9 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/app/projects/:id" element={<ProjectDetail />} />
           <Route path="/app/projects/:id/database" element={<ProjectDetail />} />
           <Route path="/app/projects/:id/bucket" element={<ProjectDetail />} />
+          {/* The backups tab is a real URL like the others, so the sidebar link
+              and the address bar stay in step with what is on screen. */}
+          <Route path="/app/projects/:id/backups" element={<ProjectDetail />} />
           {/* Bucket settings is a page of its own, declared before the project's
               settings tab would be reached by accident. It has to be listed ahead
               of any path that could match it as a suffix, since the bucket tab is

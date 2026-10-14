@@ -12,6 +12,10 @@ you find out from the API rather than from a hung tab or a surprise bill.
 | Storage | **250 MB** per project | On upload, against usage plus declared size. |
 | Object size | Bucket's \`max_object_size_bytes\`, or 250 MB | On upload. |
 
+Automatic database backups are stored **separately**, in a Cloudflare R2 bucket
+of their own, and do **not** count against a project's storage quota — that quota
+is for the objects you serve. See [Backups](/docs/backups).
+
 ### Projects per account
 
 Two. \`POST /api/projects\` returns \`429 quota_exceeded\` for a third.

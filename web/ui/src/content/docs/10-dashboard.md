@@ -38,7 +38,7 @@ authorises each request by checking that you own the project.
 |---|---|
 | `/app` | Overview: your projects, usage, quick actions, and **What's new**. |
 | `/app/projects` | All projects. |
-| `/app/projects/{id}` | The project page — database, bucket, settings. |
+| `/app/projects/{id}` | The project page — database, bucket, backups, settings. |
 | `/app/settings` | Account settings. |
 
 The overview also carries **What's new**: the newest published posts from the
@@ -110,6 +110,18 @@ Browse, upload, and organise files.
   secret once on creation.
 
 Renaming and deleting work on objects and on whole prefixes.
+
+## The backups tab
+
+Off-site copies of the database in **Cloudflare R2**, taken automatically and
+restorable in one click. The tab lists every backup with the reason it exists — a
+daily run, a manual click, a snapshot taken just before a restore — and lets you
+take one now or roll the database back to an earlier point.
+
+Restoring replaces the current database, so it asks for confirmation first — but
+it is reversible: a snapshot of the current state is saved before anything is
+replaced. See [Backups](/docs/backups) for the full picture, including where the
+copies are stored and the schedule.
 
 ## Settings tab
 

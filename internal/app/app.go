@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/backup"
 	"github.com/moogodev/moogodev/internal/config"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
 	"github.com/moogodev/moogodev/internal/dbplane"
@@ -20,6 +21,7 @@ import (
 	"github.com/moogodev/moogodev/internal/mail"
 	"github.com/moogodev/moogodev/internal/metrics"
 	"github.com/moogodev/moogodev/internal/router"
+	"github.com/moogodev/moogodev/internal/storage"
 	"github.com/moogodev/moogodev/pkg/logger"
 	"github.com/moogodev/moogodev/pkg/session"
 )
@@ -68,6 +70,40 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		return nil, fmt.Errorf("data plane: %w", err)
 	}
 
+	// Off-site backups are optional, so the storage client is only built when
+	// they are enabled. A deployment that does not want them then carries no
+	// object-storage credentials and no client at all, rather than a client
+	// that is never used.
+	var (
+		handlerBackups handler.Backups
+		backupService  *backup.Service
+	)
+	if cfg.BackupEnabled {
+		objectStore, err := storage.New(storage.Config{
+			Endpoint:  cfg.BackupEndpoint,
+			Region:    cfg.BackupRegion,
+			Bucket:    cfg.BackupBucket,
+			AccessKey: cfg.BackupAccessKey,
+			SecretKey: cfg.BackupSecretKey,
+			Timeout:   cfg.BackupTimeout,
+		}, options.Log)
+		if err != nil {
+			databases.Close()
+			store.Close()
+			return nil, fmt.Errorf("backup storage: %w", err)
+		}
+
+		backupService = backup.New(store, databases, objectStore, backup.Config{
+			Prefix:    cfg.BackupPrefix,
+			Interval:  cfg.BackupInterval,
+			MaxAge:    cfg.BackupMaxAge,
+			Retention: cfg.BackupRetention,
+			BatchSize: cfg.BackupBatchSize,
+			Timeout:   cfg.BackupTimeout,
+		}, options.Log)
+		handlerBackups = backupService
+	}
+
 	signer, err := session.NewSigner(cfg.SessionSecret, cfg.SessionTTL)
 	if err != nil {
 		databases.Close()
@@ -89,7 +125,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		RedirectURL:  cfg.PublicURL + "/auth/google/callback",
 	}, sessions, options.Log)
 
-	controlHandler := handler.NewControlPlane(store, databases, sessions, cfg, options.Log)
+	controlHandler := handler.NewControlPlane(store, databases, handlerBackups, sessions, cfg, options.Log)
 	dataHandler := handler.NewDataPlane(databases, options.Log)
 	oauthHandler := handler.NewOAuth(google, sessions, store, cfg, options.Log)
 	// Object URLs and public links are data-plane addresses, so they are built
@@ -146,6 +182,14 @@ func Build(ctx context.Context, options Options) (*App, error) {
 
 	reconciler := NewReconciler(store, databases, options.Log)
 
+	// The scheduler takes the interface, not the pointer, so a disabled backup
+	// service is a nil interface and not a typed nil that would panic when the
+	// loop called a method on it.
+	var schedulerBackup backupRunner
+	if backupService != nil {
+		schedulerBackup = backupService
+	}
+
 	return &App{
 		Server: &http.Server{
 			Addr:    cfg.Addr,
@@ -187,7 +231,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		},
 		Store:     store,
 		Databases: databases,
-		Scheduler: NewScheduler(store, reconciler, options.Log, activityRetention(cfg)),
+		Scheduler: NewScheduler(store, reconciler, schedulerBackup, options.Log, activityRetention(cfg)),
 		Log:       options.Log,
 	}, nil
 }

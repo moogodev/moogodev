@@ -243,6 +243,42 @@ export interface UploadResponse {
   quota_bytes: number;
 }
 
+// Backup is one stored copy of a project's database.
+//
+// The object key is deliberately not sent: a backup is referred to by its id,
+// and where it lives in the bucket is the server's business.
+export interface Backup {
+  id: string;
+  // kind is why the backup exists: a "daily" run, a "manual" click, the
+  // snapshot taken just before a restore, or the first copy of a new project.
+  kind: string;
+  size_bytes: number;
+  sha256: string;
+  created_at: string;
+}
+
+// BackupState summarizes a project's backup history for the dashboard.
+export interface BackupState {
+  // last_success_at is null until the first backup succeeds.
+  last_success_at: string | null;
+  last_size_bytes: number;
+  consecutive_failures: number;
+  // last_error is null when the most recent attempt succeeded.
+  last_error: string | null;
+}
+
+// BackupsResponse is GET /api/projects/{id}/backups.
+//
+// enabled is false when the server has no backup bucket configured. The list
+// is then empty and the dashboard shows an explanation instead of actions that
+// could only fail.
+export interface BackupsResponse {
+  enabled: boolean;
+  backups: Backup[];
+  state: BackupState;
+}
+
+// ProjectList is the dashboard's project listing.
 export interface ProjectList {
   projects: Project[];
   limit: number;
@@ -378,6 +414,25 @@ export const api = {
     request<Project>(`/api/projects/${id}/resume`, { method: "POST" }),
   deleteProject: (id: string) =>
     request<void>(`/api/projects/${id}`, { method: "DELETE" }),
+
+  // Off-site database backups.
+  //
+  // listBackups never rejects when the feature is off: the server answers with
+  // enabled:false and an empty list so the tab can explain itself. Only the
+  // mutating calls fail in that case, with 503.
+  listBackups: (id: string) =>
+    request<BackupsResponse>(`/api/projects/${id}/backups`),
+  createBackup: (id: string) =>
+    request<{ success: boolean; message: string }>(`/api/projects/${id}/backups`, {
+      method: "POST",
+    }),
+  // restoreBackup replaces the live database and is destructive; the server
+  // takes a pre-restore snapshot first, so the action is reversible.
+  restoreBackup: (id: string, backupId: string) =>
+    request<{ success: boolean; message: string }>(
+      `/api/projects/${id}/backups/${backupId}/restore`,
+      { method: "POST" },
+    ),
 
   // databaseBackupUrl is a plain URL rather than a request() call, because the
   // response is a file, not JSON. It is handed to an anchor so the browser

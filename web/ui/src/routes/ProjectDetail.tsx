@@ -11,8 +11,9 @@ import SchemaVisualizer from "../components/SchemaVisualizer";
 import BucketView from "../components/BucketView";
 import BucketSettingsPage from "../components/BucketSettingsPage";
 import ProjectSettings from "../components/ProjectSettings";
+import BackupsView from "../components/BackupsView";
 
-type Tab = "database" | "bucket" | "settings";
+type Tab = "database" | "bucket" | "backups" | "settings";
 type DatabaseTab = "sql" | "tables" | "visual";
 
 // readDatabaseTab turns the query string into the sub-tab to open. The visual
@@ -96,9 +97,11 @@ export default function ProjectDetail() {
   const isBucketSettings = location.pathname.endsWith("/bucket/settings");
   const activeTab: Tab = isBucketSettings || location.pathname.endsWith("/bucket")
     ? "bucket"
-    : location.pathname.endsWith("/settings")
-      ? "settings"
-      : "database";
+    : location.pathname.endsWith("/backups")
+      ? "backups"
+      : location.pathname.endsWith("/settings")
+        ? "settings"
+        : "database";
 
   const goToTab = useCallback(
     (tab: Tab) => {
@@ -211,6 +214,9 @@ export default function ProjectDetail() {
               <TabButton active={activeTab === "bucket"} onClick={() => goToTab("bucket")}>
                 Bucket
               </TabButton>
+              <TabButton active={activeTab === "backups"} onClick={() => goToTab("backups")}>
+                Backups
+              </TabButton>
               <TabButton active={activeTab === "settings"} onClick={() => goToTab("settings")}>
                 Settings
               </TabButton>
@@ -224,6 +230,12 @@ export default function ProjectDetail() {
                   onProjectDeleted={handleProjectDeleted}
                 />
               </div>
+            ) : activeTab === "backups" ? (
+              // Backups sit above the paused check on purpose. A paused or
+              // broken project is exactly the one whose owner may need to
+              // restore it, and backups only read the file rather than going
+              // through the query path that pausing closes.
+              <BackupsView projectId={project.id} />
             ) : isPaused ? (
               <div className="rounded-xl border border-dashed border-edge-strong px-6 py-12 text-center">
                 <p className="text-lg font-semibold text-foreground">This project is paused</p>

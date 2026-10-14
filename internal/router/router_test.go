@@ -191,6 +191,15 @@ func (stub *stubControl) Activity(w http.ResponseWriter, r *http.Request) { stub
 func (stub *stubControl) DownloadDatabase(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "DownloadDatabase")
 }
+func (stub *stubControl) ListBackups(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "ListBackups")
+}
+func (stub *stubControl) CreateBackup(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "CreateBackup")
+}
+func (stub *stubControl) RestoreBackup(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "RestoreBackup")
+}
 func (stub *stubControl) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "DeleteAccount")
 }
@@ -714,6 +723,45 @@ func TestDashboardBucketRoutesRequireSession(t *testing.T) {
 	}
 	if controlStub.called != "" {
 		t.Errorf("handler %s should not have run", controlStub.called)
+	}
+}
+
+func TestDashboardBackupRoutesAcceptOwnerSession(t *testing.T) {
+	projectID := uuid.New()
+	backupID := uuid.New()
+	built, _, controlStub, _ := testRouter(t, projectID)
+	token := issueTestToken(t, testRouterOwner)
+
+	testCases := []struct {
+		name   string
+		method string
+		path   string
+		called string
+	}{
+		{"list", http.MethodGet, "/backups", "ListBackups"},
+		{"create", http.MethodPost, "/backups", "CreateBackup"},
+		{"restore", http.MethodPost, "/backups/" + backupID.String() + "/restore", "RestoreBackup"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			controlStub.called = ""
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(
+				testCase.method,
+				"/api/projects/"+projectID.String()+testCase.path,
+				nil,
+			)
+			request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+			built.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", recorder.Code)
+			}
+			if controlStub.called != testCase.called {
+				t.Errorf("handler = %q, want %q", controlStub.called, testCase.called)
+			}
+		})
 	}
 }
 

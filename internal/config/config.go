@@ -121,6 +121,43 @@ type Config struct {
 	// limiting and audit logging.
 	TrustedProxies string
 
+	// Off-site database backups.
+	//
+	// Backups are optional: with BackupEnabled false none of the other backup
+	// values are read, so a deployment that does not want them carries no
+	// object-storage credentials at all. When it is true, the endpoint and the
+	// credentials must be set or startup fails, because a backup scheduler that
+	// silently uploads nowhere is worse than none.
+	BackupEnabled bool
+	// BackupEndpoint is the S3-compatible base URL, for example
+	// https://<account>.r2.cloudflarestorage.com.
+	BackupEndpoint string
+	// BackupRegion is the SigV4 region; object storage ignores it and R2 uses
+	// "auto".
+	BackupRegion string
+	BackupBucket string
+	// BackupAccessKey and BackupSecretKey are the storage credentials.
+	BackupAccessKey string
+	BackupSecretKey string
+	// BackupPrefix is the key prefix every backup object shares, so backups can
+	// live beside other data in one bucket without colliding.
+	BackupPrefix string
+	// BackupInterval is how often the scheduler looks for projects that are due.
+	BackupInterval time.Duration
+	// BackupMaxAge is how stale a backup may get before the project is due
+	// again. The scheduler is "due"-driven rather than pinned to a clock hour:
+	// a process restarted at 03:00 still backs up a project whose last
+	// successful backup has aged past this window.
+	BackupMaxAge time.Duration
+	// BackupRetention is how long a backup is kept. The newest backup of a
+	// project is always kept regardless of age.
+	BackupRetention time.Duration
+	// BackupBatchSize caps how many projects one pass handles, so a backlog
+	// does not hold the loop for minutes.
+	BackupBatchSize int
+	// BackupTimeout bounds one project's snapshot-and-upload.
+	BackupTimeout time.Duration
+
 	// Environment name, used to pick log level and relax local-only rules.
 	Environment string
 }
@@ -263,6 +300,19 @@ func Load() (Config, error) {
 
 		TrustedProxies: reader.string("MOOGO_TRUSTED_PROXIES", ""),
 		Environment:    reader.string("MOOGO_ENV", "development"),
+
+		BackupEnabled:   reader.bool("MOOGO_BACKUP_ENABLED", false),
+		BackupEndpoint:  strings.TrimRight(reader.string("MOOGO_BACKUP_ENDPOINT", ""), "/"),
+		BackupRegion:    reader.string("MOOGO_BACKUP_REGION", "auto"),
+		BackupBucket:    reader.string("MOOGO_BACKUP_BUCKET", ""),
+		BackupAccessKey: reader.string("MOOGO_BACKUP_ACCESS_KEY", ""),
+		BackupSecretKey: reader.string("MOOGO_BACKUP_SECRET_KEY", ""),
+		BackupPrefix:    strings.Trim(reader.string("MOOGO_BACKUP_PREFIX", "database-backups"), "/"),
+		BackupInterval:  reader.duration("MOOGO_BACKUP_INTERVAL", 15*time.Minute),
+		BackupMaxAge:    reader.duration("MOOGO_BACKUP_MAX_AGE", 24*time.Hour),
+		BackupRetention: reader.duration("MOOGO_BACKUP_RETENTION", 30*24*time.Hour),
+		BackupBatchSize: reader.int("MOOGO_BACKUP_BATCH_SIZE", 20),
+		BackupTimeout:   reader.duration("MOOGO_BACKUP_TIMEOUT", 15*time.Minute),
 	}
 
 	if len(reader.problems) > 0 {
@@ -368,6 +418,48 @@ func (cfg Config) validate() error {
 	if !strings.HasPrefix(cfg.DatabaseURL, "postgres://") &&
 		!strings.HasPrefix(cfg.DatabaseURL, "postgresql://") {
 		problems = append(problems, "MOOGO_DATABASE_URL must start with postgres:// or postgresql://")
+	}
+
+	if cfg.BackupEnabled {
+		var missing []string
+		if cfg.BackupEndpoint == "" {
+			missing = append(missing, "MOOGO_BACKUP_ENDPOINT")
+		}
+		if cfg.BackupBucket == "" {
+			missing = append(missing, "MOOGO_BACKUP_BUCKET")
+		}
+		if cfg.BackupAccessKey == "" {
+			missing = append(missing, "MOOGO_BACKUP_ACCESS_KEY")
+		}
+		if cfg.BackupSecretKey == "" {
+			missing = append(missing, "MOOGO_BACKUP_SECRET_KEY")
+		}
+		if len(missing) > 0 {
+			problems = append(problems, "MOOGO_BACKUP_ENABLED is true but these are unset: "+
+				strings.Join(missing, ", "))
+		}
+		if cfg.BackupInterval <= 0 {
+			problems = append(problems, "MOOGO_BACKUP_INTERVAL must be greater than zero")
+		}
+		if cfg.BackupMaxAge <= 0 {
+			problems = append(problems, "MOOGO_BACKUP_MAX_AGE must be greater than zero")
+		}
+		// Daily backups are keyed by UTC date, so a window shorter than a day
+		// could back a project up twice on the same date and overwrite the
+		// earlier copy, leaving a history row pointing at bytes it no longer
+		// describes. Requiring a full day keeps the key unique by construction.
+		if cfg.BackupMaxAge > 0 && cfg.BackupMaxAge < 24*time.Hour {
+			problems = append(problems, "MOOGO_BACKUP_MAX_AGE must be at least 24h")
+		}
+		if cfg.BackupRetention <= 0 {
+			problems = append(problems, "MOOGO_BACKUP_RETENTION must be greater than zero")
+		}
+		if cfg.BackupBatchSize < 1 {
+			problems = append(problems, "MOOGO_BACKUP_BATCH_SIZE must be at least 1")
+		}
+		if cfg.BackupTimeout <= 0 {
+			problems = append(problems, "MOOGO_BACKUP_TIMEOUT must be greater than zero")
+		}
 	}
 
 	// In production a session cookie without the Secure flag leaks over plain

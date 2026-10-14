@@ -1,0 +1,534 @@
+package backup
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/internal/storage"
+	"github.com/moogodev/moogodev/pkg/logger"
+)
+
+// --- fakes ---------------------------------------------------------------
+
+type fakeDatabases struct {
+	snapshotPath string
+	modTime      time.Time
+	modErr       error
+	backupErr    error
+
+	restoreErr       error
+	restored         string
+	restoredContents []byte
+	restores         int
+}
+
+func (fake *fakeDatabases) BackupDatabase(_ context.Context, _ uuid.UUID) (string, error) {
+	if fake.backupErr != nil {
+		return "", fake.backupErr
+	}
+	return fake.snapshotPath, nil
+}
+
+func (fake *fakeDatabases) DatabaseModTime(_ uuid.UUID) (time.Time, error) {
+	return fake.modTime, fake.modErr
+}
+
+func (fake *fakeDatabases) RestoreDatabase(_ context.Context, _ uuid.UUID, snapshotPath string) error {
+	fake.restores++
+	fake.restored = snapshotPath
+	if fake.restoreErr == nil {
+		// Read the bytes now: the caller removes the temp file once the call
+		// returns, exactly as the real restore would.
+		if contents, err := os.ReadFile(snapshotPath); err == nil {
+			fake.restoredContents = contents
+		}
+	}
+	return fake.restoreErr
+}
+
+type fakeObjects struct {
+	mu      sync.Mutex
+	stored  map[string][]byte
+	putErr  error
+	getErr  error
+	delete  map[string]error
+	deleted []string
+	listed  []storage.Object
+	listErr error
+}
+
+func newFakeObjects() *fakeObjects {
+	return &fakeObjects{stored: map[string][]byte{}, delete: map[string]error{}}
+}
+
+func (fake *fakeObjects) PutObject(_ context.Context, key string, body io.ReadSeeker, size int64, sha256Hex, _ string) error {
+	if fake.putErr != nil {
+		return fake.putErr
+	}
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) != size {
+		return errors.New("size mismatch in fake put")
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	fake.stored[key] = data
+	return nil
+}
+
+func (fake *fakeObjects) GetObject(_ context.Context, key string) (io.ReadCloser, storage.Object, error) {
+	if fake.getErr != nil {
+		return nil, storage.Object{}, fake.getErr
+	}
+	fake.mu.Lock()
+	data, ok := fake.stored[key]
+	fake.mu.Unlock()
+	if !ok {
+		return nil, storage.Object{}, storage.ErrObjectNotFound
+	}
+	return io.NopCloser(bytes.NewReader(data)), storage.Object{Key: key, Size: int64(len(data))}, nil
+}
+
+func (fake *fakeObjects) DeleteObject(_ context.Context, key string) error {
+	if err, ok := fake.delete[key]; ok && err != nil {
+		return err
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	delete(fake.stored, key)
+	fake.deleted = append(fake.deleted, key)
+	return nil
+}
+
+func (fake *fakeObjects) ListPrefix(_ context.Context, _ string) ([]storage.Object, error) {
+	return fake.listed, fake.listErr
+}
+
+type recordedSuccess struct {
+	projectID uuid.UUID
+	kind      dbcontrol.BackupKind
+	objectKey string
+	sha256    string
+	size      int64
+	watermark time.Time
+}
+
+type fakeProjects struct {
+	due        []dbcontrol.Project
+	dueErr     error
+	state      *dbcontrol.DatabaseBackupState
+	stateErr   error
+	byID       *dbcontrol.DatabaseBackup
+	byIDErr    error
+	expired    []dbcontrol.DatabaseBackup
+	expiredErr error
+	recordErr  error
+
+	successes   []recordedSuccess
+	failures    []uuid.UUID
+	failureMsgs []string
+	current     []uuid.UUID
+	deletedRows [][]uuid.UUID
+	deletedProj []uuid.UUID
+}
+
+func (fake *fakeProjects) ProjectsDueForBackup(_ context.Context, _ time.Duration, _ int) ([]dbcontrol.Project, error) {
+	return fake.due, fake.dueErr
+}
+
+func (fake *fakeProjects) ProjectBackupState(_ context.Context, projectID uuid.UUID) (*dbcontrol.DatabaseBackupState, error) {
+	if fake.stateErr != nil {
+		return nil, fake.stateErr
+	}
+	if fake.state != nil {
+		return fake.state, nil
+	}
+	return &dbcontrol.DatabaseBackupState{ProjectID: projectID}, nil
+}
+
+func (fake *fakeProjects) RecordBackupSuccess(_ context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind, objectKey, sha256 string, sizeBytes int64, sourceModifiedAt time.Time) error {
+	if fake.recordErr != nil {
+		return fake.recordErr
+	}
+	fake.successes = append(fake.successes, recordedSuccess{
+		projectID: projectID, kind: kind, objectKey: objectKey,
+		sha256: sha256, size: sizeBytes, watermark: sourceModifiedAt,
+	})
+	return nil
+}
+
+func (fake *fakeProjects) MarkBackupCurrent(_ context.Context, projectID uuid.UUID) error {
+	fake.current = append(fake.current, projectID)
+	return nil
+}
+
+func (fake *fakeProjects) RecordBackupFailure(_ context.Context, projectID uuid.UUID, reason string) error {
+	fake.failures = append(fake.failures, projectID)
+	fake.failureMsgs = append(fake.failureMsgs, reason)
+	return nil
+}
+
+func (fake *fakeProjects) DatabaseBackupByID(_ context.Context, _, _ uuid.UUID) (*dbcontrol.DatabaseBackup, error) {
+	return fake.byID, fake.byIDErr
+}
+
+func (fake *fakeProjects) ListDatabaseBackups(_ context.Context, _ uuid.UUID, _ int, _ int) ([]dbcontrol.DatabaseBackup, error) {
+	return nil, nil
+}
+
+func (fake *fakeProjects) ExpiredBackups(_ context.Context, _ uuid.UUID, _ time.Time) ([]dbcontrol.DatabaseBackup, error) {
+	return fake.expired, fake.expiredErr
+}
+
+func (fake *fakeProjects) DeleteBackupRows(_ context.Context, ids []uuid.UUID) error {
+	fake.deletedRows = append(fake.deletedRows, ids)
+	return nil
+}
+
+func (fake *fakeProjects) DeleteProjectBackups(_ context.Context, projectID uuid.UUID) error {
+	fake.deletedProj = append(fake.deletedProj, projectID)
+	return nil
+}
+
+// --- helpers -------------------------------------------------------------
+
+func writeSnapshot(t *testing.T, contents string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "snapshot.sqlite")
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write snapshot: %v", err)
+	}
+	return path
+}
+
+func newTestService(t *testing.T, cfg Config) (*Service, *fakeProjects, *fakeDatabases, *fakeObjects) {
+	t.Helper()
+	projects := &fakeProjects{}
+	databases := &fakeDatabases{modTime: time.Unix(1000, 0)}
+	objects := newFakeObjects()
+	service := New(projects, databases, objects, cfg, logger.Nop())
+	return service, projects, databases, objects
+}
+
+// --- tests ---------------------------------------------------------------
+
+func TestBackupProjectUploadsAndRecords(t *testing.T) {
+	service, projects, databases, objects := newTestService(t, Config{Prefix: "db", MaxAge: time.Hour})
+	databases.snapshotPath = writeSnapshot(t, "sqlite-bytes")
+	projectID := uuid.New()
+
+	result, err := service.BackupProject(context.Background(), projectID, dbcontrol.BackupDaily)
+	if err != nil {
+		t.Fatalf("backup: %v", err)
+	}
+
+	prefix := "db/" + projectID.String() + "/"
+	wantKey := prefix + "daily/" + time.Now().UTC().Format("2006-01-02") + ".sqlite"
+	if result.ObjectKey != wantKey {
+		t.Errorf("object key = %q, want %q", result.ObjectKey, wantKey)
+	}
+	if _, ok := objects.stored[wantKey]; !ok {
+		t.Errorf("daily object not uploaded")
+	}
+	if _, ok := objects.stored[prefix+"latest.sqlite"]; !ok {
+		t.Errorf("latest.sqlite not uploaded")
+	}
+
+	if len(projects.successes) != 1 {
+		t.Fatalf("recorded %d successes, want 1", len(projects.successes))
+	}
+	success := projects.successes[0]
+	if success.kind != dbcontrol.BackupDaily {
+		t.Errorf("kind = %q", success.kind)
+	}
+	if success.size != int64(len("sqlite-bytes")) {
+		t.Errorf("size = %d", success.size)
+	}
+	if success.watermark != databases.modTime {
+		t.Errorf("watermark = %v, want %v", success.watermark, databases.modTime)
+	}
+	if len(projects.failures) != 0 {
+		t.Errorf("unexpected failures: %v", projects.failures)
+	}
+}
+
+func TestBackupProjectRecordsFailureOnUploadError(t *testing.T) {
+	service, projects, databases, _ := newTestService(t, Config{Prefix: "db"})
+	databases.snapshotPath = writeSnapshot(t, "bytes")
+	// The object store is unreachable.
+	objects := newFakeObjects()
+	objects.putErr = errors.New("network down")
+	service.objects = objects
+
+	if _, err := service.BackupProject(context.Background(), uuid.New(), dbcontrol.BackupManual); err == nil {
+		t.Fatal("expected an error")
+	}
+	if len(projects.failures) != 1 {
+		t.Fatalf("recorded %d failures, want 1", len(projects.failures))
+	}
+	if len(projects.successes) != 0 {
+		t.Errorf("recorded a success despite the failure")
+	}
+}
+
+func TestRunOnceSkipsUnchangedProject(t *testing.T) {
+	projectID := uuid.New()
+	service, projects, databases, objects := newTestService(t, Config{Prefix: "db"})
+	databases.snapshotPath = writeSnapshot(t, "bytes")
+
+	sameTime := time.Unix(2000, 0)
+	databases.modTime = sameTime
+	projects.due = []dbcontrol.Project{{ID: projectID}}
+	projects.state = &dbcontrol.DatabaseBackupState{
+		ProjectID:            projectID,
+		LastSuccessAt:        &sameTime,
+		LastSourceModifiedAt: &sameTime,
+	}
+
+	processed, err := service.RunOnce(context.Background())
+	if err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if processed != 1 {
+		t.Errorf("processed = %d, want 1", processed)
+	}
+	if len(projects.current) != 1 {
+		t.Errorf("project was not marked current")
+	}
+	if len(objects.stored) != 0 {
+		t.Errorf("unchanged project was uploaded anyway: %v", objects.stored)
+	}
+}
+
+func TestRunOnceBacksUpChangedProject(t *testing.T) {
+	projectID := uuid.New()
+	service, projects, databases, objects := newTestService(t, Config{Prefix: "db"})
+	databases.snapshotPath = writeSnapshot(t, "changed-bytes")
+
+	older := time.Unix(1000, 0)
+	newer := time.Unix(2000, 0)
+	databases.modTime = newer
+	projects.due = []dbcontrol.Project{{ID: projectID}}
+	projects.state = &dbcontrol.DatabaseBackupState{
+		ProjectID:            projectID,
+		LastSuccessAt:        &older,
+		LastSourceModifiedAt: &older,
+	}
+
+	if _, err := service.RunOnce(context.Background()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if len(objects.stored) == 0 {
+		t.Errorf("changed project was not uploaded")
+	}
+	if len(projects.successes) != 1 {
+		t.Errorf("recorded %d successes, want 1", len(projects.successes))
+	}
+}
+
+func TestRunOnceContinuesAfterProjectFailure(t *testing.T) {
+	first, second := uuid.New(), uuid.New()
+	service, projects, databases, _ := newTestService(t, Config{Prefix: "db"})
+	databases.snapshotPath = writeSnapshot(t, "bytes")
+	databases.modErr = nil
+	projects.due = []dbcontrol.Project{{ID: first}, {ID: second}}
+
+	// Make the first project fail by having the state lookup break; the second
+	// must still be handled. The simplest lever is a state error for all, which
+	// records a failure but keeps the loop going.
+	projects.stateErr = errors.New("state unavailable")
+
+	processed, err := service.RunOnce(context.Background())
+	if err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if processed != 2 {
+		t.Errorf("processed = %d, want 2", processed)
+	}
+	if len(projects.failures) != 2 {
+		t.Errorf("recorded %d failures, want 2", len(projects.failures))
+	}
+}
+
+func TestRestoreProjectTakesSafetySnapshotAndVerifies(t *testing.T) {
+	projectID := uuid.New()
+	backupID := uuid.New()
+	payload := []byte("restore-me")
+
+	service, projects, databases, objects := newTestService(t, Config{Prefix: "db"})
+	databases.snapshotPath = writeSnapshot(t, "current-live")
+
+	key := "db/" + projectID.String() + "/daily/2026-01-01.sqlite"
+	objects.stored[key] = payload
+	projects.byID = &dbcontrol.DatabaseBackup{
+		ID: backupID, ProjectID: projectID, Kind: dbcontrol.BackupDaily,
+		ObjectKey: key, SizeBytes: int64(len(payload)), SHA256: sha256Hex(payload),
+	}
+
+	if err := service.RestoreProject(context.Background(), projectID, backupID); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	// A pre-restore snapshot must have been recorded before the swap.
+	var sawPreRestore bool
+	for _, success := range projects.successes {
+		if success.kind == dbcontrol.BackupPreRestore {
+			sawPreRestore = true
+		}
+	}
+	if !sawPreRestore {
+		t.Errorf("no pre-restore snapshot recorded")
+	}
+	if databases.restores != 1 {
+		t.Fatalf("restore called %d times, want 1", databases.restores)
+	}
+	if !bytes.Equal(databases.restoredContents, payload) {
+		t.Errorf("restored bytes = %q, want %q", databases.restoredContents, payload)
+	}
+}
+
+func TestRestoreProjectRejectsCorruptDownload(t *testing.T) {
+	projectID := uuid.New()
+	backupID := uuid.New()
+
+	service, projects, databases, objects := newTestService(t, Config{Prefix: "db"})
+	databases.snapshotPath = writeSnapshot(t, "current-live")
+
+	key := "db/" + projectID.String() + "/daily/2026-01-01.sqlite"
+	objects.stored[key] = []byte("tampered")
+	// The recorded checksum is for different bytes, so the download must fail.
+	projects.byID = &dbcontrol.DatabaseBackup{
+		ID: backupID, ProjectID: projectID, Kind: dbcontrol.BackupDaily,
+		ObjectKey: key, SizeBytes: int64(len("expected")), SHA256: sha256Hex([]byte("expected")),
+	}
+
+	err := service.RestoreProject(context.Background(), projectID, backupID)
+	if !errors.Is(err, ErrBackupCorrupt) {
+		t.Fatalf("err = %v, want ErrBackupCorrupt", err)
+	}
+	if databases.restores != 0 {
+		t.Errorf("restore ran despite a corrupt download")
+	}
+}
+
+func TestDeleteProjectBackupsSweepsPrefix(t *testing.T) {
+	projectID := uuid.New()
+	service, projects, _, objects := newTestService(t, Config{Prefix: "db"})
+	prefix := "db/" + projectID.String() + "/"
+	objects.listed = []storage.Object{
+		{Key: prefix + "daily/2026-01-01.sqlite"},
+		{Key: prefix + "latest.sqlite"},
+	}
+
+	if err := service.DeleteProjectBackups(context.Background(), projectID); err != nil {
+		t.Fatalf("delete project backups: %v", err)
+	}
+	if len(objects.deleted) != 2 {
+		t.Errorf("deleted %d objects, want 2", len(objects.deleted))
+	}
+	if len(projects.deletedProj) != 1 || projects.deletedProj[0] != projectID {
+		t.Errorf("metadata not deleted: %v", projects.deletedProj)
+	}
+}
+
+func TestDeleteProjectBackupsReportsFailedSweep(t *testing.T) {
+	projectID := uuid.New()
+	service, projects, _, objects := newTestService(t, Config{Prefix: "db"})
+	prefix := "db/" + projectID.String() + "/"
+	objects.listed = []storage.Object{{Key: prefix + "latest.sqlite"}}
+	objects.delete[prefix+"latest.sqlite"] = errors.New("denied")
+
+	if err := service.DeleteProjectBackups(context.Background(), projectID); err == nil {
+		t.Fatal("expected an error when an object cannot be deleted")
+	}
+	if len(projects.deletedProj) != 1 {
+		t.Errorf("metadata should still be removed after the sweep")
+	}
+}
+
+func TestPruneDeletesExpiredObjectsThenRows(t *testing.T) {
+	projectID := uuid.New()
+	service, projects, _, objects := newTestService(t, Config{Prefix: "db", Retention: time.Hour})
+
+	oldID := uuid.New()
+	projects.expired = []dbcontrol.DatabaseBackup{
+		{ID: oldID, ProjectID: projectID, ObjectKey: "db/p/daily/2020-01-01.sqlite"},
+	}
+
+	service.prune(context.Background(), projectID)
+
+	if len(objects.deleted) != 1 {
+		t.Fatalf("deleted %d objects, want 1", len(objects.deleted))
+	}
+	if len(projects.deletedRows) != 1 || len(projects.deletedRows[0]) != 1 || projects.deletedRows[0][0] != oldID {
+		t.Fatalf("rows not deleted correctly: %v", projects.deletedRows)
+	}
+}
+
+func TestPruneKeepsRowWhenObjectDeleteFails(t *testing.T) {
+	projectID := uuid.New()
+	service, projects, _, objects := newTestService(t, Config{Prefix: "db", Retention: time.Hour})
+
+	key := "db/p/daily/2020-01-01.sqlite"
+	projects.expired = []dbcontrol.DatabaseBackup{{ID: uuid.New(), ProjectID: projectID, ObjectKey: key}}
+	objects.delete[key] = errors.New("denied")
+
+	service.prune(context.Background(), projectID)
+
+	// The row must survive so the next sweep retries it.
+	if len(projects.deletedRows) != 1 || len(projects.deletedRows[0]) != 0 {
+		t.Fatalf("expected no rows deleted, got %v", projects.deletedRows)
+	}
+}
+
+func TestObjectKeyLayout(t *testing.T) {
+	service, _, _, _ := newTestService(t, Config{Prefix: "backups"})
+	projectID := uuid.New()
+	when := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	prefix := "backups/" + projectID.String() + "/"
+
+	cases := map[dbcontrol.BackupKind]string{
+		dbcontrol.BackupDaily:      prefix + "daily/2026-03-04.sqlite",
+		dbcontrol.BackupManual:     prefix + "manual/20260304T050607Z.sqlite",
+		dbcontrol.BackupPreRestore: prefix + "pre-restore/20260304T050607Z.sqlite",
+		dbcontrol.BackupInitial:    prefix + "initial/20260304T050607Z.sqlite",
+	}
+	for kind, want := range cases {
+		if got := service.objectKey(projectID, kind, when); got != want {
+			t.Errorf("key for %s = %q, want %q", kind, got, want)
+		}
+	}
+}
+
+func TestProjectPrefixIsScoped(t *testing.T) {
+	service, _, _, _ := newTestService(t, Config{Prefix: "backups"})
+	projectID := uuid.New()
+	prefix := service.projectPrefix(projectID)
+	if !strings.HasSuffix(prefix, "/") {
+		t.Errorf("prefix %q must end with a slash", prefix)
+	}
+	if !strings.Contains(prefix, projectID.String()) {
+		t.Errorf("prefix %q must contain the project id", prefix)
+	}
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}

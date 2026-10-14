@@ -125,6 +125,7 @@ const layout: { group: string; slugs: string[] }[] = [
       "create-bucket",
       "object-storage",
       "dashboard",
+      "backups",
     ],
   },
   {

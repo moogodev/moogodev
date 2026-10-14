@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/backup"
 	"github.com/moogodev/moogodev/internal/config"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
 	"github.com/moogodev/moogodev/pkg/bucketkey"
@@ -114,10 +115,29 @@ type Databases interface {
 	BackupDatabase(ctx context.Context, projectID uuid.UUID) (string, error)
 }
 
+// Backups is the off-site backup surface the dashboard needs.
+//
+// It is satisfied by *backup.Service and is nil when backups are not
+// configured, which is why every handler checks for it before use. Keeping it
+// separate from Store means the handlers do not reach into object storage or
+// the control-plane backup tables directly.
+type Backups interface {
+	// ListBackups returns a project's backup history and the scheduler cursor.
+	ListBackups(ctx context.Context, projectID uuid.UUID, limit int) ([]dbcontrol.DatabaseBackup, *dbcontrol.DatabaseBackupState, error)
+	// BackupProject takes a backup now, under the given reason.
+	BackupProject(ctx context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind) (*backup.Result, error)
+	// RestoreProject replaces the live database with a stored backup.
+	RestoreProject(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) error
+	// DeleteProjectBackups removes a project's stored objects and metadata. It
+	// is called when the project or the account is deleted.
+	DeleteProjectBackups(ctx context.Context, projectID uuid.UUID) error
+}
+
 // ControlPlane serves the dashboard-facing API.
 type ControlPlane struct {
 	store     Store
 	databases Databases
+	backups   Backups
 	sessions  *auth.SessionManager
 	sql       sqlRunner
 	cfg       config.Config
@@ -128,10 +148,16 @@ type ControlPlane struct {
 //
 // sessions is what lets account deletion expire the cookie it no longer has
 // any use for, in the same response that removes the account behind it.
-func NewControlPlane(store Store, databases Databases, sessions *auth.SessionManager, cfg config.Config, log *logger.Logger) *ControlPlane {
+//
+// backups may be nil, which means off-site backups are not configured: the
+// listing answers with an empty, disabled document and the mutating endpoints
+// answer 503. That is the whole reason it is a separate dependency rather than
+// folded into databases.
+func NewControlPlane(store Store, databases Databases, backups Backups, sessions *auth.SessionManager, cfg config.Config, log *logger.Logger) *ControlPlane {
 	return &ControlPlane{
 		store:     store,
 		databases: databases,
+		backups:   backups,
 		sessions:  sessions,
 		sql:       sqlRunner{databases: databases, log: log},
 		cfg:       cfg,
@@ -381,6 +407,18 @@ func (handler *ControlPlane) DeleteAccount(w http.ResponseWriter, r *http.Reques
 				"error":      err.Error(),
 			})
 		}
+
+		// Backups are swept after the account row is gone. The sweep works
+		// from the project prefix in the bucket, not from the metadata rows
+		// the cascade just removed, so it still removes the stored objects.
+		if handler.backups != nil {
+			if err := handler.backups.DeleteProjectBackups(r.Context(), projectID); err != nil {
+				handler.log.Error("delete project backups after account deletion", logger.Fields{
+					"project_id": projectID.String(),
+					"error":      err.Error(),
+				})
+			}
+		}
 	}
 
 	handler.sessions.ClearCookie(w)
@@ -582,6 +620,12 @@ func (handler *ControlPlane) CreateProject(w http.ResponseWriter, r *http.Reques
 	response := handler.describe(r.Context(), result.Project, result.SecretKeyPlaintext)
 	response.Status = string(dbcontrol.ProjectReady)
 
+	// A new project is empty, but backing it up once means the first thing a
+	// later restore can offer is the state it started in, and it costs an
+	// upload of a few kilobytes. It is queued rather than awaited so a slow
+	// or unavailable bucket cannot delay the response.
+	handler.scheduleInitialBackup(r.Context(), result.Project.ID)
+
 	httpx.WriteJSON(w, http.StatusCreated, response)
 }
 
@@ -744,6 +788,19 @@ func (handler *ControlPlane) DeleteProject(w http.ResponseWriter, r *http.Reques
 			"project_id": project.ID.String(),
 			"error":      err.Error(),
 		})
+	}
+
+	// Off-site backups go with the project. The rows are soft-deleted rather
+	// than cascaded, so this is the only thing that removes the stored objects;
+	// leaving them would keep paying for a database nobody can reach. A failure
+	// is logged for the same reason as the file removal above.
+	if handler.backups != nil {
+		if err := handler.backups.DeleteProjectBackups(r.Context(), project.ID); err != nil {
+			handler.log.Error("delete project backups", logger.Fields{
+				"project_id": project.ID.String(),
+				"error":      err.Error(),
+			})
+		}
 	}
 
 	httpx.NoContent(w)

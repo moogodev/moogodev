@@ -120,6 +120,11 @@ get there.
 
 Upload and organise files. Covered in [Create a bucket](/docs/create-bucket).
 
+### Backups tab
+
+Automatic off-site copies of the database in **Cloudflare R2**, and one-click
+restore. Covered in [Backups](/docs/backups).
+
 ### Settings tab
 
 - **Project URL and id** — always visible, safe to copy.

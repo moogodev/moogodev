@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // loadWith builds a configuration from environment overrides, on top of the
@@ -22,6 +23,72 @@ func loadWith(t *testing.T, overrides map[string]string) (Config, error) {
 	}
 
 	return Load()
+}
+
+func TestBackupsAreOffByDefault(t *testing.T) {
+	cfg, err := loadWith(t, nil)
+	if err != nil {
+		t.Fatalf("defaults should be valid: %v", err)
+	}
+	if cfg.BackupEnabled {
+		t.Errorf("BackupEnabled = true, want false by default")
+	}
+}
+
+func TestBackupsRequireTheirStorageSettings(t *testing.T) {
+	// Enabled but with nothing else set: all four required keys are missing.
+	_, err := loadWith(t, map[string]string{"MOOGO_BACKUP_ENABLED": "true"})
+	if err == nil {
+		t.Fatal("expected a validation error when backups are enabled without storage settings")
+	}
+	for _, key := range []string{
+		"MOOGO_BACKUP_ENDPOINT",
+		"MOOGO_BACKUP_BUCKET",
+		"MOOGO_BACKUP_ACCESS_KEY",
+		"MOOGO_BACKUP_SECRET_KEY",
+	} {
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("error should name %s, got %q", key, err.Error())
+		}
+	}
+}
+
+func TestBackupsAcceptACompleteConfiguration(t *testing.T) {
+	cfg, err := loadWith(t, map[string]string{
+		"MOOGO_BACKUP_ENABLED":    "true",
+		"MOOGO_BACKUP_ENDPOINT":   "https://acct.r2.cloudflarestorage.com",
+		"MOOGO_BACKUP_BUCKET":     "moogo-backups",
+		"MOOGO_BACKUP_ACCESS_KEY": "key",
+		"MOOGO_BACKUP_SECRET_KEY": "secret",
+	})
+	if err != nil {
+		t.Fatalf("a complete backup configuration should be valid: %v", err)
+	}
+	if !cfg.BackupEnabled {
+		t.Errorf("BackupEnabled = false, want true")
+	}
+	if cfg.BackupMaxAge != 24*time.Hour {
+		t.Errorf("BackupMaxAge = %v, want 24h", cfg.BackupMaxAge)
+	}
+}
+
+func TestBackupWindowShorterThanADayIsRejected(t *testing.T) {
+	// The daily key is a UTC date, so a sub-day window could overwrite the
+	// same day's copy and strand a history row.
+	_, err := loadWith(t, map[string]string{
+		"MOOGO_BACKUP_ENABLED":    "true",
+		"MOOGO_BACKUP_ENDPOINT":   "https://acct.r2.cloudflarestorage.com",
+		"MOOGO_BACKUP_BUCKET":     "moogo-backups",
+		"MOOGO_BACKUP_ACCESS_KEY": "key",
+		"MOOGO_BACKUP_SECRET_KEY": "secret",
+		"MOOGO_BACKUP_MAX_AGE":    "6h",
+	})
+	if err == nil {
+		t.Fatal("expected a validation error for a sub-day backup window")
+	}
+	if !strings.Contains(err.Error(), "MOOGO_BACKUP_MAX_AGE") {
+		t.Errorf("error should name MOOGO_BACKUP_MAX_AGE, got %q", err.Error())
+	}
 }
 
 func TestDefaultsPutAProjectAt256MB(t *testing.T) {
