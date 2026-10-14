@@ -43,14 +43,14 @@ type Store interface {
 	) (*dbcontrol.User, error)
 	UserByID(ctx context.Context, userID uuid.UUID) (*dbcontrol.User, error)
 
-// SetPasswordHash replaces the bcrypt hash on a password account.
-//
-// The comparison is made by the handler against the hash it already read, so
-// this write carries no old-password argument: the handler is the only caller
-// and it has already refused everything it should refuse.
-SetPasswordHash(ctx context.Context, userID uuid.UUID, passwordHash string) error
+	// SetPasswordHash replaces the bcrypt hash on a password account.
+	//
+	// The comparison is made by the handler against the hash it already read, so
+	// this write carries no old-password argument: the handler is the only caller
+	// and it has already refused everything it should refuse.
+	SetPasswordHash(ctx context.Context, userID uuid.UUID, passwordHash string) error
 
-// UpdateUserName changes the display name. The name is cosmetic and is
+	// UpdateUserName changes the display name. The name is cosmetic and is
 	// never used to authenticate, so the handler lets it change freely.
 	UpdateUserName(ctx context.Context, userID uuid.UUID, name string) error
 	CreateProject(ctx context.Context, userID uuid.UUID, name string, key secretkey.Generated) (*dbcontrol.CreateProjectResult, error)

@@ -3,6 +3,7 @@ package dbplane
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -358,6 +359,129 @@ func TestRemoveProjectDeletesBucket(t *testing.T) {
 	other := uuid.New()
 	if err := manager.RemoveProject(other); err != nil {
 		t.Errorf("remove project without a bucket: %v", err)
+	}
+}
+
+// TestMoveObjectNeverClobbersAnExistingKey pins the guard that keeps a rename
+// onto a live key from destroying the destination's bytes. os.Rename replaces
+// its target silently, so without this check a rename-to-existing would leave
+// the destination's catalog row pointing at a file the rollback had moved away.
+func TestMoveObjectNeverClobbersAnExistingKey(t *testing.T) {
+	manager := newTestManager(t, 100*1024*1024)
+	projectID := uuid.New()
+
+	const source = "default/a.png"
+	const target = "default/b.png"
+	if _, err := manager.WriteObject(projectID, source, strings.NewReader("A")); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if _, err := manager.WriteObject(projectID, target, strings.NewReader("B")); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+
+	err := manager.MoveObject(projectID, source, target)
+	if !errors.Is(err, ErrObjectExists) {
+		t.Fatalf("MoveObject onto an existing key = %v, want ErrObjectExists", err)
+	}
+
+	// Both objects must still hold their own bytes; neither may have been
+	// overwritten and neither may have disappeared.
+	assertObjectBytes(t, manager, projectID, source, "A")
+	assertObjectBytes(t, manager, projectID, target, "B")
+
+	// A move to a key that is genuinely free still succeeds.
+	if err := manager.MoveObject(projectID, source, "default/c.png"); err != nil {
+		t.Fatalf("MoveObject onto a free key: %v", err)
+	}
+	assertObjectBytes(t, manager, projectID, "default/c.png", "A")
+}
+
+// assertObjectBytes reads an object back and compares it to want.
+func assertObjectBytes(t *testing.T, manager *Manager, projectID uuid.UUID, key, want string) {
+	t.Helper()
+
+	reader, _, err := manager.ReadObject(projectID, key)
+	if err != nil {
+		t.Fatalf("read %q: %v", key, err)
+	}
+	defer reader.Close()
+
+	got, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read all %q: %v", key, err)
+	}
+	if string(got) != want {
+		t.Errorf("object %q = %q, want %q", key, got, want)
+	}
+}
+
+// TestObjectMethodsRefuseKeysThatEscapeTheProject pins the manager's own
+// containment guard. The handler normalizes keys before calling, so this is the
+// backstop that keeps a future caller -- or a refactor -- from turning a raw
+// key into a path outside the project's bucket root.
+func TestObjectMethodsRefuseKeysThatEscapeTheProject(t *testing.T) {
+	manager := newTestManager(t, 100*1024*1024)
+	projectID := uuid.New()
+
+	// A canary that sits exactly where a "../canary.txt" escape from the test
+	// project's bucket root would land, so a successful traversal would overwrite
+	// it. It lives beside the per-project directory, inside the bucket root.
+	outside := filepath.Join(manager.bucketDir, "canary.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatalf("write canary: %v", err)
+	}
+
+	escaping := []string{
+		"",
+		"../canary.txt",
+		"a/../../canary.txt",
+		"..",
+		"a/..",
+	}
+
+	for _, key := range escaping {
+		if _, err := manager.WriteObject(projectID, key, strings.NewReader("x")); !errors.Is(err, ErrInvalidObjectKey) {
+			t.Errorf("WriteObject(%q) = %v, want ErrInvalidObjectKey", key, err)
+		}
+		if _, _, err := manager.ReadObject(projectID, key); !errors.Is(err, ErrInvalidObjectKey) {
+			t.Errorf("ReadObject(%q) = %v, want ErrInvalidObjectKey", key, err)
+		}
+		if err := manager.DeleteObject(projectID, key); !errors.Is(err, ErrInvalidObjectKey) {
+			t.Errorf("DeleteObject(%q) = %v, want ErrInvalidObjectKey", key, err)
+		}
+		if err := manager.MoveObject(projectID, key, "safe.txt"); !errors.Is(err, ErrInvalidObjectKey) {
+			t.Errorf("MoveObject(%q, _) = %v, want ErrInvalidObjectKey", key, err)
+		}
+		if err := manager.MoveObject(projectID, "safe.txt", key); !errors.Is(err, ErrInvalidObjectKey) {
+			t.Errorf("MoveObject(_, %q) = %v, want ErrInvalidObjectKey", key, err)
+		}
+	}
+
+	// The canary must be untouched: nothing above reached outside the root.
+	if got, err := os.ReadFile(outside); err != nil || string(got) != "secret" {
+		t.Fatalf("canary = %q, %v; a traversal wrote outside the project root", got, err)
+	}
+}
+
+// TestWriteObjectLeavesNoTempFileAfterSuccess checks that the atomic publish
+// does not leave the temp file behind, and that two writes to one key do not
+// share a temp path.
+func TestWriteObjectLeavesNoTempFileAfterSuccess(t *testing.T) {
+	manager := newTestManager(t, 100*1024*1024)
+	projectID := uuid.New()
+
+	if _, err := manager.WriteObject(projectID, "default/a.png", strings.NewReader("A")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	entries, err := os.ReadDir(filepath.Join(manager.bucketProjectPath(projectID), "default"))
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".moogo-upload-") {
+			t.Errorf("temp file %q was left behind", entry.Name())
+		}
 	}
 }
 

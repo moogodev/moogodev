@@ -650,6 +650,7 @@ func TestProjectCountCountsOnlyLiveProjects(t *testing.T) {
 		t.Errorf("count = %d, want %d", after, before+1)
 	}
 }
+
 // A freshly created project must carry a real updated_at. The column is what
 // the dashboard's "last updated" reads, and the insert used to return only id
 // and created_at, leaving the field zero until the next write to the row.

@@ -773,7 +773,35 @@ func (handler *BucketPlane) rename(
 		return
 	}
 
+	// Serialize with uploads and other renames in this project, so the
+	// destination check below cannot be interleaved with a write that creates
+	// the same key between the check and the move.
+	releaseProject := handler.projectLocks.lock(projectID)
+	defer releaseProject()
+
+	// Refuse a rename onto a key that already exists, before touching the disk.
+	// os.Rename replaces its target silently, so moving first would destroy the
+	// bytes under toKey and then fail on the catalog's unique index, leaving
+	// toKey's metadata pointing at a file that is gone. Failing here keeps the
+	// existing object intact.
+	switch _, err := handler.store.ObjectByKey(r.Context(), projectID, toKey); {
+	case err == nil:
+		httpx.WriteError(w, http.StatusConflict, "key_taken",
+			"an object with that key already exists in this project")
+		return
+	case !errors.Is(err, dbcontrol.ErrNotFound):
+		handler.writeStoreError(w, r, projectID, err, "check rename destination")
+		return
+	}
+
 	if err := handler.fs.MoveObject(projectID, fromKey, toKey); err != nil {
+		// The disk layer refuses to clobber too, so a race that created the
+		// destination after the check above still surfaces as a conflict.
+		if errors.Is(err, dbplane.ErrObjectExists) {
+			httpx.WriteError(w, http.StatusConflict, "key_taken",
+				"an object with that key already exists in this project")
+			return
+		}
 		handler.writeError(w, r, projectID, err, "move object on disk")
 		return
 	}

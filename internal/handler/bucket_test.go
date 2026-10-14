@@ -1356,13 +1356,19 @@ func TestRenameOntoATakenKeyReportsAConflict(t *testing.T) {
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", recorder.Code)
 	}
-	// The file must go back to where the catalog still says it is, or it becomes
-	// an orphan that occupies quota and cannot be downloaded.
+	// The conflict is caught before anything touches the disk, so the forward
+	// move never happens and both files stay exactly where they were. Moving
+	// first and rolling back is what used to lose b.png's bytes: os.Rename
+	// replaces its target, so the rollback put the wrong data back under a.png
+	// and left b.png's catalog row with no file behind it.
 	if _, ok := fs.contents["a.png"]; !ok {
-		t.Fatal("the rollback did not put the file back")
+		t.Fatal("the source file moved when it should not have")
 	}
-	if fs.moves != 2 {
-		t.Fatalf("moves = %d, want 2 (forward then rollback)", fs.moves)
+	if got := string(fs.contents["b.png"]); got != "B" {
+		t.Fatalf("the destination file = %q, want it untouched", got)
+	}
+	if fs.moves != 0 {
+		t.Fatalf("moves = %d, want 0 (conflict caught before the move)", fs.moves)
 	}
 }
 

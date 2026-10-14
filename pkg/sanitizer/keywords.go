@@ -161,6 +161,19 @@ var forbiddenFunctions = map[string]bool{
 // the filesystem path of every attached database, which hands the data
 // directory layout of the server to any project client. The dashboard never
 // needs it.
+//
+// Two more groups are absent for the same least-privilege reason:
+//
+//   - function_list, module_list, pragma_list and compile_options describe the
+//     engine build rather than the caller's schema. They hand a client the
+//     SQLite version's function set, loaded modules and compile-time options,
+//     which is fingerprinting material with no product use.
+//   - integrity_check and quick_check walk every page of the file in one
+//     uninterruptible step. The statement timeout is enforced at step
+//     boundaries, so these can outrun the budget and hold a slot and a core
+//     for as long as the file is large. A caller that needs them can check a
+//     downloaded copy. foreign_key_check stays: it walks only the rows behind
+//     foreign keys, not the whole file.
 var allowedPragmas = map[string]bool{
 	"TABLE_INFO":        true,
 	"TABLE_XINFO":       true,
@@ -169,11 +182,5 @@ var allowedPragmas = map[string]bool{
 	"INDEX_XINFO":       true,
 	"FOREIGN_KEY_LIST":  true,
 	"COLLATION_LIST":    true,
-	"FUNCTION_LIST":     true,
-	"MODULE_LIST":       true,
-	"PRAGMA_LIST":       true,
-	"COMPILE_OPTIONS":   true,
-	"INTEGRITY_CHECK":   true,
-	"QUICK_CHECK":       true,
 	"FOREIGN_KEY_CHECK": true,
 }

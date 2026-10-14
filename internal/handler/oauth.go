@@ -155,10 +155,10 @@ func (handler *OAuth) Logout(w http.ResponseWriter, r *http.Request) {
 
 // SessionInfo reports the current session, used by the dashboard on load.
 type SessionInfo struct {
-	Authenticated bool       `json:"authenticated"`
-	UserID        *uuid.UUID `json:"user_id,omitempty"`
-	Email         string     `json:"email,omitempty"`
-	OAuthConfigured bool    `json:"oauth_configured"`
+	Authenticated   bool       `json:"authenticated"`
+	UserID          *uuid.UUID `json:"user_id,omitempty"`
+	Email           string     `json:"email,omitempty"`
+	OAuthConfigured bool       `json:"oauth_configured"`
 }
 
 // SetupConfig reports whether Google OAuth is configured.

@@ -207,6 +207,53 @@ func TestValidateRejectsDisallowedPragmas(t *testing.T) {
 	}
 }
 
+// TestValidateRejectsEngineFingerprintingAndHeavyPragmas pins the tightened
+// allowlist. function_list, module_list, pragma_list and compile_options leak
+// the engine build; integrity_check and quick_check walk the whole file in one
+// unininterruptible step. All are refused in both spellings.
+func TestValidateRejectsEngineFingerprintingAndHeavyPragmas(t *testing.T) {
+	statements := []string{
+		"PRAGMA function_list",
+		"PRAGMA module_list",
+		"PRAGMA pragma_list",
+		"PRAGMA compile_options",
+		"PRAGMA integrity_check",
+		"PRAGMA quick_check",
+		"SELECT * FROM pragma_function_list()",
+		"SELECT * FROM pragma_integrity_check",
+	}
+
+	for _, statement := range statements {
+		t.Run(statement, func(t *testing.T) {
+			err := Validate(statement)
+			if err == nil {
+				t.Fatalf("pragma was accepted but must be rejected: %q", statement)
+			}
+			var sanitizerError *Error
+			if !errors.As(err, &sanitizerError) || sanitizerError.Code != CodeForbiddenPragma {
+				t.Errorf("expected code %q, got %v", CodeForbiddenPragma, err)
+			}
+		})
+	}
+
+	// The schema-introspection set the dashboard uses stays allowed.
+	allowed := []string{
+		"PRAGMA table_info(users)",
+		"PRAGMA table_xinfo(users)",
+		"PRAGMA index_list(users)",
+		"PRAGMA index_info(idx)",
+		"PRAGMA index_xinfo(idx)",
+		"PRAGMA foreign_key_list(orders)",
+		"PRAGMA collation_list",
+		"PRAGMA foreign_key_check",
+	}
+	for _, statement := range allowed {
+		if err := Validate(statement); err != nil {
+			t.Errorf("statement was rejected but must stay allowed: %q: %v", statement, err)
+		}
+	}
+}
+
 func TestValidateRejectsRewriteStatements(t *testing.T) {
 	// These rewrite or replace the whole file, bypassing per-write size checks.
 	statements := []string{

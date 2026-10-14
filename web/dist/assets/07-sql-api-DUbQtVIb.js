@@ -356,13 +356,17 @@ that might be wrong. Write your invariants in application code.
 Allowed:
 
 \`table_info\`, \`table_xinfo\`, \`index_list\`, \`index_info\`, \`index_xinfo\`,
-\`foreign_key_list\`, \`collation_list\`, \`function_list\`,
-\`module_list\`, \`pragma_list\`, \`compile_options\`, \`integrity_check\`,
-\`quick_check\`, \`foreign_key_check\`
+\`foreign_key_list\`, \`collation_list\`, \`foreign_key_check\`
 
 The same list covers the \`pragma_*\` function spelling — \`pragma_database_list()\`
 is refused for the same reason \`PRAGMA database_list\` is: it reports filesystem
 paths.
+
+Two further groups are refused. \`function_list\`, \`module_list\`, \`pragma_list\`
+and \`compile_options\` describe the SQLite *engine* rather than your schema, so
+they are fingerprinting material with no page that needs them. \`integrity_check\`
+and \`quick_check\` walk every page of the file in one step, which the per-statement
+timeout cannot interrupt; run those against a downloaded copy instead.
 
 Both spellings work:
 

@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +40,16 @@ var (
 	ErrTimeout = errors.New("statement timed out")
 	// ErrClosed means the manager has been shut down.
 	ErrClosed = errors.New("manager is closed")
+	// ErrObjectExists means a move targeted a key that already has an object
+	// on disk. It is returned instead of overwriting: os.Rename replaces its
+	// target silently on POSIX, so clobbering here would destroy the
+	// destination's bytes before the catalog could reject the conflict.
+	ErrObjectExists = errors.New("object already exists")
+	// ErrInvalidObjectKey means an object key was empty or would have resolved
+	// to a path outside the project's bucket root. The handler normalizes keys
+	// before calling, so this is a backstop: the manager refuses to build a
+	// path outside the project even if a caller skipped that step.
+	ErrInvalidObjectKey = errors.New("invalid object key")
 )
 
 // SQLite application_id and user_version.
@@ -608,7 +619,8 @@ func (manager *Manager) BackupDatabase(ctx context.Context, projectID uuid.UUID)
 
 // DatabaseSizeBytes returns the on-disk size of the main database file only,
 // without opening a connection.
-func DatabaseSizeBytes(path string) (int64, error) {	info, err := os.Stat(path)
+func DatabaseSizeBytes(path string) (int64, error) {
+	info, err := os.Stat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return 0, ErrNotFound
@@ -650,22 +662,50 @@ func normalizeProjectID(projectID uuid.UUID) error {
 	return nil
 }
 
+// resolveObjectPath joins an object key onto the project's bucket root and
+// refuses any result that escapes it.
+//
+// The project id is a validated UUID, so the root cannot be escaped through it;
+// the only untrusted component is the key. filepath.Join cleans its result,
+// which is exactly what would let a ".." climb out of the root, so the
+// containment check after the join is what makes traversal impossible here
+// rather than only in the handler that calls these methods.
+func (manager *Manager) resolveObjectPath(projectID uuid.UUID, key string) (string, error) {
+	if key == "" {
+		return "", ErrInvalidObjectKey
+	}
+
+	root := manager.bucketProjectPath(projectID)
+	objectPath := filepath.Join(root, key)
+
+	rel, err := filepath.Rel(root, objectPath)
+	if err != nil || rel == "." || rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", ErrInvalidObjectKey
+	}
+	return objectPath, nil
+}
+
 // WriteObject streams an object to disk and returns the bytes written.
 func (manager *Manager) WriteObject(projectID uuid.UUID, key string, r io.Reader) (int64, error) {
-	projectPath := manager.bucketProjectPath(projectID)
-	objectPath := filepath.Join(projectPath, key)
+	objectPath, err := manager.resolveObjectPath(projectID, key)
+	if err != nil {
+		return 0, err
+	}
 
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(objectPath), 0o700); err != nil {
 		return 0, fmt.Errorf("create object directory: %w", err)
 	}
 
-	// Create a temp file in the same directory for atomic rename
-	tmpPath := objectPath + ".tmp"
-	file, err := os.Create(tmpPath)
+	// A temp file in the same directory makes the final rename atomic, and a
+	// random name (rather than objectPath + ".tmp") keeps two writers for the
+	// same key -- in this process or another -- from sharing one temp path.
+	file, err := os.CreateTemp(filepath.Dir(objectPath), ".moogo-upload-*")
 	if err != nil {
 		return 0, fmt.Errorf("create temp file: %w", err)
 	}
+	tmpPath := file.Name()
 
 	n, err := io.Copy(file, r)
 	closeErr := file.Close()
@@ -689,8 +729,10 @@ func (manager *Manager) WriteObject(projectID uuid.UUID, key string, r io.Reader
 
 // ReadObject opens an object for reading. Returns the reader, size, and error.
 func (manager *Manager) ReadObject(projectID uuid.UUID, key string) (io.ReadCloser, int64, error) {
-	projectPath := manager.bucketProjectPath(projectID)
-	objectPath := filepath.Join(projectPath, key)
+	objectPath, err := manager.resolveObjectPath(projectID, key)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	file, err := os.Open(objectPath)
 	if err != nil {
@@ -721,8 +763,15 @@ func (manager *Manager) ReadObject(projectID uuid.UUID, key string) (io.ReadClos
 // folder in the object browser.
 func (manager *Manager) MoveObject(projectID uuid.UUID, fromKey string, toKey string) error {
 	projectPath := manager.bucketProjectPath(projectID)
-	sourcePath := filepath.Join(projectPath, fromKey)
-	targetPath := filepath.Join(projectPath, toKey)
+
+	sourcePath, err := manager.resolveObjectPath(projectID, fromKey)
+	if err != nil {
+		return err
+	}
+	targetPath, err := manager.resolveObjectPath(projectID, toKey)
+	if err != nil {
+		return err
+	}
 
 	if sourcePath == targetPath {
 		return nil
@@ -730,6 +779,17 @@ func (manager *Manager) MoveObject(projectID uuid.UUID, fromKey string, toKey st
 
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
 		return fmt.Errorf("create target directory: %w", err)
+	}
+
+	// Never clobber an existing object. os.Rename replaces its target
+	// silently, so without this a rename onto a live key would destroy the
+	// destination's bytes before the catalog's unique index had a chance to
+	// reject the conflict -- and the rollback would then move those wrong
+	// bytes back, losing the destination file entirely.
+	if _, err := os.Lstat(targetPath); err == nil {
+		return ErrObjectExists
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat move target: %w", err)
 	}
 
 	if err := os.Rename(sourcePath, targetPath); err != nil {
@@ -746,9 +806,13 @@ func (manager *Manager) MoveObject(projectID uuid.UUID, fromKey string, toKey st
 // DeleteObject removes an object from disk.
 func (manager *Manager) DeleteObject(projectID uuid.UUID, key string) error {
 	projectPath := manager.bucketProjectPath(projectID)
-	objectPath := filepath.Join(projectPath, key)
 
-	err := os.Remove(objectPath)
+	objectPath, err := manager.resolveObjectPath(projectID, key)
+	if err != nil {
+		return err
+	}
+
+	err = os.Remove(objectPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove object: %w", err)
 	}
