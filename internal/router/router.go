@@ -70,6 +70,7 @@ type ControlPlaneHandlers interface {
 	ListBackups(http.ResponseWriter, *http.Request)
 	CreateBackup(http.ResponseWriter, *http.Request)
 	RestoreBackup(http.ResponseWriter, *http.Request)
+	GetRestore(http.ResponseWriter, *http.Request)
 	GetBackup(http.ResponseWriter, *http.Request)
 	DownloadBackup(http.ResponseWriter, *http.Request)
 	DeleteBackup(http.ResponseWriter, *http.Request)
@@ -418,6 +419,10 @@ func New(deps Deps) http.Handler {
 						backup.Post("/query", deps.Control.QueryBackup)
 					})
 				})
+
+				// Queued restores are polled by id, from a sibling path so the
+				// status of a restore outlives the backup row it came from.
+				project.Get("/restores/{restore_id}", deps.Control.GetRestore)
 
 				// The bucket catalog and its objects. These go through the
 				// bucket handlers rather than the control plane's own, so the

@@ -126,8 +126,13 @@ type Backups interface {
 	ListBackups(ctx context.Context, projectID uuid.UUID, limit int) ([]dbcontrol.DatabaseBackup, *dbcontrol.DatabaseBackupState, error)
 	// BackupProject takes a backup now, under the given reason.
 	BackupProject(ctx context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind) (*backup.Result, error)
-	// RestoreProject replaces the live database with a stored backup.
-	RestoreProject(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) error
+	// StartRestore queues an asynchronous restore of one backup and returns the
+	// queued job, which the caller polls through RestoreStatus.
+	StartRestore(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (*dbcontrol.DatabaseRestore, error)
+	// RestoreStatus returns one queued restore, scoped to its project.
+	RestoreStatus(ctx context.Context, projectID uuid.UUID, restoreID uuid.UUID) (*dbcontrol.DatabaseRestore, error)
+	// ActiveRestore returns a project's pending or running restore, or nil.
+	ActiveRestore(ctx context.Context, projectID uuid.UUID) (*dbcontrol.DatabaseRestore, error)
 	// GetBackup returns one stored backup's metadata, scoped to the project.
 	GetBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (*dbcontrol.DatabaseBackup, error)
 	// DownloadBackup opens a stored backup for streaming to the owner.

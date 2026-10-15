@@ -13,9 +13,16 @@ import {
   formatBytes,
   type Backup,
   type BackupsResponse,
+  type Restore,
 } from "../lib/api";
 import { kindLabel } from "../lib/backupKind";
 import ConfirmDialog from "./ConfirmDialog";
+
+// isRestoreActive reports whether a restore is still pending or running, which
+// is exactly when the dashboard polls it and blocks starting another.
+function isRestoreActive(restore: Restore | null): boolean {
+  return restore !== null && (restore.status === "pending" || restore.status === "running");
+}
 
 export default function BackupsView({ projectId }: { projectId: string }) {
   const [data, setData] = useState<BackupsResponse | null>(null);
@@ -28,6 +35,9 @@ export default function BackupsView({ projectId }: { projectId: string }) {
   const [isRestoring, setIsRestoring] = useState(false);
   const [deleting, setDeleting] = useState<Backup | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // restore is the restore in flight, whether it was started from this page or
+  // was already running when the page loaded. It is polled until it finishes.
+  const [restore, setRestore] = useState<Restore | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -35,6 +45,9 @@ export default function BackupsView({ projectId }: { projectId: string }) {
     try {
       const listing = await api.listBackups(projectId);
       setData(listing);
+      // A restore already running is reported by the listing, so a reload
+      // mid-restore picks the progress back up instead of losing it.
+      setRestore(listing.restore);
     } catch (cause) {
       setLoadError(cause instanceof ApiError ? cause.message : "Could not load backups.");
     } finally {
@@ -45,6 +58,57 @@ export default function BackupsView({ projectId }: { projectId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // applyRestoreOutcome records a restore's terminal result and refreshes the
+  // list once it is done. It reports whether the restore has finished.
+  const applyRestoreOutcome = useCallback(
+    async (latest: Restore) => {
+      setRestore(latest);
+      if (latest.status === "succeeded") {
+        setNotice("Database restored. The previous copy was saved as a backup first.");
+        await load();
+        return true;
+      }
+      if (latest.status === "failed") {
+        setActionError(
+          latest.error ? `The restore failed: ${latest.error}` : "The restore failed.",
+        );
+        return true;
+      }
+      return false;
+    },
+    [load],
+  );
+
+  // While a restore is in flight it is polled until it reaches a terminal
+  // state. The loop is keyed on the restore id, so updating the progress does
+  // not restart it.
+  const pendingRestoreId = restore && isRestoreActive(restore) ? restore.id : null;
+  useEffect(() => {
+    if (!pendingRestoreId) return;
+
+    let cancelled = false;
+    let timer = 0;
+    const poll = async () => {
+      try {
+        const latest = await api.restoreStatus(projectId, pendingRestoreId);
+        if (cancelled) return;
+        if (await applyRestoreOutcome(latest)) return;
+        timer = window.setTimeout(() => void poll(), 1500);
+      } catch (cause) {
+        if (cancelled) return;
+        setActionError(
+          cause instanceof ApiError ? cause.message : "Could not check the restore.",
+        );
+      }
+    };
+
+    timer = window.setTimeout(() => void poll(), 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [projectId, pendingRestoreId, applyRestoreOutcome]);
 
   const handleBackupNow = useCallback(async () => {
     setIsBackingUp(true);
@@ -67,16 +131,19 @@ export default function BackupsView({ projectId }: { projectId: string }) {
     setActionError(null);
     setNotice(null);
     try {
-      const result = await api.restoreBackup(projectId, restoring.id);
-      setNotice(result.message);
+      const queued = await api.restoreBackup(projectId, restoring.id);
       setRestoring(null);
-      await load();
+      // A queued restore is already terminal in the unlikely case that the
+      // server finished it before answering; otherwise polling takes over.
+      if (!(await applyRestoreOutcome(queued))) {
+        setNotice("Restore started. This can take a minute; the page will update when it finishes.");
+      }
     } catch (cause) {
       setActionError(cause instanceof ApiError ? cause.message : "Could not restore the backup.");
     } finally {
       setIsRestoring(false);
     }
-  }, [projectId, restoring, load]);
+  }, [projectId, restoring, applyRestoreOutcome]);
 
   const handleDelete = useCallback(async () => {
     if (!deleting) return;
@@ -148,7 +215,7 @@ export default function BackupsView({ projectId }: { projectId: string }) {
           <button
             type="button"
             onClick={handleBackupNow}
-            disabled={isBackingUp}
+            disabled={isBackingUp || isRestoreActive(restore)}
             className="cursor-pointer rounded-lg bg-accent-strong px-4 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isBackingUp ? "Backing up…" : "Back up now"}
@@ -203,6 +270,16 @@ export default function BackupsView({ projectId }: { projectId: string }) {
         ) : null}
       </div>
 
+      {isRestoreActive(restore) ? (
+        <div
+          role="status"
+          className="rounded-lg border border-accent/40 bg-accent/10 px-4 py-3 text-sm text-foreground"
+        >
+          Restoring your database from the selected backup. This can take a minute; the page
+          will update when it finishes.
+        </div>
+      ) : null}
+
       {notice ? (
         <div
           role="status"
@@ -255,7 +332,8 @@ export default function BackupsView({ projectId }: { projectId: string }) {
                           setActionError(null);
                           setRestoring(backup);
                         }}
-                        className="cursor-pointer rounded-lg border border-edge-strong px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
+                        disabled={isRestoreActive(restore)}
+                        className="cursor-pointer rounded-lg border border-edge-strong px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-edge-strong disabled:hover:bg-transparent disabled:hover:text-muted"
                       >
                         Restore
                       </button>
@@ -272,7 +350,8 @@ export default function BackupsView({ projectId }: { projectId: string }) {
                           setActionError(null);
                           setDeleting(backup);
                         }}
-                        className="cursor-pointer rounded-lg border border-edge-strong px-3 py-1.5 text-sm font-medium text-amber transition-colors hover:border-amber/40 hover:bg-amber/20"
+                        disabled={isRestoreActive(restore)}
+                        className="cursor-pointer rounded-lg border border-edge-strong px-3 py-1.5 text-sm font-medium text-amber transition-colors hover:border-amber/40 hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-edge-strong disabled:hover:bg-transparent"
                       >
                         Delete
                       </button>
@@ -308,7 +387,7 @@ export default function BackupsView({ projectId }: { projectId: string }) {
             The project's database will be replaced with this backup from{" "}
             {restoring ? new Date(restoring.created_at).toLocaleString() : ""}. The current
             database is saved as a backup first, so this can be undone by restoring that
-            copy.
+            copy. The restore runs in the background and this page updates when it finishes.
           </>
         }
       />

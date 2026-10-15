@@ -200,6 +200,9 @@ func (stub *stubControl) CreateBackup(w http.ResponseWriter, r *http.Request) {
 func (stub *stubControl) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "RestoreBackup")
 }
+func (stub *stubControl) GetRestore(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "GetRestore")
+}
 func (stub *stubControl) GetBackup(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "GetBackup")
 }
@@ -741,6 +744,7 @@ func TestDashboardBucketRoutesRequireSession(t *testing.T) {
 func TestDashboardBackupRoutesAcceptOwnerSession(t *testing.T) {
 	projectID := uuid.New()
 	backupID := uuid.New()
+	restoreID := uuid.New()
 	built, _, controlStub, _ := testRouter(t, projectID)
 	token := issueTestToken(t, testRouterOwner)
 
@@ -753,6 +757,7 @@ func TestDashboardBackupRoutesAcceptOwnerSession(t *testing.T) {
 		{"list", http.MethodGet, "/backups", "ListBackups"},
 		{"create", http.MethodPost, "/backups", "CreateBackup"},
 		{"restore", http.MethodPost, "/backups/" + backupID.String() + "/restore", "RestoreBackup"},
+		{"restore status", http.MethodGet, "/restores/" + restoreID.String(), "GetRestore"},
 	}
 
 	for _, testCase := range testCases {

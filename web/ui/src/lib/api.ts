@@ -272,6 +272,23 @@ export interface BackupState {
   last_verify_error: string | null;
 }
 
+// Restore is one queued or finished restore of a project's database.
+//
+// A restore downloads a whole backup and swaps the live file, which is too slow
+// to keep a request open for, so the server answers a request with one of these
+// and the dashboard polls until the status is terminal.
+export interface Restore {
+  id: string;
+  backup_id: string;
+  // status is one of pending, running, succeeded or failed.
+  status: string;
+  // error is why a failed restore stopped, or null.
+  error: string | null;
+  requested_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
 // BackupsResponse is GET /api/projects/{id}/backups.
 //
 // enabled is false when the server has no backup bucket configured. The list
@@ -281,6 +298,10 @@ export interface BackupsResponse {
   enabled: boolean;
   backups: Backup[];
   state: BackupState;
+  // restore is the restore currently queued or running, or null. It lets a
+  // dashboard that reloaded mid-restore show the work rather than offering the
+  // action again.
+  restore: Restore | null;
 }
 
 // ProjectList is the dashboard's project listing.
@@ -432,13 +453,19 @@ export const api = {
     request<{ success: boolean; message: string }>(`/api/projects/${id}/backups`, {
       method: "POST",
     }),
-  // restoreBackup replaces the live database and is destructive; the server
-  // takes a pre-restore snapshot first, so the action is reversible.
+  // restoreBackup queues a restore of one backup and is destructive. The
+  // server takes a pre-restore snapshot first and verifies the download, so the
+  // action is reversible and a failed restore leaves the live database alone.
+  // It answers with the queued job; poll restoreStatus until the status is
+  // terminal.
   restoreBackup: (id: string, backupId: string) =>
-    request<{ success: boolean; message: string }>(
-      `/api/projects/${id}/backups/${backupId}/restore`,
-      { method: "POST" },
-    ),
+    request<Restore>(`/api/projects/${id}/backups/${backupId}/restore`, {
+      method: "POST",
+    }),
+  // restoreStatus reads one queued restore, so the dashboard can show progress
+  // and the outcome after the restore request has already returned.
+  restoreStatus: (id: string, restoreId: string) =>
+    request<Restore>(`/api/projects/${id}/restores/${restoreId}`),
   // getBackup names one stored backup. The viewer is a page of its own and
   // cannot rely on the list it was opened from, so it asks for the one entry it
   // needs rather than searching a list it may not have.

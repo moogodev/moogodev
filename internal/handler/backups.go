@@ -55,6 +55,24 @@ type BackupsResponse struct {
 	Enabled bool                `json:"enabled"`
 	Backups []BackupResponse    `json:"backups"`
 	State   BackupStateResponse `json:"state"`
+	// Restore is the restore currently queued or running for the project, or
+	// null. It lets a dashboard that reloaded mid-restore show the work in
+	// flight instead of offering the button again.
+	Restore *RestoreResponse `json:"restore"`
+}
+
+// RestoreResponse is one asynchronous restore, on the wire.
+type RestoreResponse struct {
+	ID       uuid.UUID `json:"id"`
+	BackupID uuid.UUID `json:"backup_id"`
+	// Status is one of pending, running, succeeded or failed. The dashboard
+	// polls until it is a terminal one.
+	Status string `json:"status"`
+	// Error is why a failed restore stopped, or null.
+	Error       *string    `json:"error"`
+	RequestedAt time.Time  `json:"requested_at"`
+	StartedAt   *time.Time `json:"started_at"`
+	FinishedAt  *time.Time `json:"finished_at"`
 }
 
 // ListBackups handles GET /api/projects/{project_id}/backups.
@@ -97,6 +115,14 @@ func (handler *ControlPlane) ListBackups(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// An in-flight restore is reported alongside the list, so a dashboard that
+	// reloaded partway through a restore can show it rather than offering the
+	// action again. A failure to read it is not worth failing the whole listing.
+	if active, err := handler.backups.ActiveRestore(r.Context(), project.ID); err == nil && active != nil {
+		described := describeRestore(active)
+		response.Restore = &described
+	}
+
 	httpx.WriteJSON(w, http.StatusOK, response)
 }
 
@@ -131,10 +157,12 @@ func (handler *ControlPlane) CreateBackup(w http.ResponseWriter, r *http.Request
 
 // RestoreBackup handles POST /api/projects/{project_id}/backups/{backup_id}/restore.
 //
-// It replaces the live database with the chosen snapshot and is therefore
-// destructive. The service takes a pre-restore snapshot first and verifies the
-// downloaded object against its recorded checksum, so the only ways this can
-// fail leave the live database untouched.
+// It queues a restore and answers 202 with the queued job, rather than holding
+// the request open for the whole download, pre-restore snapshot and swap. The
+// client polls GetRestore until the job reaches a terminal state. A restore is
+// destructive but the service takes a pre-restore snapshot after verifying the
+// downloaded object against its recorded checksum, so a failed restore leaves
+// the live database in place.
 func (handler *ControlPlane) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	project, ok := handler.ownedProject(w, r)
 	if !ok {
@@ -153,15 +181,45 @@ func (handler *ControlPlane) RestoreBackup(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := handler.backups.RestoreProject(r.Context(), project.ID, backupID); err != nil {
+	restore, err := handler.backups.StartRestore(r.Context(), project.ID, backupID)
+	if err != nil {
 		handler.writeBackupError(w, r, err, "restore backup")
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"message": "Database restored. A pre-restore backup was saved first.",
-	})
+	httpx.WriteJSON(w, http.StatusAccepted, describeRestore(restore))
+}
+
+// GetRestore handles GET /api/projects/{project_id}/restores/{restore_id}.
+//
+// The dashboard polls this after queueing a restore. A restore id belonging to
+// another project is invisible here, because the lookup is scoped to the
+// project the caller owns.
+func (handler *ControlPlane) GetRestore(w http.ResponseWriter, r *http.Request) {
+	project, ok := handler.ownedProject(w, r)
+	if !ok {
+		return
+	}
+
+	if handler.backups == nil {
+		handler.writeBackupsDisabled(w)
+		return
+	}
+
+	restoreID, err := uuidParam(r, "restore_id")
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_restore_id",
+			"the restore id is missing or malformed")
+		return
+	}
+
+	restore, err := handler.backups.RestoreStatus(r.Context(), project.ID, restoreID)
+	if err != nil {
+		handler.writeBackupError(w, r, err, "read restore")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, describeRestore(restore))
 }
 
 // GetBackup handles GET /api/projects/{project_id}/backups/{backup_id}.
@@ -376,6 +434,19 @@ func describeBackup(stored *dbcontrol.DatabaseBackup) BackupResponse {
 	}
 }
 
+// describeRestore projects a queued restore onto the wire shape.
+func describeRestore(restore *dbcontrol.DatabaseRestore) RestoreResponse {
+	return RestoreResponse{
+		ID:          restore.ID,
+		BackupID:    restore.BackupID,
+		Status:      string(restore.Status),
+		Error:       restore.Error,
+		RequestedAt: restore.RequestedAt,
+		StartedAt:   restore.StartedAt,
+		FinishedAt:  restore.FinishedAt,
+	}
+}
+
 // snapshotFilename builds the download name for one backup: the project name,
 // the reason it exists and its date.
 //
@@ -445,7 +516,7 @@ func (handler *ControlPlane) writeBackupError(w http.ResponseWriter, r *http.Req
 		})
 		httpx.WriteError(w, http.StatusUnprocessableEntity, "backup_unusable",
 			"the stored backup could not be verified and was not used")
-	case errors.Is(err, dbplane.ErrRestoring):
+	case errors.Is(err, dbplane.ErrRestoring), errors.Is(err, dbcontrol.ErrRestoreInProgress):
 		httpx.WriteError(w, http.StatusConflict, "restore_in_progress",
 			"a restore of this project is already running")
 	case errors.Is(err, backup.ErrBackupInProgress):

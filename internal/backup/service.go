@@ -95,6 +95,23 @@ type Projects interface {
 	// RecordBackupVerification stores the outcome of one restore drill. A nil
 	// verifyErr clears the previous failure.
 	RecordBackupVerification(ctx context.Context, projectID uuid.UUID, verifyErr *string) error
+	// CreateRestore queues an asynchronous restore for a project. It returns
+	// dbcontrol.ErrRestoreInProgress when one is already queued or running.
+	CreateRestore(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (*dbcontrol.DatabaseRestore, error)
+	// RestoreByID loads one queued restore, scoped to its project.
+	RestoreByID(ctx context.Context, projectID uuid.UUID, restoreID uuid.UUID) (*dbcontrol.DatabaseRestore, error)
+	// ActiveRestore returns a project's pending or running restore, or nil.
+	ActiveRestore(ctx context.Context, projectID uuid.UUID) (*dbcontrol.DatabaseRestore, error)
+	// PendingRestores lists restores that were queued but never started.
+	PendingRestores(ctx context.Context, limit int) ([]dbcontrol.DatabaseRestore, error)
+	// MarkRestoreRunning claims a pending restore, reporting whether the claim
+	// was won.
+	MarkRestoreRunning(ctx context.Context, restoreID uuid.UUID) (bool, error)
+	// MarkRestoreFinished records a restore's terminal state. A nil errText
+	// means it succeeded.
+	MarkRestoreFinished(ctx context.Context, restoreID uuid.UUID, errText *string) error
+	// MarkAbandonedRestores fails restores left running by a dead process.
+	MarkAbandonedRestores(ctx context.Context) (int, error)
 }
 
 // Databases is the data-plane surface the service needs.
@@ -566,6 +583,152 @@ func (service *Service) RestoreProject(ctx context.Context, projectID uuid.UUID,
 		"key":        stored.ObjectKey,
 	})
 	return nil
+}
+
+// StartRestore accepts a restore request and runs it in the background.
+//
+// The restore itself downloads a whole backup, takes a pre-restore snapshot and
+// swaps the live file, which is far too slow to keep an HTTP request open for.
+// This validates that the backup exists -- so a bad id is still answered with a
+// not-found rather than a queued job that can only fail -- queues the work, and
+// returns the queued row at once. The caller polls RestoreStatus.
+//
+// The running restore uses a context detached from the request: the request is
+// over by the time the work finishes, and cancelling the download and the swap
+// because the browser navigated away is exactly the half-finished state the
+// queue exists to avoid.
+func (service *Service) StartRestore(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (*dbcontrol.DatabaseRestore, error) {
+	// The lookup is what turns a guessed or stale id into a 404 now rather than
+	// a failed job later.
+	if _, err := service.projects.DatabaseBackupByID(ctx, projectID, backupID); err != nil {
+		return nil, err
+	}
+
+	restore, err := service.projects.CreateRestore(ctx, projectID, backupID)
+	if err != nil {
+		return nil, err
+	}
+
+	go service.executeRestore(context.WithoutCancel(ctx), restore.ID, projectID, backupID)
+	return restore, nil
+}
+
+// RestoreStatus returns one queued restore, scoped to its project.
+func (service *Service) RestoreStatus(ctx context.Context, projectID uuid.UUID, restoreID uuid.UUID) (*dbcontrol.DatabaseRestore, error) {
+	return service.projects.RestoreByID(ctx, projectID, restoreID)
+}
+
+// ActiveRestore returns a project's pending or running restore, or nil.
+func (service *Service) ActiveRestore(ctx context.Context, projectID uuid.UUID) (*dbcontrol.DatabaseRestore, error) {
+	return service.projects.ActiveRestore(ctx, projectID)
+}
+
+// ResumePendingRestores picks up restores that were queued but never started,
+// returning how many it ran.
+//
+// It is called once at startup. A row left pending means the process died
+// between accepting the request and claiming the work, so nothing was touched
+// and the restore is safe to run now. Rows left *running* are the opposite --
+// the swap may already have happened -- and are failed by MarkAbandonedRestores
+// before this runs, so this only ever sees work that is genuinely outstanding.
+//
+// Each restore is claimed with a compare-and-swap before it runs, so two
+// instances starting at once do not both take the same row.
+func (service *Service) ResumePendingRestores(ctx context.Context, limit int) (int, error) {
+	if abandoned, err := service.projects.MarkAbandonedRestores(ctx); err != nil {
+		service.log.Warn("fail abandoned restores failed", logger.Fields{"error": err.Error()})
+	} else if abandoned > 0 {
+		service.log.Warn("failed restores abandoned by a previous run", logger.Fields{"restores": abandoned})
+	}
+
+	pending, err := service.projects.PendingRestores(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+
+	resumed := 0
+	for index := range pending {
+		if ctx.Err() != nil {
+			return resumed, ctx.Err()
+		}
+
+		restore := pending[index]
+		claimed, err := service.projects.MarkRestoreRunning(ctx, restore.ID)
+		if err != nil {
+			service.log.Warn("claim pending restore failed", logger.Fields{
+				"restore_id": restore.ID.String(),
+				"error":      err.Error(),
+			})
+			continue
+		}
+		if !claimed {
+			// Another instance took it between the listing and the claim.
+			continue
+		}
+
+		service.runClaimedRestore(ctx, restore.ID, restore.ProjectID, restore.BackupID)
+		resumed++
+	}
+	return resumed, nil
+}
+
+// executeRestore claims and runs one queued restore in the background.
+func (service *Service) executeRestore(ctx context.Context, restoreID, projectID, backupID uuid.UUID) {
+	claimed, err := service.projects.MarkRestoreRunning(ctx, restoreID)
+	if err != nil {
+		service.log.Error("claim restore failed", logger.Fields{
+			"restore_id": restoreID.String(),
+			"error":      err.Error(),
+		})
+		return
+	}
+	if !claimed {
+		// The row is no longer pending: another worker has it, or it was
+		// closed out. Either way this caller must not run it.
+		return
+	}
+
+	service.runClaimedRestore(ctx, restoreID, projectID, backupID)
+}
+
+// runClaimedRestore performs a restore whose row has already been marked
+// running, and records its outcome.
+func (service *Service) runClaimedRestore(ctx context.Context, restoreID, projectID, backupID uuid.UUID) {
+	restoreCtx, cancel := context.WithTimeout(ctx, service.cfg.Timeout)
+	defer cancel()
+
+	restoreErr := service.RestoreProject(restoreCtx, projectID, backupID)
+
+	var errText *string
+	if restoreErr != nil {
+		message := restoreErr.Error()
+		errText = &message
+	}
+
+	// Record on a detached context: a restore that failed because it timed out
+	// must still record why, or the row would sit running forever and block the
+	// project from being restored again.
+	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer recordCancel()
+	if err := service.projects.MarkRestoreFinished(recordCtx, restoreID, errText); err != nil {
+		service.log.Error("record restore outcome failed", logger.Fields{
+			"restore_id": restoreID.String(),
+			"error":      err.Error(),
+		})
+	}
+
+	if restoreErr != nil {
+		service.log.Warn("restore failed", logger.Fields{
+			"project_id": projectID.String(),
+			"restore_id": restoreID.String(),
+			"error":      restoreErr.Error(),
+		})
+		return
+	}
+	service.log.Info("restore finished", logger.Fields{
+		"project_id": projectID.String(),
+		"restore_id": restoreID.String(),
+	})
 }
 
 // GetBackup returns one backup's metadata, scoped to the project.

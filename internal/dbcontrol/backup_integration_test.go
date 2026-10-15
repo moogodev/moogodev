@@ -2,8 +2,11 @@ package dbcontrol
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // TestLatestRegularBackupSkipsPreRestore covers the lookup the backup delete
@@ -177,5 +180,110 @@ func TestVerificationSchedule(t *testing.T) {
 	}
 	if state.LastError != nil {
 		t.Errorf("a verification failure must not overwrite the backup error: %v", state.LastError)
+	}
+}
+
+// TestRestoreQueueLifecycle covers the durable restore queue: one active restore
+// per project enforced by the database, an exclusive claim, and the project
+// becoming restorable again once the active one reaches a terminal state.
+func TestRestoreQueueLifecycle(t *testing.T) {
+	store := testStore(t)
+	user := newTestUser(t, store, 5)
+	project := newTestProject(t, store, user.ID)
+	other := newTestProject(t, store, user.ID)
+	ctx := context.Background()
+	backupID := uuid.New()
+
+	restore, err := store.CreateRestore(ctx, project.ID, backupID)
+	if err != nil {
+		t.Fatalf("create restore: %v", err)
+	}
+	if restore.Status != RestorePending {
+		t.Fatalf("status = %q, want pending", restore.Status)
+	}
+
+	// A second restore of the same project is refused while the first is active.
+	if _, err := store.CreateRestore(ctx, project.ID, backupID); !errors.Is(err, ErrRestoreInProgress) {
+		t.Fatalf("second restore err = %v, want ErrRestoreInProgress", err)
+	}
+
+	// A different project has its own slot.
+	if _, err := store.CreateRestore(ctx, other.ID, backupID); err != nil {
+		t.Fatalf("restore for other project: %v", err)
+	}
+
+	active, err := store.ActiveRestore(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("active restore: %v", err)
+	}
+	if active == nil || active.ID != restore.ID {
+		t.Fatalf("active restore = %v, want %v", active, restore.ID)
+	}
+
+	// The claim is exclusive: the second attempt loses.
+	claimed, err := store.MarkRestoreRunning(ctx, restore.ID)
+	if err != nil || !claimed {
+		t.Fatalf("claim: claimed=%v err=%v", claimed, err)
+	}
+	if again, _ := store.MarkRestoreRunning(ctx, restore.ID); again {
+		t.Error("a restore was claimed twice")
+	}
+
+	// A running restore still blocks a new one.
+	if _, err := store.CreateRestore(ctx, project.ID, backupID); !errors.Is(err, ErrRestoreInProgress) {
+		t.Fatalf("restore while running err = %v, want ErrRestoreInProgress", err)
+	}
+
+	// Finishing it frees the project.
+	if err := store.MarkRestoreFinished(ctx, restore.ID, nil); err != nil {
+		t.Fatalf("finish restore: %v", err)
+	}
+	if active, err := store.ActiveRestore(ctx, project.ID); err != nil || active != nil {
+		t.Fatalf("active after finish = %v (err %v), want none", active, err)
+	}
+	if _, err := store.CreateRestore(ctx, project.ID, backupID); err != nil {
+		t.Fatalf("restore after finish: %v", err)
+	}
+}
+
+// TestMarkAbandonedRestoresFailsRunning covers crash recovery: a restore left
+// running by a dead process is failed with a reason, and its project is freed.
+func TestMarkAbandonedRestoresFailsRunning(t *testing.T) {
+	store := testStore(t)
+	user := newTestUser(t, store, 1)
+	project := newTestProject(t, store, user.ID)
+	ctx := context.Background()
+	backupID := uuid.New()
+
+	restore, err := store.CreateRestore(ctx, project.ID, backupID)
+	if err != nil {
+		t.Fatalf("create restore: %v", err)
+	}
+	if _, err := store.MarkRestoreRunning(ctx, restore.ID); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+
+	failed, err := store.MarkAbandonedRestores(ctx)
+	if err != nil {
+		t.Fatalf("fail abandoned: %v", err)
+	}
+	if failed != 1 {
+		t.Fatalf("failed = %d, want 1", failed)
+	}
+
+	stored, err := store.RestoreByID(ctx, project.ID, restore.ID)
+	if err != nil {
+		t.Fatalf("load restore: %v", err)
+	}
+	if stored.Status != RestoreFailed {
+		t.Errorf("status = %q, want failed", stored.Status)
+	}
+	if stored.Error == nil {
+		t.Error("an abandoned restore must record a reason")
+	}
+
+	// The project must be restorable again.
+	if _, err := store.CreateRestore(ctx, project.ID, backupID); err != nil {
+		t.Fatalf("restore after abandonment: %v", err)
 	}
 }

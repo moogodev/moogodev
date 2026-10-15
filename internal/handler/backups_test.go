@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,16 +28,18 @@ type fakeBackups struct {
 	backups []dbcontrol.DatabaseBackup
 	state   *dbcontrol.DatabaseBackupState
 
-	listErr    error
-	backupErr  error
-	restoreErr error
-	getErr     error
-	deleteErr  error
-	snapErr    error
+	listErr          error
+	backupErr        error
+	restoreErr       error
+	restoreStatusErr error
+	getErr           error
+	deleteErr        error
+	snapErr          error
 
 	backupCalls   int
 	backupKind    dbcontrol.BackupKind
 	restoredID    uuid.UUID
+	activeRestore *dbcontrol.DatabaseRestore
 	deletedID     uuid.UUID
 	snapshotID    uuid.UUID
 	downloadBytes []byte
@@ -62,9 +65,33 @@ func (fake *fakeBackups) BackupProject(
 	return &backup.Result{ObjectKey: "key", SizeBytes: 10, SHA256: "abc"}, nil
 }
 
-func (fake *fakeBackups) RestoreProject(_ context.Context, _, backupID uuid.UUID) error {
+func (fake *fakeBackups) StartRestore(_ context.Context, projectID, backupID uuid.UUID) (*dbcontrol.DatabaseRestore, error) {
 	fake.restoredID = backupID
-	return fake.restoreErr
+	if fake.restoreErr != nil {
+		return nil, fake.restoreErr
+	}
+	return &dbcontrol.DatabaseRestore{
+		ID:          uuid.New(),
+		ProjectID:   projectID,
+		BackupID:    backupID,
+		Status:      dbcontrol.RestorePending,
+		RequestedAt: time.Now(),
+	}, nil
+}
+
+func (fake *fakeBackups) RestoreStatus(_ context.Context, projectID, restoreID uuid.UUID) (*dbcontrol.DatabaseRestore, error) {
+	if fake.restoreStatusErr != nil {
+		return nil, fake.restoreStatusErr
+	}
+	return &dbcontrol.DatabaseRestore{
+		ID:        restoreID,
+		ProjectID: projectID,
+		Status:    dbcontrol.RestoreSucceeded,
+	}, nil
+}
+
+func (fake *fakeBackups) ActiveRestore(context.Context, uuid.UUID) (*dbcontrol.DatabaseRestore, error) {
+	return fake.activeRestore, nil
 }
 
 func (fake *fakeBackups) GetBackup(_ context.Context, _, backupID uuid.UUID) (*dbcontrol.DatabaseBackup, error) {
@@ -279,11 +306,64 @@ func TestRestoreBackupSuccess(t *testing.T) {
 	handler.RestoreBackup(recorder, withBackupID(
 		backupRequest(t, http.MethodPost, "/", projectID), backupID))
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", recorder.Code)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", recorder.Code)
 	}
 	if backups.restoredID != backupID {
 		t.Errorf("restored id = %v, want %v", backups.restoredID, backupID)
+	}
+
+	var body RestoreResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode restore: %v", err)
+	}
+	if body.Status != string(dbcontrol.RestorePending) {
+		t.Errorf("status = %q, want pending", body.Status)
+	}
+	if body.BackupID != backupID {
+		t.Errorf("backup id = %v, want %v", body.BackupID, backupID)
+	}
+}
+
+func TestGetRestoreReturnsStatus(t *testing.T) {
+	handler, _, projectID := backupPlane(t)
+	restoreID := uuid.New()
+
+	request := backupRequest(t, http.MethodGet, "/", projectID)
+	routeContext := chi.NewRouteContext()
+	routeContext.URLParams.Add("restore_id", restoreID.String())
+	request = request.WithContext(context.WithValue(request.Context(), chi.RouteCtxKey, routeContext))
+
+	recorder := httptest.NewRecorder()
+	handler.GetRestore(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+
+	var body RestoreResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode restore: %v", err)
+	}
+	if body.ID != restoreID {
+		t.Errorf("id = %v, want %v", body.ID, restoreID)
+	}
+}
+
+func TestGetRestoreMissingIsNotFound(t *testing.T) {
+	handler, backups, projectID := backupPlane(t)
+	backups.restoreStatusErr = dbcontrol.ErrNotFound
+
+	request := backupRequest(t, http.MethodGet, "/", projectID)
+	routeContext := chi.NewRouteContext()
+	routeContext.URLParams.Add("restore_id", uuid.New().String())
+	request = request.WithContext(context.WithValue(request.Context(), chi.RouteCtxKey, routeContext))
+
+	recorder := httptest.NewRecorder()
+	handler.GetRestore(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", recorder.Code)
 	}
 }
 
@@ -298,6 +378,7 @@ func TestRestoreBackupErrors(t *testing.T) {
 		{"corrupt", backup.ErrBackupCorrupt, http.StatusUnprocessableEntity, "backup_unusable"},
 		{"invalid snapshot", dbplane.ErrInvalidSnapshot, http.StatusUnprocessableEntity, "backup_unusable"},
 		{"already restoring", dbplane.ErrRestoring, http.StatusConflict, "restore_in_progress"},
+		{"already queued", dbcontrol.ErrRestoreInProgress, http.StatusConflict, "restore_in_progress"},
 	}
 
 	for _, testCase := range cases {

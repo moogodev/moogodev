@@ -175,6 +175,81 @@ type fakeProjects struct {
 	verifyDueErr    error
 	verifications   []*string
 	verificationErr error
+
+	// The restore queue. activeRestore is what a project reports as in flight;
+	// pendingRestores is what ResumePendingRestores picks up; and the status
+	// and error maps track what MarkRestoreRunning/MarkRestoreFinished recorded
+	// so a test can watch a restore reach a terminal state.
+	activeRestore    *dbcontrol.DatabaseRestore
+	pendingRestores  []dbcontrol.DatabaseRestore
+	createRestoreErr error
+	restoreStatuses  map[uuid.UUID]dbcontrol.RestoreStatus
+	restoreErrors    map[uuid.UUID]*string
+	abandoned        int
+}
+
+// statusOf reports the status recorded for a restore id, defaulting to pending
+// so a test that has not observed a transition reads the queued state.
+func (fake *fakeProjects) statusOf(restoreID uuid.UUID) dbcontrol.RestoreStatus {
+	if fake.restoreStatuses == nil {
+		return dbcontrol.RestorePending
+	}
+	return fake.restoreStatuses[restoreID]
+}
+
+func (fake *fakeProjects) CreateRestore(_ context.Context, projectID, backupID uuid.UUID) (*dbcontrol.DatabaseRestore, error) {
+	if fake.createRestoreErr != nil {
+		return nil, fake.createRestoreErr
+	}
+	restore := dbcontrol.DatabaseRestore{
+		ID:          uuid.New(),
+		ProjectID:   projectID,
+		BackupID:    backupID,
+		Status:      dbcontrol.RestorePending,
+		RequestedAt: time.Now(),
+	}
+	fake.pendingRestores = append(fake.pendingRestores, restore)
+	return &restore, nil
+}
+
+func (fake *fakeProjects) RestoreByID(_ context.Context, _, restoreID uuid.UUID) (*dbcontrol.DatabaseRestore, error) {
+	return &dbcontrol.DatabaseRestore{ID: restoreID, Status: fake.statusOf(restoreID)}, nil
+}
+
+func (fake *fakeProjects) ActiveRestore(_ context.Context, _ uuid.UUID) (*dbcontrol.DatabaseRestore, error) {
+	return fake.activeRestore, nil
+}
+
+func (fake *fakeProjects) PendingRestores(_ context.Context, _ int) ([]dbcontrol.DatabaseRestore, error) {
+	return fake.pendingRestores, nil
+}
+
+func (fake *fakeProjects) MarkRestoreRunning(_ context.Context, restoreID uuid.UUID) (bool, error) {
+	if fake.restoreStatuses == nil {
+		fake.restoreStatuses = map[uuid.UUID]dbcontrol.RestoreStatus{}
+	}
+	fake.restoreStatuses[restoreID] = dbcontrol.RestoreRunning
+	return true, nil
+}
+
+func (fake *fakeProjects) MarkRestoreFinished(_ context.Context, restoreID uuid.UUID, errText *string) error {
+	if fake.restoreStatuses == nil {
+		fake.restoreStatuses = map[uuid.UUID]dbcontrol.RestoreStatus{}
+	}
+	if fake.restoreErrors == nil {
+		fake.restoreErrors = map[uuid.UUID]*string{}
+	}
+	fake.restoreErrors[restoreID] = errText
+	if errText == nil {
+		fake.restoreStatuses[restoreID] = dbcontrol.RestoreSucceeded
+	} else {
+		fake.restoreStatuses[restoreID] = dbcontrol.RestoreFailed
+	}
+	return nil
+}
+
+func (fake *fakeProjects) MarkAbandonedRestores(_ context.Context) (int, error) {
+	return fake.abandoned, nil
 }
 
 func (fake *fakeProjects) ProjectsDueForBackup(_ context.Context, _ time.Duration, _ int) ([]dbcontrol.Project, error) {
@@ -659,6 +734,121 @@ func TestRestoreProjectRejectsCorruptDownload(t *testing.T) {
 	}
 	if databases.restores != 0 {
 		t.Errorf("restore ran despite a corrupt download")
+	}
+}
+
+// waitForRestore polls the fake's recorded status until it is terminal.
+func waitForRestore(t *testing.T, projects *fakeProjects, restoreID uuid.UUID) dbcontrol.RestoreStatus {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status := projects.statusOf(restoreID)
+		if status.Terminal() {
+			return status
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("restore %s did not finish; last status %q", restoreID, status)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+func TestStartRestoreQueuesAndSucceeds(t *testing.T) {
+	projectID := uuid.New()
+	backupID := uuid.New()
+	payload := []byte("restore-me")
+
+	service, projects, databases, objects := newTestService(t, Config{Prefix: "db", Timeout: time.Minute})
+	databases.snapshotPath = writeSnapshot(t, "current-live")
+
+	key := "db/" + projectID.String() + "/daily/2026-01-01.sqlite"
+	objects.stored[key] = payload
+	projects.byID = &dbcontrol.DatabaseBackup{
+		ID: backupID, ProjectID: projectID, Kind: dbcontrol.BackupDaily,
+		ObjectKey: key, SizeBytes: int64(len(payload)), SHA256: sha256Hex(payload),
+	}
+
+	restore, err := service.StartRestore(context.Background(), projectID, backupID)
+	if err != nil {
+		t.Fatalf("start restore: %v", err)
+	}
+	// The request is answered with a queued job, not a finished restore.
+	if restore.Status != dbcontrol.RestorePending {
+		t.Fatalf("queued status = %q, want pending", restore.Status)
+	}
+
+	if status := waitForRestore(t, projects, restore.ID); status != dbcontrol.RestoreSucceeded {
+		t.Fatalf("final status = %q, want succeeded (error %v)", status, projects.restoreErrors[restore.ID])
+	}
+	if databases.restores != 1 {
+		t.Fatalf("restore called %d times, want 1", databases.restores)
+	}
+}
+
+func TestStartRestoreRecordsFailure(t *testing.T) {
+	projectID := uuid.New()
+	backupID := uuid.New()
+
+	service, projects, databases, _ := newTestService(t, Config{Prefix: "db", Timeout: time.Minute})
+	databases.snapshotPath = writeSnapshot(t, "current-live")
+	// The history row names an object that was never stored, so the download
+	// fails and the restore must record why.
+	projects.byID = &dbcontrol.DatabaseBackup{
+		ID: backupID, ProjectID: projectID, Kind: dbcontrol.BackupDaily,
+		ObjectKey: "db/" + projectID.String() + "/daily/missing.sqlite",
+		SizeBytes: 1, SHA256: "deadbeef",
+	}
+
+	restore, err := service.StartRestore(context.Background(), projectID, backupID)
+	if err != nil {
+		t.Fatalf("start restore: %v", err)
+	}
+	if status := waitForRestore(t, projects, restore.ID); status != dbcontrol.RestoreFailed {
+		t.Fatalf("final status = %q, want failed", status)
+	}
+	if projects.restoreErrors[restore.ID] == nil {
+		t.Error("a failed restore must record its error")
+	}
+}
+
+func TestStartRestoreRefusesWhenOneIsQueued(t *testing.T) {
+	service, projects, _, _ := newTestService(t, Config{Prefix: "db"})
+	projects.createRestoreErr = dbcontrol.ErrRestoreInProgress
+
+	if _, err := service.StartRestore(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, dbcontrol.ErrRestoreInProgress) {
+		t.Fatalf("err = %v, want ErrRestoreInProgress", err)
+	}
+}
+
+func TestResumePendingRestoresRunsQueuedWork(t *testing.T) {
+	projectID := uuid.New()
+	backupID := uuid.New()
+	payload := []byte("restore-me")
+
+	service, projects, databases, objects := newTestService(t, Config{Prefix: "db", Timeout: time.Minute})
+	databases.snapshotPath = writeSnapshot(t, "current-live")
+
+	key := "db/" + projectID.String() + "/daily/2026-01-01.sqlite"
+	objects.stored[key] = payload
+	projects.byID = &dbcontrol.DatabaseBackup{
+		ID: backupID, ProjectID: projectID, Kind: dbcontrol.BackupDaily,
+		ObjectKey: key, SizeBytes: int64(len(payload)), SHA256: sha256Hex(payload),
+	}
+	restoreID := uuid.New()
+	projects.pendingRestores = []dbcontrol.DatabaseRestore{
+		{ID: restoreID, ProjectID: projectID, BackupID: backupID, Status: dbcontrol.RestorePending},
+	}
+
+	resumed, err := service.ResumePendingRestores(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if resumed != 1 {
+		t.Fatalf("resumed = %d, want 1", resumed)
+	}
+	if got := projects.statusOf(restoreID); got != dbcontrol.RestoreSucceeded {
+		t.Fatalf("status after resume = %q, want succeeded", got)
 	}
 }
 

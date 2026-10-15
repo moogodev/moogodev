@@ -46,6 +46,11 @@ Pick a backup in the list and press **Restore**. This is destructive — the
 project's current database is replaced by the snapshot — so it asks for
 confirmation first.
 
+The restore runs in the background, because downloading a snapshot and swapping
+the database takes longer than a page request should. The tab shows a progress
+notice and updates itself the moment the restore finishes; you can also close it
+and come back, and the running restore is still shown.
+
 A restore is **reversible**. Before anything is replaced, Moogo takes a
 pre-restore snapshot of the current database and uploads it. If that snapshot
 fails, the restore stops and the live database is left alone. The entry shows up

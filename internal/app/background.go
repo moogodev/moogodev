@@ -100,6 +100,8 @@ type backupRunner interface {
 	VerifyInterval() time.Duration
 	// VerifyDue proves the newest backups that have not been checked recently.
 	VerifyDue(ctx context.Context, limit int) (int, error)
+	// ResumePendingRestores picks up restores left queued by a restart.
+	ResumePendingRestores(ctx context.Context, limit int) (int, error)
 }
 
 // Scheduler runs the periodic maintenance jobs.
@@ -195,6 +197,23 @@ func (scheduler *Scheduler) runOnce(ctx context.Context) {
 	scheduler.pruneActivity(ctx)
 	scheduler.runBackup(ctx)
 	scheduler.runVerification(ctx)
+	scheduler.resumeRestores(ctx)
+}
+
+// resumeRestores picks up restores that a previous process left queued, so a
+// restart does not strand a project mid-restore.
+func (scheduler *Scheduler) resumeRestores(ctx context.Context) {
+	if scheduler.backup == nil {
+		return
+	}
+	resumed, err := scheduler.backup.ResumePendingRestores(ctx, 0)
+	if err != nil && ctx.Err() == nil {
+		scheduler.log.Warn("resume pending restores failed", logger.Fields{"error": err.Error()})
+		return
+	}
+	if resumed > 0 {
+		scheduler.log.Info("resumed queued restores", logger.Fields{"restores": resumed})
+	}
 }
 
 // runBackup performs one backup pass, if backups are configured.

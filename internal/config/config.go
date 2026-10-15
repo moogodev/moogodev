@@ -155,7 +155,8 @@ type Config struct {
 	// BackupBatchSize caps how many projects one pass handles, so a backlog
 	// does not hold the loop for minutes.
 	BackupBatchSize int
-	// BackupTimeout bounds one project's snapshot-and-upload.
+	// BackupTimeout bounds one project's snapshot-and-upload, and one
+	// background restore of the same project.
 	BackupTimeout time.Duration
 
 	// BackupAlertWebhook is where backup alerts are POSTed as JSON. Empty
