@@ -209,6 +209,9 @@ func (stub *stubControl) GetBackup(w http.ResponseWriter, r *http.Request) {
 func (stub *stubControl) DownloadBackup(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "DownloadBackup")
 }
+func (stub *stubControl) DownloadBackupPublic(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "DownloadBackupPublic")
+}
 func (stub *stubControl) DeleteBackup(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "DeleteBackup")
 }

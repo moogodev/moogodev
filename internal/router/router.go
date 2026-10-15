@@ -73,6 +73,7 @@ type ControlPlaneHandlers interface {
 	GetRestore(http.ResponseWriter, *http.Request)
 	GetBackup(http.ResponseWriter, *http.Request)
 	DownloadBackup(http.ResponseWriter, *http.Request)
+	DownloadBackupPublic(http.ResponseWriter, *http.Request)
 	DeleteBackup(http.ResponseWriter, *http.Request)
 	QueryBackup(http.ResponseWriter, *http.Request)
 	DeleteAccount(http.ResponseWriter, *http.Request)
@@ -412,6 +413,8 @@ func New(deps Deps) http.Handler {
 						backup.Get("/", deps.Control.GetBackup)
 						backup.Delete("/", deps.Control.DeleteBackup)
 						backup.Get("/download", deps.Control.DownloadBackup)
+						// Public download with signed token (no session required).
+						backup.Get("/download", deps.Control.DownloadBackupPublic)
 						backup.Post("/restore", deps.Control.RestoreBackup)
 						// The read-only viewer's read path: same body and same
 						// response as the console's /query, run against the

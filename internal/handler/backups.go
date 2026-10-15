@@ -2,10 +2,15 @@ package handler
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,6 +78,72 @@ type RestoreResponse struct {
 	RequestedAt time.Time  `json:"requested_at"`
 	StartedAt   *time.Time `json:"started_at"`
 	FinishedAt  *time.Time `json:"finished_at"`
+}
+
+// backupDownloadTokenTTL is how long a download token remains valid.
+const backupDownloadTokenTTL = 24 * time.Hour
+
+// generateBackupDownloadToken creates a signed token for downloading a backup
+// without an authenticated session. The token contains the project ID, backup
+// ID, and expiry timestamp, signed with HMAC-SHA256 using the session secret.
+func (handler *ControlPlane) generateBackupDownloadToken(projectID, backupID uuid.UUID) (string, error) {
+	expiry := time.Now().Add(backupDownloadTokenTTL).Unix()
+	payload := fmt.Sprintf("%s:%s:%d", projectID.String(), backupID.String(), expiry)
+
+	mac := hmac.New(sha256.New, []byte(handler.cfg.SessionSecret))
+	mac.Write([]byte(payload))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+
+	token := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + sig
+	return token, nil
+}
+
+// validateBackupDownloadToken verifies a download token and returns the project
+// ID and backup ID if valid and not expired.
+func (handler *ControlPlane) validateBackupDownloadToken(token string) (projectID, backupID uuid.UUID, ok bool) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return uuid.Nil, uuid.Nil, false
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return uuid.Nil, uuid.Nil, false
+	}
+
+	payload := string(payloadBytes)
+	fields := strings.Split(payload, ":")
+	if len(fields) != 3 {
+		return uuid.Nil, uuid.Nil, false
+	}
+
+	// Verify signature
+	mac := hmac.New(sha256.New, []byte(handler.cfg.SessionSecret))
+	mac.Write(payloadBytes)
+	expectedSig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(parts[1]), []byte(expectedSig)) {
+		return uuid.Nil, uuid.Nil, false
+	}
+
+	// Parse fields
+	projectID, err = uuid.Parse(fields[0])
+	if err != nil {
+		return uuid.Nil, uuid.Nil, false
+	}
+	backupID, err = uuid.Parse(fields[1])
+	if err != nil {
+		return uuid.Nil, uuid.Nil, false
+	}
+
+	expiry, err := strconv.ParseInt(fields[2], 10, 64)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, false
+	}
+	if time.Now().Unix() > expiry {
+		return uuid.Nil, uuid.Nil, false // expired
+	}
+
+	return projectID, backupID, true
 }
 
 // ListBackups handles GET /api/projects/{project_id}/backups.
@@ -150,19 +221,37 @@ func (handler *ControlPlane) CreateBackup(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Fetch the latest backup to get its ID for the download token.
+	latest, err := handler.backups.LatestRegularBackup(r.Context(), project.ID)
+	if err != nil {
+		handler.log.Warn("fetch latest backup for token", logger.Fields{
+			"project_id": project.ID.String(),
+			"error":      err.Error(),
+		})
+		latest = nil
+	}
+
 	// Send manual backup completion email (best-effort, non-blocking).
 	if handler.mailer != nil && handler.mailer.Enabled() {
 		go func() {
 			ctx := context.Background()
 			user, err := handler.store.UserByID(ctx, project.UserID)
-			if err == nil && user.Email != "" {
-				// Link to the project backups page where the backup can be downloaded.
-				downloadLink := handler.cfg.APIURL + "/p/" + project.ID.String() + "/backups"
-				if err := handler.mailer.SendManualBackupCreated(ctx, user.Email, project.Name, result.SizeBytes, time.Now(), downloadLink); err != nil {
-					handler.log.Warn("send manual backup email", logger.Fields{
+			if err == nil && user.Email != "" && latest != nil {
+				token, err := handler.generateBackupDownloadToken(project.ID, latest.ID)
+				if err != nil {
+					handler.log.Warn("generate backup download token", logger.Fields{
 						"project_id": project.ID.String(),
 						"error":      err.Error(),
 					})
+				} else {
+					// Direct download link with signed token (valid 24h).
+					downloadLink := handler.cfg.APIURL + "/api/projects/" + project.ID.String() + "/backups/" + latest.ID.String() + "/download?token=" + token
+					if err := handler.mailer.SendManualBackupCreated(ctx, user.Email, project.Name, result.SizeBytes, time.Now(), downloadLink); err != nil {
+						handler.log.Warn("send manual backup email", logger.Fields{
+							"project_id": project.ID.String(),
+							"error":      err.Error(),
+						})
+					}
 				}
 			}
 		}()
@@ -319,6 +408,59 @@ func (handler *ControlPlane) DownloadBackup(w http.ResponseWriter, r *http.Reque
 	if _, err := io.Copy(w, body); err != nil {
 		handler.log.Warn("backup download interrupted", logger.Fields{
 			"project_id": project.ID.String(),
+			"backup_id":  backupID.String(),
+			"error":      err.Error(),
+		})
+	}
+}
+
+// DownloadBackupPublic handles GET /api/projects/{project_id}/backups/{backup_id}/download?token=...
+//
+// This endpoint allows downloading a backup without an authenticated session,
+// using a signed token (generated by generateBackupDownloadToken). The token
+// is valid for 24 hours and contains the project ID, backup ID, and expiry.
+func (handler *ControlPlane) DownloadBackupPublic(w http.ResponseWriter, r *http.Request) {
+	if handler.backups == nil {
+		handler.writeBackupsDisabled(w)
+		return
+	}
+
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "missing_token", "download token is required")
+		return
+	}
+
+	projectID, backupID, ok := handler.validateBackupDownloadToken(token)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "download token is invalid or expired")
+		return
+	}
+
+	body, stored, err := handler.backups.DownloadBackup(r.Context(), projectID, backupID)
+	if err != nil {
+		handler.writeBackupError(w, r, err, "download backup")
+		return
+	}
+	defer body.Close()
+
+	// We need the project name for the filename. Fetch it (best effort).
+	projectName := "backup"
+	if project, err := handler.store.ProjectByID(r.Context(), projectID); err == nil {
+		projectName = project.Name
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.sqlite3")
+	w.Header().Set("Content-Disposition", contentDisposition(snapshotFilename(projectName, stored)))
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if stored.SizeBytes > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(stored.SizeBytes, 10))
+	}
+
+	if _, err := io.Copy(w, body); err != nil {
+		handler.log.Warn("public backup download interrupted", logger.Fields{
+			"project_id": projectID.String(),
 			"backup_id":  backupID.String(),
 			"error":      err.Error(),
 		})

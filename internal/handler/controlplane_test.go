@@ -190,6 +190,14 @@ func (store *fakeStore) ProjectOwnedBy(
 	return project, nil
 }
 
+func (store *fakeStore) ProjectByID(_ context.Context, projectID uuid.UUID) (*dbcontrol.Project, error) {
+	project, found := store.projects[projectID]
+	if !found {
+		return nil, dbcontrol.ErrNotFound
+	}
+	return project, nil
+}
+
 func (store *fakeStore) RotateSecretKey(_ context.Context, projectID uuid.UUID) (string, error) {
 	store.rotateCalls++
 	if store.rotateErr != nil {

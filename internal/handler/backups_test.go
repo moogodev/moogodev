@@ -137,6 +137,16 @@ func (fake *fakeBackups) DeleteProjectBackups(_ context.Context, projectID uuid.
 	return nil
 }
 
+func (fake *fakeBackups) LatestRegularBackup(_ context.Context, projectID uuid.UUID) (*dbcontrol.DatabaseBackup, error) {
+	if fake.getErr != nil {
+		return nil, fake.getErr
+	}
+	if fake.backups != nil && len(fake.backups) > 0 {
+		return &fake.backups[len(fake.backups)-1], nil
+	}
+	return nil, dbcontrol.ErrNotFound
+}
+
 // backupRequest builds a signed-in request for a project, with the project id
 // and the user id already in the context.
 func backupRequest(

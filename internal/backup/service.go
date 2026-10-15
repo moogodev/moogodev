@@ -748,6 +748,11 @@ func (service *Service) GetBackup(ctx context.Context, projectID uuid.UUID, back
 	return service.projects.DatabaseBackupByID(ctx, projectID, backupID)
 }
 
+// LatestRegularBackup returns the newest regular backup for a project.
+func (service *Service) LatestRegularBackup(ctx context.Context, projectID uuid.UUID) (*dbcontrol.DatabaseBackup, error) {
+	return service.projects.LatestRegularBackup(ctx, projectID)
+}
+
 // DownloadBackup opens a stored backup for streaming to the owner.
 //
 // The object is handed back unverified and unread: the caller streams it

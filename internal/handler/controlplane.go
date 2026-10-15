@@ -59,6 +59,7 @@ type Store interface {
 	MarkProjectFailed(ctx context.Context, projectID uuid.UUID, reason string) error
 	ListProjects(ctx context.Context, userID uuid.UUID, limit int, offset int) ([]dbcontrol.Project, error)
 	ProjectOwnedBy(ctx context.Context, projectID uuid.UUID, userID uuid.UUID) (*dbcontrol.Project, error)
+	ProjectByID(ctx context.Context, projectID uuid.UUID) (*dbcontrol.Project, error)
 	RotateSecretKey(ctx context.Context, projectID uuid.UUID) (string, error)
 	PauseProject(ctx context.Context, projectID uuid.UUID) error
 	ResumeProject(ctx context.Context, projectID uuid.UUID) error
@@ -137,6 +138,8 @@ type Backups interface {
 	GetBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (*dbcontrol.DatabaseBackup, error)
 	// DownloadBackup opens a stored backup for streaming to the owner.
 	DownloadBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (io.ReadCloser, *dbcontrol.DatabaseBackup, error)
+	// LatestRegularBackup returns the newest regular backup for a project.
+	LatestRegularBackup(ctx context.Context, projectID uuid.UUID) (*dbcontrol.DatabaseBackup, error)
 	// DeleteBackup removes one stored backup and, when it is the newest regular
 	// backup, the latest pointer that mirrors it.
 	DeleteBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) error
