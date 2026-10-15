@@ -128,6 +128,16 @@ type Backups interface {
 	BackupProject(ctx context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind) (*backup.Result, error)
 	// RestoreProject replaces the live database with a stored backup.
 	RestoreProject(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) error
+	// GetBackup returns one stored backup's metadata, scoped to the project.
+	GetBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (*dbcontrol.DatabaseBackup, error)
+	// DownloadBackup opens a stored backup for streaming to the owner.
+	DownloadBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (io.ReadCloser, *dbcontrol.DatabaseBackup, error)
+	// DeleteBackup removes one stored backup and, when it is the newest regular
+	// backup, the latest.sqlite pointer that mirrors it.
+	DeleteBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) error
+	// SnapshotPath returns the path of a verified local copy of a backup, for
+	// the read-only viewer.
+	SnapshotPath(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (string, error)
 	// DeleteProjectBackups removes a project's stored objects and metadata. It
 	// is called when the project or the account is deleted.
 	DeleteProjectBackups(ctx context.Context, projectID uuid.UUID) error

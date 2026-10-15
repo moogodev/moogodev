@@ -135,6 +135,8 @@ type fakeProjects struct {
 	stateErr   error
 	byID       *dbcontrol.DatabaseBackup
 	byIDErr    error
+	latest     *dbcontrol.DatabaseBackup
+	latestErr  error
 	expired    []dbcontrol.DatabaseBackup
 	expiredErr error
 	recordErr  error
@@ -185,6 +187,10 @@ func (fake *fakeProjects) RecordBackupFailure(_ context.Context, projectID uuid.
 
 func (fake *fakeProjects) DatabaseBackupByID(_ context.Context, _, _ uuid.UUID) (*dbcontrol.DatabaseBackup, error) {
 	return fake.byID, fake.byIDErr
+}
+
+func (fake *fakeProjects) LatestRegularBackup(_ context.Context, _ uuid.UUID) (*dbcontrol.DatabaseBackup, error) {
+	return fake.latest, fake.latestErr
 }
 
 func (fake *fakeProjects) ListDatabaseBackups(_ context.Context, _ uuid.UUID, _ int, _ int) ([]dbcontrol.DatabaseBackup, error) {
@@ -531,4 +537,161 @@ func TestProjectPrefixIsScoped(t *testing.T) {
 func sha256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// --- download, delete and snapshot (the viewer's actions) ----------------
+
+// storedBackup puts an object in the fake bucket and returns the history row
+// that points at it.
+func storedBackup(t *testing.T, objects *fakeObjects, projectID uuid.UUID, key string, data []byte) dbcontrol.DatabaseBackup {
+	t.Helper()
+	objects.stored[key] = data
+	return dbcontrol.DatabaseBackup{
+		ID:        uuid.New(),
+		ProjectID: projectID,
+		Kind:      dbcontrol.BackupDaily,
+		ObjectKey: key,
+		SizeBytes: int64(len(data)),
+		SHA256:    sha256Hex(data),
+		CreatedAt: time.Now(),
+	}
+}
+
+func TestDownloadBackupStreamsStoredObject(t *testing.T) {
+	service, projects, _, objects := newTestService(t, Config{Prefix: "backups"})
+	projectID := uuid.New()
+	stored := storedBackup(t, objects, projectID, service.objectKey(projectID, dbcontrol.BackupDaily, time.Now()), []byte("payload"))
+	projects.byID = &stored
+
+	body, meta, err := service.DownloadBackup(context.Background(), projectID, stored.ID)
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	defer body.Close()
+
+	if meta.ID != stored.ID {
+		t.Errorf("id = %v, want %v", meta.ID, stored.ID)
+	}
+	got, _ := io.ReadAll(body)
+	if string(got) != "payload" {
+		t.Errorf("body = %q, want payload", got)
+	}
+}
+
+func TestDownloadBackupUnknownBackup(t *testing.T) {
+	service, projects, _, _ := newTestService(t, Config{Prefix: "backups"})
+	projects.byIDErr = dbcontrol.ErrNotFound
+
+	if _, _, err := service.DownloadBackup(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, dbcontrol.ErrNotFound) {
+		t.Fatalf("error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestDeleteBackupRemovesObjectAndRow(t *testing.T) {
+	service, projects, _, objects := newTestService(t, Config{Prefix: "backups"})
+	projectID := uuid.New()
+	key := service.objectKey(projectID, dbcontrol.BackupDaily, time.Now())
+	stored := storedBackup(t, objects, projectID, key, []byte("older"))
+	projects.byID = &stored
+	// A different, newer backup is what latest.sqlite mirrors.
+	newer := stored
+	newer.ID = uuid.New()
+	projects.latest = &newer
+
+	if err := service.DeleteBackup(context.Background(), projectID, stored.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	if _, ok := objects.stored[key]; ok {
+		t.Error("the backup object should be gone")
+	}
+	if _, ok := objects.stored[service.latestKey(projectID)]; ok {
+		t.Error("the latest pointer belongs to a different backup and must survive")
+	}
+	if len(projects.deletedRows) != 1 || len(projects.deletedRows[0]) != 1 || projects.deletedRows[0][0] != stored.ID {
+		t.Errorf("deleted rows = %v, want [%v]", projects.deletedRows, stored.ID)
+	}
+}
+
+func TestDeleteBackupRemovesLatestPointerWhenNewest(t *testing.T) {
+	service, projects, _, objects := newTestService(t, Config{Prefix: "backups"})
+	projectID := uuid.New()
+	key := service.objectKey(projectID, dbcontrol.BackupDaily, time.Now())
+	stored := storedBackup(t, objects, projectID, key, []byte("newest"))
+	projects.byID = &stored
+	// The backup being deleted is the newest regular one.
+	projects.latest = &stored
+	objects.stored[service.latestKey(projectID)] = []byte("newest")
+
+	if err := service.DeleteBackup(context.Background(), projectID, stored.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	if _, ok := objects.stored[service.latestKey(projectID)]; ok {
+		t.Error("deleting the newest backup must also remove latest.sqlite")
+	}
+}
+
+// TestDeleteBackupSurvivesLatestLookupFailure pins the tradeoff: the backup the
+// owner asked to delete is gone, so a failure to look up the latest pointer is
+// logged and stepped over rather than reported as a failed delete.
+func TestDeleteBackupSurvivesLatestLookupFailure(t *testing.T) {
+	service, projects, _, objects := newTestService(t, Config{Prefix: "backups"})
+	projectID := uuid.New()
+	key := service.objectKey(projectID, dbcontrol.BackupDaily, time.Now())
+	stored := storedBackup(t, objects, projectID, key, []byte("data"))
+	projects.byID = &stored
+	projects.latestErr = errors.New("database down")
+
+	if err := service.DeleteBackup(context.Background(), projectID, stored.ID); err != nil {
+		t.Fatalf("delete should tolerate a latest lookup failure, got %v", err)
+	}
+	if len(projects.deletedRows) != 1 {
+		t.Errorf("the history row should still be removed")
+	}
+}
+
+func TestSnapshotPathDownloadsAndVerifies(t *testing.T) {
+	service, projects, _, objects := newTestService(t, Config{Prefix: "backups"})
+	projectID := uuid.New()
+	content := []byte("SQLite format 3\x00 snapshot body")
+	key := service.objectKey(projectID, dbcontrol.BackupDaily, time.Now())
+	stored := storedBackup(t, objects, projectID, key, content)
+	projects.byID = &stored
+
+	path, err := service.SnapshotPath(context.Background(), projectID, stored.ID)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(path) })
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read snapshot: %v", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("snapshot = %q, want %q", got, content)
+	}
+
+	// A second call must reuse the cached copy rather than downloading again.
+	second, err := service.SnapshotPath(context.Background(), projectID, stored.ID)
+	if err != nil {
+		t.Fatalf("second snapshot: %v", err)
+	}
+	if second != path {
+		t.Errorf("second call re-downloaded: %q vs %q", second, path)
+	}
+}
+
+func TestSnapshotPathRejectsCorruptObject(t *testing.T) {
+	service, projects, _, objects := newTestService(t, Config{Prefix: "backups"})
+	projectID := uuid.New()
+	key := service.objectKey(projectID, dbcontrol.BackupDaily, time.Now())
+	stored := storedBackup(t, objects, projectID, key, []byte("honest bytes"))
+	stored.SHA256 = sha256Hex([]byte("something else"))
+	projects.byID = &stored
+
+	if _, err := service.SnapshotPath(context.Background(), projectID, stored.ID); !errors.Is(err, ErrBackupCorrupt) {
+		t.Fatalf("error = %v, want ErrBackupCorrupt", err)
+	}
 }

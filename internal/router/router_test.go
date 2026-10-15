@@ -200,6 +200,18 @@ func (stub *stubControl) CreateBackup(w http.ResponseWriter, r *http.Request) {
 func (stub *stubControl) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "RestoreBackup")
 }
+func (stub *stubControl) GetBackup(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "GetBackup")
+}
+func (stub *stubControl) DownloadBackup(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "DownloadBackup")
+}
+func (stub *stubControl) DeleteBackup(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "DeleteBackup")
+}
+func (stub *stubControl) QueryBackup(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "QueryBackup")
+}
 func (stub *stubControl) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "DeleteAccount")
 }

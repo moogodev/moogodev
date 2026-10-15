@@ -70,6 +70,10 @@ type ControlPlaneHandlers interface {
 	ListBackups(http.ResponseWriter, *http.Request)
 	CreateBackup(http.ResponseWriter, *http.Request)
 	RestoreBackup(http.ResponseWriter, *http.Request)
+	GetBackup(http.ResponseWriter, *http.Request)
+	DownloadBackup(http.ResponseWriter, *http.Request)
+	DeleteBackup(http.ResponseWriter, *http.Request)
+	QueryBackup(http.ResponseWriter, *http.Request)
 	DeleteAccount(http.ResponseWriter, *http.Request)
 }
 
@@ -404,7 +408,14 @@ func New(deps Deps) http.Handler {
 					backups.Post("/", deps.Control.CreateBackup)
 
 					backups.Route("/{backup_id}", func(backup chi.Router) {
+						backup.Get("/", deps.Control.GetBackup)
+						backup.Delete("/", deps.Control.DeleteBackup)
+						backup.Get("/download", deps.Control.DownloadBackup)
 						backup.Post("/restore", deps.Control.RestoreBackup)
+						// The read-only viewer's read path: same body and same
+						// response as the console's /query, run against the
+						// downloaded snapshot.
+						backup.Post("/query", deps.Control.QueryBackup)
 					})
 				})
 

@@ -46,6 +46,18 @@ type Engine interface {
 		projectID uuid.UUID,
 		statements []dbplane.TransactionStatement,
 	) (*dbplane.TransactionResult, error)
+
+	// QuerySnapshot runs a read-only statement against a standalone SQLite
+	// file, such as a downloaded backup. It is the backup viewer's read path
+	// and is deliberately separate from Query: the target is a file, not a
+	// project, so there is no project-scoped pool or write lock involved.
+	QuerySnapshot(
+		ctx context.Context,
+		path string,
+		statement string,
+		args []any,
+		limit int,
+	) (*dbplane.QueryResult, error)
 }
 
 // DataPlane serves the SQL API.

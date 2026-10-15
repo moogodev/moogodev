@@ -3,7 +3,9 @@ package handler
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +15,7 @@ import (
 	"github.com/moogodev/moogodev/internal/dbplane"
 	"github.com/moogodev/moogodev/pkg/httpx"
 	"github.com/moogodev/moogodev/pkg/logger"
+	"github.com/moogodev/moogodev/pkg/sanitizer"
 )
 
 // BackupResponse is one entry the dashboard lists and can restore from.
@@ -75,13 +78,7 @@ func (handler *ControlPlane) ListBackups(w http.ResponseWriter, r *http.Request)
 
 	response.Enabled = true
 	for index := range backups {
-		response.Backups = append(response.Backups, BackupResponse{
-			ID:        backups[index].ID,
-			Kind:      string(backups[index].Kind),
-			SizeBytes: backups[index].SizeBytes,
-			SHA256:    backups[index].SHA256,
-			CreatedAt: backups[index].CreatedAt,
-		})
+		response.Backups = append(response.Backups, describeBackup(&backups[index]))
 	}
 	if state != nil {
 		response.State = BackupStateResponse{
@@ -157,6 +154,213 @@ func (handler *ControlPlane) RestoreBackup(w http.ResponseWriter, r *http.Reques
 		"success": true,
 		"message": "Database restored. A pre-restore backup was saved first.",
 	})
+}
+
+// GetBackup handles GET /api/projects/{project_id}/backups/{backup_id}.
+//
+// The viewer is a page of its own that opens in a new tab, so it cannot rely on
+// the list it was opened from. This returns the one entry it needs to name the
+// snapshot it is showing.
+func (handler *ControlPlane) GetBackup(w http.ResponseWriter, r *http.Request) {
+	project, ok := handler.ownedProject(w, r)
+	if !ok {
+		return
+	}
+
+	if handler.backups == nil {
+		handler.writeBackupsDisabled(w)
+		return
+	}
+
+	backupID, err := uuidParam(r, "backup_id")
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_backup_id",
+			"the backup id is missing or malformed")
+		return
+	}
+
+	stored, err := handler.backups.GetBackup(r.Context(), project.ID, backupID)
+	if err != nil {
+		handler.writeBackupError(w, r, err, "read backup")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, describeBackup(stored))
+}
+
+// DownloadBackup handles GET /api/projects/{project_id}/backups/{backup_id}/download.
+//
+// It streams the stored object as a file so the owner can keep a copy. Like the
+// live-database download beside it, a paused project is allowed: a backup is a
+// read, and reading one is exactly what a broken project's owner needs to do.
+func (handler *ControlPlane) DownloadBackup(w http.ResponseWriter, r *http.Request) {
+	project, ok := handler.ownedProject(w, r)
+	if !ok {
+		return
+	}
+
+	if handler.backups == nil {
+		handler.writeBackupsDisabled(w)
+		return
+	}
+
+	backupID, err := uuidParam(r, "backup_id")
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_backup_id",
+			"the backup id is missing or malformed")
+		return
+	}
+
+	body, stored, err := handler.backups.DownloadBackup(r.Context(), project.ID, backupID)
+	if err != nil {
+		handler.writeBackupError(w, r, err, "download backup")
+		return
+	}
+	defer body.Close()
+
+	// Content-Length comes from the recorded size, so a browser can show a real
+	// progress bar. It is advisory: the header is already sent by the time a
+	// short copy would be noticed, and the log records that case.
+	w.Header().Set("Content-Type", "application/vnd.sqlite3")
+	w.Header().Set("Content-Disposition", contentDisposition(snapshotFilename(project.Name, stored)))
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if stored.SizeBytes > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(stored.SizeBytes, 10))
+	}
+
+	if _, err := io.Copy(w, body); err != nil {
+		handler.log.Warn("backup download interrupted", logger.Fields{
+			"project_id": project.ID.String(),
+			"backup_id":  backupID.String(),
+			"error":      err.Error(),
+		})
+	}
+}
+
+// DeleteBackup handles DELETE /api/projects/{project_id}/backups/{backup_id}.
+//
+// Deleting a backup is destructive and unrecoverable, so the dashboard asks for
+// confirmation first; the server does not need to, because the request itself
+// is the owner's explicit decision about a copy they can still see in the list.
+func (handler *ControlPlane) DeleteBackup(w http.ResponseWriter, r *http.Request) {
+	project, ok := handler.ownedProject(w, r)
+	if !ok {
+		return
+	}
+
+	if handler.backups == nil {
+		handler.writeBackupsDisabled(w)
+		return
+	}
+
+	backupID, err := uuidParam(r, "backup_id")
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_backup_id",
+			"the backup id is missing or malformed")
+		return
+	}
+
+	if err := handler.backups.DeleteBackup(r.Context(), project.ID, backupID); err != nil {
+		handler.writeBackupError(w, r, err, "delete backup")
+		return
+	}
+
+	httpx.NoContent(w)
+}
+
+// QueryBackup handles POST /api/projects/{project_id}/backups/{backup_id}/query.
+//
+// This is the viewer's read path: the same shape as the console's /query, run
+// against a downloaded copy of a backup instead of the live database. It is
+// read-only by construction -- the statement is checked here and the file is
+// opened query_only -- so a viewer can never edit a backup, which would be a
+// meaningless edit to a snapshot anyway.
+//
+// A paused project is allowed, because the snapshot is a file rather than the
+// live database and viewing it must keep working when the live one does not.
+func (handler *ControlPlane) QueryBackup(w http.ResponseWriter, r *http.Request) {
+	project, ok := handler.ownedProject(w, r)
+	if !ok {
+		return
+	}
+
+	if handler.backups == nil {
+		handler.writeBackupsDisabled(w)
+		return
+	}
+
+	backupID, err := uuidParam(r, "backup_id")
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_backup_id",
+			"the backup id is missing or malformed")
+		return
+	}
+
+	var request SQLRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		return
+	}
+
+	if err := sanitizer.Validate(request.Query); err != nil {
+		writeSanitizerError(w, err)
+		return
+	}
+
+	if !isReadStatement(request.Query) {
+		httpx.WriteError(w, http.StatusBadRequest, "not_a_read",
+			"a backup can only be read; use /query with a read statement")
+		return
+	}
+
+	path, err := handler.backups.SnapshotPath(r.Context(), project.ID, backupID)
+	if err != nil {
+		handler.writeBackupError(w, r, err, "open backup")
+		return
+	}
+
+	started := now()
+	result, err := handler.databases.QuerySnapshot(r.Context(), path, request.Query, request.Args, 0)
+	if err != nil {
+		// Reuses the data plane's mapping and activity logging so a viewer
+		// failure reads the same as the same statement failing on a live
+		// database.
+		handler.sql.writeDataPlaneError(w, r, project.ID, err, "backup query")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, QueryResponse{
+		Success:    true,
+		Columns:    result.Columns,
+		Rows:       result.Rows,
+		RowCount:   len(result.Rows),
+		Truncated:  result.Truncated,
+		DurationMs: elapsedMs(started),
+	})
+}
+
+// describeBackup projects a stored backup onto the wire shape.
+func describeBackup(stored *dbcontrol.DatabaseBackup) BackupResponse {
+	return BackupResponse{
+		ID:        stored.ID,
+		Kind:      string(stored.Kind),
+		SizeBytes: stored.SizeBytes,
+		SHA256:    stored.SHA256,
+		CreatedAt: stored.CreatedAt,
+	}
+}
+
+// snapshotFilename builds the download name for one backup: the project name,
+// the reason it exists and its date.
+//
+// The project name is slugged rather than passed through because it lands in a
+// response header; see backupFilename for the same reasoning.
+func snapshotFilename(projectName string, stored *dbcontrol.DatabaseBackup) string {
+	slug := slugifyProjectName(projectName)
+	if slug == "" {
+		slug = "project"
+	}
+	return slug + "_" + string(stored.Kind) + "_" + stored.CreatedAt.Format("02_01_2006") + ".sqlite"
 }
 
 // scheduleInitialBackup takes the first backup of a brand-new project without

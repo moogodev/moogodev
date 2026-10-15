@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError } from "../lib/api";
-import type { SQLResponse } from "../lib/api";
+import { ApiError } from "../lib/api";
+import type { SQLResponse, SqlSource } from "../lib/api";
 import {
   buildDelete,
   buildInsert,
@@ -34,11 +34,15 @@ interface GridRow {
 }
 
 interface TableDataGridProps {
-  projectId: string;
+  // source is where the rows come from and go. It is the live project database
+  // for the Tables tab and a read-only snapshot for the backup viewer, which is
+  // the only difference between the two.
+  source: SqlSource;
   table: string;
   columns: SchemaColumn[];
   // null when the table has no way to name a single row, which makes editing
-  // impossible; the grid then renders read-only.
+  // impossible; the grid then renders read-only. The backup viewer relies on
+  // this: passing null is what turns every edit affordance off.
   identity: TableIdentity | null;
   /** Bumped after a write elsewhere in the tab, or by the Reload button. */
   refreshKey: number;
@@ -67,7 +71,7 @@ function isLongValue(value: string | null): boolean {
 // input on click, commits on blur or Enter, and reverts on Escape. A new row is
 // typed at the bottom and inserted when focus leaves it.
 export default function TableDataGrid({
-  projectId,
+  source,
   table,
   columns,
   identity,
@@ -104,8 +108,7 @@ export default function TableDataGrid({
       setLoading(true);
       setError(null);
       try {
-        const pageResponse = await api.consoleQuery(
-          projectId,
+        const pageResponse = await source.query(
           selectRows({
             table,
             identifyByRowid: identity?.kind === "rowid",
@@ -122,7 +125,7 @@ export default function TableDataGrid({
         // because a page tells you nothing about how many pages follow. It is
         // fetched separately so a failure here costs the count, not the grid.
         try {
-          const countResponse = await api.consoleQuery(projectId, countRows(table));
+          const countResponse = await source.query(countRows(table));
           if (cancelled) return;
           const total = Number(countResponse.rows?.[0]?.[0]);
           setTotalRows(Number.isFinite(total) ? total : null);
@@ -141,7 +144,7 @@ export default function TableDataGrid({
     return () => {
       cancelled = true;
     };
-  }, [projectId, table, refreshKey, pageStart, sort.column, sort.direction, identity?.kind]);
+  }, [source, table, refreshKey, pageStart, sort.column, sort.direction, identity?.kind]);
 
   // A row is identified by its single-column primary key when there is one, and
   // by the implicit rowid otherwise.
@@ -185,7 +188,7 @@ export default function TableDataGrid({
       setBusy(true);
       setActionError(null);
       try {
-        await api.consoleExec(projectId, statement, args);
+        await source.exec(statement, args);
         after?.();
         onChanged();
       } catch (cause) {
@@ -198,7 +201,7 @@ export default function TableDataGrid({
         setBusy(false);
       }
     },
-    [projectId, onChanged],
+    [source, onChanged],
   );
 
   const commitCell = (rowIndex: number, columnIndex: number, raw: string) => {
@@ -306,8 +309,9 @@ export default function TableDataGrid({
       >
         <table className="w-full border-collapse text-left text-[0.82rem]">
           <caption className="sr-only">
-            Rows from {table}. Click a cell to edit it, or to read a long value
-            in full.
+            Rows from {table}. {editable
+              ? "Click a cell to edit it, or to read a long value in full."
+              : "Click a cell holding a long value to read it in full."}
           </caption>
           <thead className="sticky top-0 z-10 bg-panel-raised">
             <tr>

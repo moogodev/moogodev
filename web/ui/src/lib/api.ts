@@ -433,6 +433,30 @@ export const api = {
       `/api/projects/${id}/backups/${backupId}/restore`,
       { method: "POST" },
     ),
+  // getBackup names one stored backup. The viewer is a page of its own and
+  // cannot rely on the list it was opened from, so it asks for the one entry it
+  // needs rather than searching a list it may not have.
+  getBackup: (id: string, backupId: string) =>
+    request<Backup>(`/api/projects/${id}/backups/${backupId}`),
+  // deleteBackup removes one stored backup. The server also drops latest.sqlite
+  // when the deleted backup is the newest regular one.
+  deleteBackup: (id: string, backupId: string) =>
+    request<void>(`/api/projects/${id}/backups/${backupId}`, {
+      method: "DELETE",
+    }),
+  // backupQuery reads a stored backup. It is the viewer's read path: the same
+  // body and response as consoleQuery, run against a downloaded copy rather
+  // than the live database. The server refuses anything that is not a read.
+  backupQuery: (id: string, backupId: string, query: string, args: any[] = []) =>
+    request<SQLResponse>(`/api/projects/${id}/backups/${backupId}/query`, {
+      method: "POST",
+      body: JSON.stringify({ query, args }),
+    }),
+  // backupDownloadUrl is a plain URL rather than a request() call, because the
+  // response is a file. Like the live-database download, the session cookie is
+  // the credential and an anchor lets the browser own the progress UI.
+  backupDownloadUrl: (id: string, backupId: string) =>
+    `/api/projects/${id}/backups/${backupId}/download`,
 
   // databaseBackupUrl is a plain URL rather than a request() call, because the
   // response is a file, not JSON. It is handed to an anchor so the browser
@@ -777,4 +801,37 @@ export function isReadQuery(query: string): boolean {
     return isReadAfterCTE(query);
   }
   return false;
+}
+
+// SqlSource is the read/write pair a data browser needs, independent of where
+// the data lives.
+//
+// TableBrowser and its panes are written against this rather than calling the
+// api directly, so the same components can show a project's live database or a
+// read-only snapshot of a backup without a second copy of the grid.
+export interface SqlSource {
+  query: (statement: string, args?: any[]) => Promise<SQLResponse>;
+  exec: (statement: string, args?: any[]) => Promise<SQLResponse>;
+  // readOnly hides the editing affordances. The server enforces it as well;
+  // this is what keeps a viewer from offering a button that could only fail.
+  readOnly: boolean;
+}
+
+// liveSource is a project's own database, as the Tables tab has always used it.
+export function liveSource(projectId: string): SqlSource {
+  return {
+    query: (statement, args) => api.consoleQuery(projectId, statement, args),
+    exec: (statement, args) => api.consoleExec(projectId, statement, args),
+    readOnly: false,
+  };
+}
+
+// backupSource reads a stored backup. Both halves point at the read endpoint:
+// a write is refused by the server and the snapshot is opened query_only, so a
+// stray call fails loudly rather than appearing to succeed against a copy that
+// would be thrown away anyway.
+export function backupSource(projectId: string, backupId: string): SqlSource {
+  const run = (statement: string, args?: any[]) =>
+    api.backupQuery(projectId, backupId, statement, args);
+  return { query: run, exec: run, readOnly: true };
 }

@@ -88,6 +88,22 @@ func (engine *fakeEngine) Transaction(
 	return &dbplane.TransactionResult{Statements: results, RowsAffected: int64(len(results))}, nil
 }
 
+// QuerySnapshot satisfies the Engine interface's backup-viewer read path. The
+// handler test only needs it to exist; the behaviour is covered by the data
+// plane's own tests.
+func (engine *fakeEngine) QuerySnapshot(
+	_ context.Context, path string, statement string, args []any, limit int,
+) (*dbplane.QueryResult, error) {
+	engine.queryCalls++
+	engine.lastQuery = statement
+	engine.lastArgs = args
+	if engine.err != nil {
+		return nil, engine.err
+	}
+	result := engine.queryResult
+	return &result, nil
+}
+
 // dataPlaneRequest builds an authenticated SQL request.
 func dataPlaneRequest(t *testing.T, projectID uuid.UUID, path string, body string) *http.Request {
 	t.Helper()

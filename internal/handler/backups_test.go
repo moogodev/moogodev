@@ -1,9 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,10 +30,16 @@ type fakeBackups struct {
 	listErr    error
 	backupErr  error
 	restoreErr error
+	getErr     error
+	deleteErr  error
+	snapErr    error
 
-	backupCalls int
-	backupKind  dbcontrol.BackupKind
-	restoredID  uuid.UUID
+	backupCalls   int
+	backupKind    dbcontrol.BackupKind
+	restoredID    uuid.UUID
+	deletedID     uuid.UUID
+	snapshotID    uuid.UUID
+	downloadBytes []byte
 }
 
 func (fake *fakeBackups) ListBackups(
@@ -55,6 +65,43 @@ func (fake *fakeBackups) BackupProject(
 func (fake *fakeBackups) RestoreProject(_ context.Context, _, backupID uuid.UUID) error {
 	fake.restoredID = backupID
 	return fake.restoreErr
+}
+
+func (fake *fakeBackups) GetBackup(_ context.Context, _, backupID uuid.UUID) (*dbcontrol.DatabaseBackup, error) {
+	if fake.getErr != nil {
+		return nil, fake.getErr
+	}
+	for index := range fake.backups {
+		if fake.backups[index].ID == backupID {
+			return &fake.backups[index], nil
+		}
+	}
+	return &dbcontrol.DatabaseBackup{
+		ID: backupID, Kind: dbcontrol.BackupDaily, SizeBytes: 10, SHA256: "abc",
+	}, nil
+}
+
+func (fake *fakeBackups) DownloadBackup(_ context.Context, _, backupID uuid.UUID) (io.ReadCloser, *dbcontrol.DatabaseBackup, error) {
+	if fake.getErr != nil {
+		return nil, nil, fake.getErr
+	}
+	body := io.NopCloser(bytes.NewReader(fake.downloadBytes))
+	return body, &dbcontrol.DatabaseBackup{
+		ID: backupID, Kind: dbcontrol.BackupDaily, SizeBytes: int64(len(fake.downloadBytes)),
+	}, nil
+}
+
+func (fake *fakeBackups) DeleteBackup(_ context.Context, _, backupID uuid.UUID) error {
+	fake.deletedID = backupID
+	return fake.deleteErr
+}
+
+func (fake *fakeBackups) SnapshotPath(_ context.Context, _, backupID uuid.UUID) (string, error) {
+	fake.snapshotID = backupID
+	if fake.snapErr != nil {
+		return "", fake.snapErr
+	}
+	return "/tmp/snapshot.sqlite", nil
 }
 
 func (fake *fakeBackups) DeleteProjectBackups(context.Context, uuid.UUID) error {
@@ -288,5 +335,220 @@ func TestListBackupsRejectsForeignProject(t *testing.T) {
 	}
 	if code := errorCode(t, recorder); code != "project_not_found" {
 		t.Errorf("code = %q, want project_not_found", code)
+	}
+}
+
+// backupQueryRequest builds the viewer's POST: the console's JSON body against
+// a backup id.
+func backupQueryRequest(t *testing.T, projectID uuid.UUID, backupID uuid.UUID, body string) *http.Request {
+	t.Helper()
+	request := backupRequest(t, http.MethodPost, "/query", projectID)
+	request.Body = io.NopCloser(strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	return withBackupID(request, backupID)
+}
+
+func TestGetBackupReturnsEntry(t *testing.T) {
+	handler, backups, projectID := backupPlane(t)
+	backupID := uuid.New()
+	backups.backups = []dbcontrol.DatabaseBackup{
+		{ID: backupID, Kind: dbcontrol.BackupDaily, SizeBytes: 4096, SHA256: "abc", CreatedAt: time.Now()},
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.GetBackup(recorder, withBackupID(
+		backupRequest(t, http.MethodGet, "/", projectID), backupID))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	var body BackupResponse
+	decodeBody(t, recorder, &body)
+	if body.ID != backupID {
+		t.Errorf("id = %v, want %v", body.ID, backupID)
+	}
+	if body.Kind != "daily" {
+		t.Errorf("kind = %q, want daily", body.Kind)
+	}
+}
+
+func TestBackupActionsDisabled(t *testing.T) {
+	// A server without backup storage answers 503 to the mutating actions
+	// rather than pretending the backup does not exist.
+	handler, store, _ := testControlPlane(testUserID)
+	projectID := uuid.New()
+	store.projects[projectID] = &dbcontrol.Project{
+		ID: projectID, UserID: testUserID, Status: dbcontrol.ProjectReady,
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.GetBackup(recorder, withBackupID(
+		backupRequest(t, http.MethodGet, "/", projectID), uuid.New()))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("get status = %d, want 503", recorder.Code)
+	}
+	if code := errorCode(t, recorder); code != "backups_disabled" {
+		t.Errorf("get code = %q, want backups_disabled", code)
+	}
+
+	recorder = httptest.NewRecorder()
+	handler.DeleteBackup(recorder, withBackupID(
+		backupRequest(t, http.MethodDelete, "/", projectID), uuid.New()))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("delete status = %d, want 503", recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	handler.QueryBackup(recorder, backupQueryRequest(t, projectID, uuid.New(),
+		`{"query":"SELECT 1","args":[]}`))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("query status = %d, want 503", recorder.Code)
+	}
+}
+
+func TestDownloadBackupStreamsObject(t *testing.T) {
+	handler, backups, projectID := backupPlane(t)
+	backupID := uuid.New()
+	backups.downloadBytes = []byte("SQLite format 3\x00 one database")
+
+	recorder := httptest.NewRecorder()
+	handler.DownloadBackup(recorder, withBackupID(
+		backupRequest(t, http.MethodGet, "/download", projectID), backupID))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	if got := recorder.Body.Bytes(); !bytes.Equal(got, backups.downloadBytes) {
+		t.Errorf("body = %q, want %q", got, backups.downloadBytes)
+	}
+	if disposition := recorder.Header().Get("Content-Disposition"); !strings.Contains(disposition, "attachment") {
+		t.Errorf("Content-Disposition = %q, want an attachment", disposition)
+	}
+	if length := recorder.Header().Get("Content-Length"); length != strconv.Itoa(len(backups.downloadBytes)) {
+		t.Errorf("Content-Length = %q, want %d", length, len(backups.downloadBytes))
+	}
+}
+
+func TestDeleteBackupSuccess(t *testing.T) {
+	handler, backups, projectID := backupPlane(t)
+	backupID := uuid.New()
+
+	recorder := httptest.NewRecorder()
+	handler.DeleteBackup(recorder, withBackupID(
+		backupRequest(t, http.MethodDelete, "/", projectID), backupID))
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", recorder.Code)
+	}
+	if backups.deletedID != backupID {
+		t.Errorf("deleted id = %v, want %v", backups.deletedID, backupID)
+	}
+}
+
+func TestDeleteBackupRejectsBadID(t *testing.T) {
+	handler, backups, projectID := backupPlane(t)
+
+	request := backupRequest(t, http.MethodDelete, "/", projectID)
+	routeContext := chi.NewRouteContext()
+	routeContext.URLParams.Add("backup_id", "not-a-uuid")
+	request = request.WithContext(context.WithValue(request.Context(), chi.RouteCtxKey, routeContext))
+
+	recorder := httptest.NewRecorder()
+	handler.DeleteBackup(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", recorder.Code)
+	}
+	if backups.deletedID != uuid.Nil {
+		t.Errorf("delete ran with a malformed id")
+	}
+}
+
+func TestDeleteBackupNotFound(t *testing.T) {
+	handler, backups, projectID := backupPlane(t)
+	backups.deleteErr = dbcontrol.ErrNotFound
+
+	recorder := httptest.NewRecorder()
+	handler.DeleteBackup(recorder, withBackupID(
+		backupRequest(t, http.MethodDelete, "/", projectID), uuid.New()))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", recorder.Code)
+	}
+	if code := errorCode(t, recorder); code != "backup_not_found" {
+		t.Errorf("code = %q, want backup_not_found", code)
+	}
+}
+
+func TestQueryBackupRunsReadAgainstSnapshot(t *testing.T) {
+	handler, backups, projectID := backupPlane(t)
+	plane := handler.databases.(*fakeDatabases)
+	backupID := uuid.New()
+
+	recorder := httptest.NewRecorder()
+	handler.QueryBackup(recorder, backupQueryRequest(t, projectID, backupID,
+		`{"query":"SELECT 1","args":[]}`))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+	}
+	if backups.snapshotID != backupID {
+		t.Errorf("snapshot id = %v, want %v", backups.snapshotID, backupID)
+	}
+	if len(plane.snapshotCalls) != 1 {
+		t.Fatalf("snapshot calls = %d, want 1", len(plane.snapshotCalls))
+	}
+	if plane.snapshotCalls[0].query != "SELECT 1" {
+		t.Errorf("statement = %q, want SELECT 1", plane.snapshotCalls[0].query)
+	}
+
+	var response QueryResponse
+	decodeBody(t, recorder, &response)
+	if !response.Success {
+		t.Error("expected a successful response")
+	}
+	if response.RowCount != 1 {
+		t.Errorf("row_count = %d, want 1", response.RowCount)
+	}
+}
+
+func TestQueryBackupRefusesWrite(t *testing.T) {
+	handler, backups, projectID := backupPlane(t)
+	plane := handler.databases.(*fakeDatabases)
+	backupID := uuid.New()
+
+	recorder := httptest.NewRecorder()
+	handler.QueryBackup(recorder, backupQueryRequest(t, projectID, backupID,
+		`{"query":"DELETE FROM users","args":[]}`))
+
+	// A viewer must never write, and it must refuse before the snapshot is
+	// even opened.
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", recorder.Code)
+	}
+	if code := errorCode(t, recorder); code != "not_a_read" {
+		t.Errorf("code = %q, want not_a_read", code)
+	}
+	if len(plane.snapshotCalls) != 0 {
+		t.Errorf("a write reached the snapshot")
+	}
+	if backups.snapshotID != uuid.Nil {
+		t.Errorf("the snapshot was opened for a write")
+	}
+}
+
+func TestQueryBackupMissingSnapshot(t *testing.T) {
+	handler, backups, projectID := backupPlane(t)
+	backups.snapErr = dbcontrol.ErrNotFound
+
+	recorder := httptest.NewRecorder()
+	handler.QueryBackup(recorder, backupQueryRequest(t, projectID, uuid.New(),
+		`{"query":"SELECT 1","args":[]}`))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", recorder.Code)
+	}
+	if code := errorCode(t, recorder); code != "backup_not_found" {
+		t.Errorf("code = %q, want backup_not_found", code)
 	}
 }

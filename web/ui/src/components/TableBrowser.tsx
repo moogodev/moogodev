@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, ApiError } from "../lib/api";
+import { ApiError, liveSource } from "../lib/api";
+import type { SqlSource } from "../lib/api";
 import {
   buildDropTable,
   buildRenameTable,
@@ -43,13 +44,25 @@ interface LoadState {
 // table, view, index and trigger comes from one sqlite_master read, and each
 // table's columns come from PRAGMA table_xinfo, so what is on screen is what
 // the file actually contains rather than what this component last wrote.
+//
+// The same component serves the read-only backup viewer. A source says where
+// the rows come from and whether they may be written; readOnly then hides the
+// schema-editing affordances that the source would refuse anyway. Nothing else
+// about the tab changes, so a backup is browsed exactly like the live database.
 export default function TableBrowser({
   projectId,
   refreshKey,
+  source,
+  readOnly = false,
 }: {
   projectId: string;
   // Bumped after a write from elsewhere in the tab so the catalog re-reads.
   refreshKey: number;
+  // Where rows come from. Defaults to the project's live database, which is
+  // what the Tables tab has always used.
+  source?: SqlSource;
+  // Hide every write affordance. Implied by a source that is itself read-only.
+  readOnly?: boolean;
 }) {
   const [state, setState] = useState<LoadState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +75,11 @@ export default function TableBrowser({
   // Focus mode: the one open table takes the whole viewport and the schema
   // sidebar steps out of the way, so a wide table has room to be read and edited.
   const [focused, setFocused] = useState(false);
+
+  // One stable source for the whole tree. liveSource is rebuilt only when the
+  // project changes, so the query effects below do not re-run on every render.
+  const activeSource = useMemo(() => source ?? liveSource(projectId), [source, projectId]);
+  const isReadOnly = readOnly || activeSource.readOnly;
 
   // Escape leaves focus mode. It is the way out a keyboard user expects from a
   // mode that covers the page, and it costs one listener while focused.
@@ -112,7 +130,7 @@ export default function TableBrowser({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const schemaResponse = await api.consoleQuery(projectId, listSchema());
+      const schemaResponse = await activeSource.query(listSchema());
       const objects = parseSchemaObjects(schemaResponse);
 
       // Row counts come from one UNION ALL rather than one COUNT(*) per table.
@@ -125,7 +143,7 @@ export default function TableBrowser({
       let counts: Record<string, number> = {};
       if (countStatement) {
         try {
-          counts = parseCounts(await api.consoleQuery(projectId, countStatement));
+          counts = parseCounts(await activeSource.query(countStatement));
         } catch {
           counts = {};
         }
@@ -135,7 +153,7 @@ export default function TableBrowser({
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : "Could not list the schema.");
     }
-  }, [projectId]);
+  }, [activeSource]);
 
   useEffect(() => {
     void load();
@@ -190,13 +208,15 @@ export default function TableBrowser({
               <h2 className="text-[0.82rem] font-bold uppercase tracking-wider text-faint">
                 Schema
               </h2>
-              <button
-                type="button"
-                onClick={() => setBuilderOpen(true)}
-                className="cursor-pointer rounded-md bg-accent-strong px-2 py-1 text-[0.75rem] font-semibold text-accent-ink transition-colors hover:bg-accent"
-              >
-                + New table
-              </button>
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  onClick={() => setBuilderOpen(true)}
+                  className="cursor-pointer rounded-md bg-accent-strong px-2 py-1 text-[0.75rem] font-semibold text-accent-ink transition-colors hover:bg-accent"
+                >
+                  + New table
+                </button>
+              )}
             </div>
 
             {(tables.length > 0 || views.length > 0) && (
@@ -226,13 +246,15 @@ export default function TableBrowser({
               {!error && state && tables.length === 0 && views.length === 0 && (
                 <div className="px-2 py-4 text-center">
                   <p className="text-[0.82rem] text-faint">No tables yet.</p>
-                  <button
-                    type="button"
-                    onClick={() => setBuilderOpen(true)}
-                    className="mt-2 cursor-pointer text-[0.82rem] font-semibold text-accent-strong hover:underline"
-                  >
-                    Create the first one
-                  </button>
+                  {!isReadOnly && (
+                    <button
+                      type="button"
+                      onClick={() => setBuilderOpen(true)}
+                      className="mt-2 cursor-pointer text-[0.82rem] font-semibold text-accent-strong hover:underline"
+                    >
+                      Create the first one
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -287,7 +309,8 @@ export default function TableBrowser({
           {activeObject ? (
             <TableDetail
               key={activeObject.name}
-              projectId={projectId}
+              source={activeSource}
+              readOnly={isReadOnly}
               object={activeObject}
               siblings={state?.objects ?? []}
               refreshKey={detailRefresh}
@@ -311,15 +334,19 @@ export default function TableBrowser({
             <div className="rounded-lg border border-dashed border-edge-strong px-6 py-16 text-center">
               <p className="text-[0.9rem] font-semibold text-foreground">
                 {tables.length === 0 && views.length === 0
-                  ? "This database has no tables yet"
+                  ? isReadOnly
+                    ? "This backup has no tables"
+                    : "This database has no tables yet"
                   : "Select a table to read it"}
               </p>
               <p className="mx-auto mt-1 max-w-[34em] text-[0.85rem] text-muted">
                 {tables.length === 0 && views.length === 0
-                  ? "Create one to start storing rows. The file itself is a single SQLite database."
+                  ? isReadOnly
+                    ? "The snapshot was taken before any table existed."
+                    : "Create one to start storing rows. The file itself is a single SQLite database."
                   : "Its rows, its columns, its indexes and the SQL SQLite stored for it are all read from the file."}
               </p>
-              {tables.length === 0 && (
+              {tables.length === 0 && !isReadOnly && (
                 <button
                   type="button"
                   onClick={() => setBuilderOpen(true)}
@@ -333,12 +360,14 @@ export default function TableBrowser({
         </section>
       </div>
 
-      <CreateTableModal
-        isOpen={builderOpen}
-        onClose={() => setBuilderOpen(false)}
-        projectId={projectId}
-        onCreated={handleCreated}
-      />
+      {!isReadOnly && (
+        <CreateTableModal
+          isOpen={builderOpen}
+          onClose={() => setBuilderOpen(false)}
+          projectId={projectId}
+          onCreated={handleCreated}
+        />
+      )}
     </div>
   );
 }
@@ -411,7 +440,8 @@ function SidebarItem({
 }
 
 function TableDetail({
-  projectId,
+  source,
+  readOnly,
   object,
   siblings,
   refreshKey,
@@ -422,7 +452,8 @@ function TableDetail({
   onRenamed,
   onReload,
 }: {
-  projectId: string;
+  source: SqlSource;
+  readOnly: boolean;
   object: SchemaObject;
   // The rest of the catalog, so the SQL tab can show the triggers and indexes
   // that belong to this table without another read.
@@ -470,7 +501,7 @@ function TableDetail({
       setLoading(true);
       setError(null);
       try {
-        const columnResponse = await api.consoleQuery(projectId, columnInfo(object.name));
+        const columnResponse = await source.query(columnInfo(object.name));
         if (cancelled) return;
         setColumns(parseColumns(columnResponse));
 
@@ -484,8 +515,8 @@ function TableDetail({
         }
 
         const [indexListResponse, foreignKeyResponse] = await Promise.all([
-          api.consoleQuery(projectId, indexList(object.name)),
-          api.consoleQuery(projectId, foreignKeyList(object.name)),
+          source.query(indexList(object.name)),
+          source.query(foreignKeyList(object.name)),
         ]);
         if (cancelled) return;
 
@@ -497,7 +528,7 @@ function TableDetail({
           indexRows.map(async (row) => {
             const name = String(row[1]);
             try {
-              const infoResponse = await api.consoleQuery(projectId, indexColumns(name));
+              const infoResponse = await source.query(indexColumns(name));
               indexColumnsMap[name] = (infoResponse?.rows ?? []).map((info) =>
                 info[2] === null || info[2] === undefined ? "" : String(info[2]),
               );
@@ -522,14 +553,18 @@ function TableDetail({
     return () => {
       cancelled = true;
     };
-  }, [projectId, object.name, isView, refreshKey]);
+  }, [source, object.name, isView, refreshKey]);
 
   // The grid can only write to a row it can name. A single-column primary key
   // is the clean case; otherwise the implicit rowid does the job, except on a
   // WITHOUT ROWID table where there is none.
+  //
+  // A read-only source has no identity at all: the grid keys every edit off
+  // identity being non-null, so null is also what takes the edit affordances
+  // away rather than a separate flag threaded through it.
   const identity = useMemo(
-    () => (isView ? null : pickIdentity(columns, !traits.withoutRowid)),
-    [columns, isView, traits.withoutRowid],
+    () => (isView || readOnly ? null : pickIdentity(columns, !traits.withoutRowid)),
+    [columns, isView, readOnly, traits.withoutRowid],
   );
 
   const runStatement = useCallback(
@@ -537,7 +572,7 @@ function TableDetail({
       setBusy(true);
       setActionError(null);
       try {
-        await api.consoleExec(projectId, statement);
+        await source.exec(statement);
         after?.();
         onChanged();
       } catch (cause) {
@@ -550,7 +585,7 @@ function TableDetail({
         setBusy(false);
       }
     },
-    [projectId, onChanged],
+    [source, onChanged],
   );
 
   const submitRenameTable = () => {
@@ -646,36 +681,42 @@ function TableDetail({
               {isView && <Badge tone="violet">View</Badge>}
               {traits.strict && <Badge tone="blue">Strict</Badge>}
               {traits.withoutRowid && <Badge tone="amber">No rowid</Badge>}
-              <button
-                type="button"
-                onClick={() => {
-                  setRenamingTable(true);
-                  setTableNameDraft(object.name);
-                }}
-                className="cursor-pointer rounded-md px-2 py-1 text-[0.78rem] text-muted transition-colors hover:bg-hover-bg hover:text-foreground"
-              >
-                Rename
-              </button>
-              <button
-                type="button"
-                onClick={() => setPendingDropTable(true)}
-                disabled={busy}
-                className="cursor-pointer rounded-md px-2 py-1 text-[0.78rem] text-amber transition-colors hover:bg-amber/20 disabled:opacity-50"
-              >
-                Drop {isView ? "view" : "table"}
-              </button>
+              {!readOnly && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenamingTable(true);
+                      setTableNameDraft(object.name);
+                    }}
+                    className="cursor-pointer rounded-md px-2 py-1 text-[0.78rem] text-muted transition-colors hover:bg-hover-bg hover:text-foreground"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingDropTable(true)}
+                    disabled={busy}
+                    className="cursor-pointer rounded-md px-2 py-1 text-[0.78rem] text-amber transition-colors hover:bg-amber/20 disabled:opacity-50"
+                  >
+                    Drop {isView ? "view" : "table"}
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
 
         <p className="mt-1 text-[0.8rem] text-faint">
-          {isView
-            ? "A view is a stored query. It has no rows of its own and cannot be edited."
-            : `${columns.length} column${columns.length === 1 ? "" : "s"}, ${
-                indexes.length
-              } index${indexes.length === 1 ? "" : "es"}, ${
-                foreignKeys.length
-              } foreign key${foreignKeys.length === 1 ? "" : "s"}`}
+          {readOnly
+            ? "A snapshot of the database when this backup was taken. It is read-only."
+            : isView
+              ? "A view is a stored query. It has no rows of its own and cannot be edited."
+              : `${columns.length} column${columns.length === 1 ? "" : "s"}, ${
+                  indexes.length
+                } index${indexes.length === 1 ? "" : "es"}, ${
+                  foreignKeys.length
+                } foreign key${foreignKeys.length === 1 ? "" : "s"}`}
         </p>
       </header>
 
@@ -753,7 +794,7 @@ function TableDetail({
       >
         {activeTab === "rows" ? (
           <TableDataGrid
-            projectId={projectId}
+            source={source}
             table={object.name}
             columns={columns}
             identity={identity}
@@ -770,12 +811,12 @@ function TableDetail({
             indexes={indexes}
             foreignKeys={foreignKeys}
             triggers={triggers.map((trigger) => ({ name: trigger.name, sql: trigger.sql }))}
-            readOnly={isView}
+            readOnly={isView || readOnly}
             busy={busy}
             runStatement={(statement, after) => runStatement(statement, after)}
           />
         ) : (
-          <SqlPane object={object} indexes={indexes} triggers={triggers} />
+          <SqlPane object={object} indexes={indexes} triggers={triggers} readOnly={readOnly} />
         )}
       </div>
 
@@ -837,10 +878,12 @@ function SqlPane({
   object,
   indexes,
   triggers,
+  readOnly,
 }: {
   object: SchemaObject;
   indexes: TableIndex[];
   triggers: SchemaObject[];
+  readOnly: boolean;
 }) {
   const statements: { label: string; sql: string }[] = [];
 
@@ -880,8 +923,9 @@ function SqlPane({
     <div className="space-y-4">
       <p className="text-[0.8rem] text-faint">
         The text SQLite recorded when this {object.type === "view" ? "view" : "table"} was
-        created. Editing it here is not possible; run a statement in the SQL Editor tab
-        beside this one.
+        created. {readOnly
+          ? "This is a read-only snapshot, so it cannot be edited."
+          : "Editing it here is not possible; run a statement in the SQL Editor tab beside this one."}
       </p>
       {statements.length === 0 ? (
         <p className="rounded-lg border border-dashed border-edge-strong px-3 py-6 text-center text-[0.85rem] text-faint">

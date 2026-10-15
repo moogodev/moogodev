@@ -319,6 +319,29 @@ func (store *Store) DatabaseBackupByID(ctx context.Context, projectID uuid.UUID,
 	return backup, nil
 }
 
+// LatestRegularBackup returns the project's newest backup that is not a
+// pre-restore snapshot: the one latest.sqlite mirrors.
+//
+// A project with no such backup -- only pre-restore snapshots, or none at all
+// -- is reported as (nil, nil) rather than an error, because "there is nothing
+// to point at" is a normal state and not a failure to look it up.
+func (store *Store) LatestRegularBackup(ctx context.Context, projectID uuid.UUID) (*DatabaseBackup, error) {
+	query := `SELECT ` + backupColumns + `
+		  FROM database_backups
+		 WHERE project_id = $1 AND kind <> $2
+		 ORDER BY created_at DESC
+		 LIMIT 1`
+
+	backup, err := scanBackup(store.pool.QueryRow(ctx, query, projectID, string(BackupPreRestore)))
+	if err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load latest regular backup: %w", err)
+	}
+	return backup, nil
+}
+
 // ExpiredBackups returns a project's backups older than cutoff, newest of them
 // last, excluding the single newest backup of the project.
 //

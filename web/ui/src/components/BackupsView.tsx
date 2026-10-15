@@ -6,6 +6,7 @@
 // and says plainly what will happen to the current data.
 
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   api,
   ApiError,
@@ -13,23 +14,8 @@ import {
   type Backup,
   type BackupsResponse,
 } from "../lib/api";
+import { kindLabel } from "../lib/backupKind";
 import ConfirmDialog from "./ConfirmDialog";
-
-// kindLabel turns the server's reason codes into words a person reads.
-function kindLabel(kind: string): string {
-  switch (kind) {
-    case "daily":
-      return "Daily";
-    case "manual":
-      return "Manual";
-    case "pre_restore":
-      return "Before restore";
-    case "initial":
-      return "Initial";
-    default:
-      return kind;
-  }
-}
 
 export default function BackupsView({ projectId }: { projectId: string }) {
   const [data, setData] = useState<BackupsResponse | null>(null);
@@ -40,6 +26,8 @@ export default function BackupsView({ projectId }: { projectId: string }) {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [restoring, setRestoring] = useState<Backup | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [deleting, setDeleting] = useState<Backup | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,6 +77,23 @@ export default function BackupsView({ projectId }: { projectId: string }) {
       setIsRestoring(false);
     }
   }, [projectId, restoring, load]);
+
+  const handleDelete = useCallback(async () => {
+    if (!deleting) return;
+    setIsDeleting(true);
+    setActionError(null);
+    setNotice(null);
+    try {
+      await api.deleteBackup(projectId, deleting.id);
+      setNotice("Backup deleted.");
+      setDeleting(null);
+      await load();
+    } catch (cause) {
+      setActionError(cause instanceof ApiError ? cause.message : "Could not delete the backup.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [projectId, deleting, load]);
 
   if (loading && !data) {
     return <p className="text-muted">Loading backups…</p>;
@@ -225,18 +230,45 @@ export default function BackupsView({ projectId }: { projectId: string }) {
                     {new Date(backup.created_at).toLocaleString()}
                   </td>
                   <td className="px-4 py-3 text-muted">{formatBytes(backup.size_bytes)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNotice(null);
-                        setActionError(null);
-                        setRestoring(backup);
-                      }}
-                      className="cursor-pointer rounded-lg border border-edge-strong px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
-                    >
-                      Restore
-                    </button>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotice(null);
+                          setActionError(null);
+                          setRestoring(backup);
+                        }}
+                        className="cursor-pointer rounded-lg border border-edge-strong px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
+                      >
+                        Restore
+                      </button>
+                      <a
+                        href={api.backupDownloadUrl(projectId, backup.id)}
+                        className="rounded-lg border border-edge-strong px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
+                      >
+                        Download
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotice(null);
+                          setActionError(null);
+                          setDeleting(backup);
+                        }}
+                        className="cursor-pointer rounded-lg border border-edge-strong px-3 py-1.5 text-sm font-medium text-amber transition-colors hover:border-amber/40 hover:bg-amber/20"
+                      >
+                        Delete
+                      </button>
+                      <Link
+                        to={`/app/projects/${projectId}/backups/${backup.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-lg border border-edge-strong px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:border-hover-edge hover:bg-hover-bg hover:text-foreground"
+                      >
+                        Open
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -261,6 +293,27 @@ export default function BackupsView({ projectId }: { projectId: string }) {
             {restoring ? new Date(restoring.created_at).toLocaleString() : ""}. The current
             database is saved as a backup first, so this can be undone by restoring that
             copy.
+          </>
+        }
+      />
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Delete this backup?"
+        tone="danger"
+        confirmLabel="Delete"
+        busy={isDeleting}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => {
+          if (!isDeleting) setDeleting(null);
+        }}
+        description={
+          <>
+            The backup from {deleting ? new Date(deleting.created_at).toLocaleString() : ""} will
+            be removed permanently. This cannot be undone.
+            {deleting && deleting.kind === "daily"
+              ? " If it is the most recent backup, the copy used for a one-click restore is removed with it; the next backup recreates it."
+              : ""}
           </>
         }
       />

@@ -114,13 +114,36 @@ func (manager *Manager) Query(
 	}
 	defer readConn.Close()
 
-	if err := applyValueLimit(readConn, manager.maxDBBytes); err != nil {
+	result, err := readStatement(statementCtx, readConn, statement, args, maxRows, manager.maxDBBytes)
+	if err != nil {
+		return nil, err
+	}
+	rowsReturned = len(result.Rows)
+	return result, nil
+}
+
+// readStatement runs one already-classified read statement on a checked-out
+// connection and collects up to maxRows rows.
+//
+// It is shared by Query and QuerySnapshot so a read behaves the same whether it
+// targets the project's live database or a downloaded backup: the value length
+// limit is pinned on the connection first, rows are capped, and the response
+// byte budget is enforced the same way. ctx carries the statement deadline.
+func readStatement(
+	ctx context.Context,
+	conn *sql.Conn,
+	statement string,
+	args []any,
+	maxRows int,
+	maxDBBytes int64,
+) (*QueryResult, error) {
+	if err := applyValueLimit(conn, maxDBBytes); err != nil {
 		return nil, err
 	}
 
-	rows, err := readConn.QueryContext(statementCtx, statement, args...)
+	rows, err := conn.QueryContext(ctx, statement, args...)
 	if err != nil {
-		return nil, classifyError(err, statementCtx)
+		return nil, classifyError(err, ctx)
 	}
 	defer rows.Close()
 
@@ -154,9 +177,8 @@ func (manager *Manager) Query(
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, classifyError(err, statementCtx)
+		return nil, classifyError(err, ctx)
 	}
-	rowsReturned = len(result.Rows)
 	return result, nil
 }
 

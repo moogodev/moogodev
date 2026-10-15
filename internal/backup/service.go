@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,6 +56,7 @@ type Projects interface {
 	RecordBackupFailure(ctx context.Context, projectID uuid.UUID, reason string) error
 	DatabaseBackupByID(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (*dbcontrol.DatabaseBackup, error)
 	ListDatabaseBackups(ctx context.Context, projectID uuid.UUID, limit int, offset int) ([]dbcontrol.DatabaseBackup, error)
+	LatestRegularBackup(ctx context.Context, projectID uuid.UUID) (*dbcontrol.DatabaseBackup, error)
 	ExpiredBackups(ctx context.Context, projectID uuid.UUID, cutoff time.Time) ([]dbcontrol.DatabaseBackup, error)
 	DeleteBackupRows(ctx context.Context, ids []uuid.UUID) error
 	DeleteProjectBackups(ctx context.Context, projectID uuid.UUID) error
@@ -82,6 +84,18 @@ type Result struct {
 	SHA256    string
 }
 
+// maxCachedSnapshots bounds how many downloaded backups are kept on disk for
+// the viewer at once. Each entry is a whole database file, so this is a disk
+// budget as much as a count: six small project databases are nothing, but the
+// cap keeps a viewer session against many projects from accumulating them.
+const maxCachedSnapshots = 6
+
+// snapshotEntry is one downloaded backup kept for viewing.
+type snapshotEntry struct {
+	path     string
+	lastUsed time.Time
+}
+
 // Service runs the backup loop and the on-demand backup and restore paths.
 type Service struct {
 	projects  Projects
@@ -89,6 +103,13 @@ type Service struct {
 	objects   Objects
 	cfg       Config
 	log       *logger.Logger
+
+	// snapshotMu guards the viewer's downloaded-backup cache. It is held for
+	// the length of a download, which serializes viewer requests across
+	// projects; that is acceptable for a dashboard action and keeps the cache
+	// a plain map rather than a per-key lock set.
+	snapshotMu sync.Mutex
+	snapshots  map[uuid.UUID]snapshotEntry
 }
 
 // New creates a backup service.
@@ -111,7 +132,8 @@ func New(projects Projects, databases Databases, objects Objects, cfg Config, lo
 	if log == nil {
 		log = logger.Nop()
 	}
-	return &Service{projects: projects, databases: databases, objects: objects, cfg: cfg, log: log}
+	return &Service{projects: projects, databases: databases, objects: objects, cfg: cfg, log: log,
+		snapshots: make(map[uuid.UUID]snapshotEntry)}
 }
 
 // Interval reports how often the loop runs, for the caller that owns the loop.
@@ -331,6 +353,162 @@ func (service *Service) RestoreProject(ctx context.Context, projectID uuid.UUID,
 	return nil
 }
 
+// GetBackup returns one backup's metadata, scoped to the project.
+func (service *Service) GetBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (*dbcontrol.DatabaseBackup, error) {
+	return service.projects.DatabaseBackupByID(ctx, projectID, backupID)
+}
+
+// DownloadBackup opens a stored backup for streaming to the owner.
+//
+// The object is handed back unverified and unread: the caller streams it
+// straight to the response, and a checksum of an arbitrary object is not
+// needed to let the owner keep their own copy. Verification belongs on the
+// restore and viewer paths, where the bytes are going to be opened as a
+// database.
+func (service *Service) DownloadBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (io.ReadCloser, *dbcontrol.DatabaseBackup, error) {
+	stored, err := service.projects.DatabaseBackupByID(ctx, projectID, backupID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	body, _, err := service.objects.GetObject(ctx, stored.ObjectKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("download backup: %w", err)
+	}
+	return body, stored, nil
+}
+
+// DeleteBackup removes one stored backup: its object, its history row, and,
+// when it is the newest regular backup, the latest.sqlite pointer that mirrors
+// it.
+//
+// The object goes first and the row last. A row removed before its object can
+// no longer name it, and an orphaned object is only a storage bill while an
+// orphaned row is a restore that fails; deleting the object first means a
+// failure leaves the entry visible and retryable instead of half-gone.
+func (service *Service) DeleteBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) error {
+	stored, err := service.projects.DatabaseBackupByID(ctx, projectID, backupID)
+	if err != nil {
+		return err
+	}
+
+	if err := service.objects.DeleteObject(ctx, stored.ObjectKey); err != nil {
+		return fmt.Errorf("delete backup object: %w", err)
+	}
+
+	// latest.sqlite mirrors the newest non-pre-restore backup. When that is the
+	// one being deleted, the pointer is removed too, so the owner's data does
+	// not linger under a key the list never showed them. A lookup failure is
+	// logged and stepped over: the backup the owner asked to delete is already
+	// gone, and leaving the pointer is recoverable while failing the request
+	// would make the delete look unsuccessful.
+	latest, latestErr := service.projects.LatestRegularBackup(ctx, projectID)
+	if latestErr != nil {
+		service.log.Warn("look up latest backup failed", logger.Fields{
+			"project_id": projectID.String(),
+			"error":      latestErr.Error(),
+		})
+	} else if latest != nil && latest.ID == backupID {
+		if err := service.objects.DeleteObject(ctx, service.latestKey(projectID)); err != nil {
+			return fmt.Errorf("delete latest backup pointer: %w", err)
+		}
+	}
+
+	if err := service.projects.DeleteBackupRows(ctx, []uuid.UUID{backupID}); err != nil {
+		return err
+	}
+
+	service.forgetSnapshot(backupID)
+	service.log.Info("backup deleted", logger.Fields{
+		"project_id": projectID.String(),
+		"backup_id":  backupID.String(),
+		"key":        stored.ObjectKey,
+	})
+	return nil
+}
+
+// SnapshotPath returns the path of a local copy of a backup, downloading and
+// verifying it first when it is not already cached.
+//
+// The viewer opens this file read-only. The copy is cached because one page of
+// the grid issues several queries (a page of rows plus a count, then the same
+// again on every page step), and downloading the object for each would make the
+// viewer unusably slow. The cache is bounded and evicts the least recently used
+// entry.
+func (service *Service) SnapshotPath(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (string, error) {
+	service.snapshotMu.Lock()
+	defer service.snapshotMu.Unlock()
+
+	if entry, ok := service.snapshots[backupID]; ok {
+		if _, err := os.Stat(entry.path); err == nil {
+			entry.lastUsed = time.Now()
+			service.snapshots[backupID] = entry
+			return entry.path, nil
+		}
+		// The file was removed underneath us; fall through and fetch it again.
+		delete(service.snapshots, backupID)
+	}
+
+	stored, err := service.projects.DatabaseBackupByID(ctx, projectID, backupID)
+	if err != nil {
+		return "", err
+	}
+
+	// fetchToTemp verifies the download against the size and checksum recorded
+	// at upload time, so a truncated object never reaches the viewer as a
+	// plausible-looking database.
+	path, err := service.fetchToTemp(ctx, stored.ObjectKey, stored.SHA256, stored.SizeBytes)
+	if err != nil {
+		return "", err
+	}
+
+	service.snapshots[backupID] = snapshotEntry{path: path, lastUsed: time.Now()}
+	service.evictSnapshotsLocked()
+	return path, nil
+}
+
+// evictSnapshotsLocked removes the least recently used cached backups until the
+// cache is within its bound. It runs with snapshotMu held.
+func (service *Service) evictSnapshotsLocked() {
+	for len(service.snapshots) > maxCachedSnapshots {
+		var (
+			oldestID   uuid.UUID
+			oldestUsed time.Time
+			found      bool
+		)
+		for backupID, entry := range service.snapshots {
+			if !found || entry.lastUsed.Before(oldestUsed) {
+				oldestID, oldestUsed, found = backupID, entry.lastUsed, true
+			}
+		}
+		_ = os.Remove(service.snapshots[oldestID].path)
+		delete(service.snapshots, oldestID)
+	}
+}
+
+// forgetSnapshot drops and removes a cached backup copy.
+func (service *Service) forgetSnapshot(backupID uuid.UUID) {
+	service.snapshotMu.Lock()
+	defer service.snapshotMu.Unlock()
+
+	if entry, ok := service.snapshots[backupID]; ok {
+		_ = os.Remove(entry.path)
+		delete(service.snapshots, backupID)
+	}
+}
+
+// clearSnapshots removes every cached backup copy, for a project being deleted
+// where the exact set of backup ids is not worth tracking down.
+func (service *Service) clearSnapshots() {
+	service.snapshotMu.Lock()
+	defer service.snapshotMu.Unlock()
+
+	for backupID, entry := range service.snapshots {
+		_ = os.Remove(entry.path)
+		delete(service.snapshots, backupID)
+	}
+}
+
 // DeleteProjectBackups removes a project's stored objects and metadata.
 //
 // It sweeps the whole project prefix rather than the recorded keys, so an
@@ -359,6 +537,7 @@ func (service *Service) DeleteProjectBackups(ctx context.Context, projectID uuid
 	if err := service.projects.DeleteProjectBackups(ctx, projectID); err != nil {
 		return err
 	}
+	service.clearSnapshots()
 	if failures > 0 {
 		return fmt.Errorf("delete project backups: %d objects could not be removed", failures)
 	}

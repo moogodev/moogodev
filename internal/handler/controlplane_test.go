@@ -357,12 +357,13 @@ type fakeDatabases struct {
 
 	// Console statements, so a test can assert the dashboard reached the
 	// engine with the right text and project.
-	queryCalls  []consoleStatement
-	execCalls   []consoleStatement
-	queryResult *dbplane.QueryResult
-	execResult  *dbplane.ExecResult
-	queryErr    error
-	execErr     error
+	queryCalls    []consoleStatement
+	execCalls     []consoleStatement
+	snapshotCalls []consoleStatement
+	queryResult   *dbplane.QueryResult
+	execResult    *dbplane.ExecResult
+	queryErr      error
+	execErr       error
 }
 
 // consoleStatement records one statement the dashboard console sent.
@@ -409,6 +410,22 @@ func (plane *fakeDatabases) Transaction(
 ) (*dbplane.TransactionResult, error) {
 	results := make([]dbplane.TransactionStatementResult, len(statements))
 	return &dbplane.TransactionResult{Statements: results}, nil
+}
+
+// QuerySnapshot records the viewer read. Like Query it reports the scripted
+// result so a handler test can assert the response shape without a real file.
+func (plane *fakeDatabases) QuerySnapshot(
+	_ context.Context, path string, statement string, args []any, _ int,
+) (*dbplane.QueryResult, error) {
+	plane.snapshotCalls = append(plane.snapshotCalls,
+		consoleStatement{query: statement, args: args})
+	if plane.queryErr != nil {
+		return nil, plane.queryErr
+	}
+	if plane.queryResult != nil {
+		return plane.queryResult, nil
+	}
+	return &dbplane.QueryResult{Columns: []string{"n"}, Rows: [][]any{{int64(1)}}}, nil
 }
 
 func (plane *fakeDatabases) InitializeProject(context.Context, uuid.UUID) error {

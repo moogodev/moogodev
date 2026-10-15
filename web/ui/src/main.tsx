@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { AppShell } from "./components/AppShell";
 import About from "./routes/About";
 import Announcement from "./routes/Announcement";
+import BackupViewer from "./routes/BackupViewer";
 import Contact from "./routes/Contact";
 import Dashboard from "./routes/Dashboard";
 import Docs from "./routes/Docs";
@@ -69,6 +70,10 @@ createRoot(document.getElementById("root")!).render(
           {/* The backups tab is a real URL like the others, so the sidebar link
               and the address bar stay in step with what is on screen. */}
           <Route path="/app/projects/:id/backups" element={<ProjectDetail />} />
+          {/* The viewer is a page of its own, more specific than the backups
+              tab above, so an opened backup gets a shareable URL rather than a
+              panel that disappears on reload. */}
+          <Route path="/app/projects/:id/backups/:backupId" element={<BackupViewer />} />
           {/* Bucket settings is a page of its own, declared before the project's
               settings tab would be reached by accident. It has to be listed ahead
               of any path that could match it as a suffix, since the bucket tab is
