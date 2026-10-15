@@ -186,6 +186,12 @@ type fakeProjects struct {
 	restoreStatuses  map[uuid.UUID]dbcontrol.RestoreStatus
 	restoreErrors    map[uuid.UUID]*string
 	abandoned        int
+
+	// restoreDone carries each restore as it reaches a terminal state. A
+	// restore runs on its own goroutine, so a test waits on this signal rather
+	// than polling the maps above: reading them while that goroutine writes is
+	// a data race, which -race reports as a failed build.
+	restoreDone chan dbcontrol.DatabaseRestore
 }
 
 // statusOf reports the status recorded for a restore id, defaulting to pending
@@ -240,10 +246,17 @@ func (fake *fakeProjects) MarkRestoreFinished(_ context.Context, restoreID uuid.
 		fake.restoreErrors = map[uuid.UUID]*string{}
 	}
 	fake.restoreErrors[restoreID] = errText
-	if errText == nil {
-		fake.restoreStatuses[restoreID] = dbcontrol.RestoreSucceeded
-	} else {
-		fake.restoreStatuses[restoreID] = dbcontrol.RestoreFailed
+	status := dbcontrol.RestoreSucceeded
+	if errText != nil {
+		status = dbcontrol.RestoreFailed
+	}
+	fake.restoreStatuses[restoreID] = status
+
+	// Signal completion so a test can wait for the restore without reading the
+	// maps this goroutine owns. The channel is buffered, so the send never
+	// blocks even if the test has stopped waiting or never started.
+	if fake.restoreDone != nil {
+		fake.restoreDone <- dbcontrol.DatabaseRestore{ID: restoreID, Status: status}
 	}
 	return nil
 }
@@ -354,7 +367,7 @@ func writeSnapshot(t *testing.T, contents string) string {
 
 func newTestService(t *testing.T, cfg Config) (*Service, *fakeProjects, *fakeDatabases, *fakeObjects) {
 	t.Helper()
-	projects := &fakeProjects{}
+	projects := &fakeProjects{restoreDone: make(chan dbcontrol.DatabaseRestore, 16)}
 	databases := &fakeDatabases{modTime: time.Unix(1000, 0)}
 	objects := newFakeObjects()
 	service := New(projects, databases, objects, cfg, logger.Nop())
@@ -737,20 +750,23 @@ func TestRestoreProjectRejectsCorruptDownload(t *testing.T) {
 	}
 }
 
-// waitForRestore polls the fake's recorded status until it is terminal.
+// waitForRestore waits for a restore to reach a terminal state and returns it.
+//
+// It waits on the fake's completion signal rather than polling its status map:
+// the restore runs on its own goroutine, so reading the map while that
+// goroutine writes it is exactly the data race that fails the -race build.
 func waitForRestore(t *testing.T, projects *fakeProjects, restoreID uuid.UUID) dbcontrol.RestoreStatus {
 	t.Helper()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		status := projects.statusOf(restoreID)
-		if status.Terminal() {
-			return status
+	select {
+	case finished := <-projects.restoreDone:
+		if finished.ID != restoreID {
+			t.Fatalf("restore %s reached a terminal state, want %s", finished.ID, restoreID)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("restore %s did not finish; last status %q", restoreID, status)
-		}
-		time.Sleep(2 * time.Millisecond)
+		return finished.Status
+	case <-time.After(5 * time.Second):
+		t.Fatalf("restore %s did not finish", restoreID)
+		return dbcontrol.RestorePending
 	}
 }
 
