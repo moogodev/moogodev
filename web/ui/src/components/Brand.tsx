@@ -1,6 +1,6 @@
 import { HomeLink } from "./HomeLink";
 
-// Brand uses the Moogo logo image from the official assets repo.
+// Brand uses the Moogo logo image from the local static assets.
 // Light/dark switching handled by CSS using .theme-dark class.
 //
 // The logo means "Moogo's home", which is the apex — not "/" on whatever host
@@ -12,13 +12,13 @@ export function Brand() {
   return (
     <HomeLink className="inline-flex flex-none items-center">
       <img
-        src="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/1.png"
+        src="/static/img/logo-light.png"
         alt="Moogo"
         className="h-[30px] w-auto brand-logo-light"
         loading="lazy"
       />
       <img
-        src="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/2.png"
+        src="/static/img/logo-dark.png"
         alt="Moogo"
         className="h-[30px] w-auto brand-logo-dark"
         loading="lazy"

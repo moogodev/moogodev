@@ -73,9 +73,10 @@ type resendError struct {
 // without leaving a working reset link in the logs.
 func (sender *Sender) SendPasswordReset(ctx context.Context, to, token string) error {
 	link := sender.publicURL + "/reset-password?token=" + token
+	logoURL := sender.publicURL + "/static/img/logo-light.png"
 
 	return sender.send(ctx, to, "Reset your Moogo password",
-		passwordResetHTML(link), token)
+		passwordResetHTML(link, logoURL), token)
 }
 
 // SendEmailVerification emails the confirmation link for a new account.
@@ -85,9 +86,10 @@ func (sender *Sender) SendPasswordReset(ctx context.Context, to, token string) e
 // unusable, and the person needs to be told to ask for another link.
 func (sender *Sender) SendEmailVerification(ctx context.Context, to, token string) error {
 	link := sender.publicURL + "/verify-email?token=" + token
+	logoURL := sender.publicURL + "/static/img/logo-light.png"
 
 	return sender.send(ctx, to, "Confirm your Moogo email address",
-		verificationHTML(link), token)
+		verificationHTML(link, logoURL), token)
 }
 
 // SendProjectCreated emails the project details to the owner upon creation.
@@ -104,8 +106,9 @@ func (sender *Sender) SendProjectCreated(
 	apiURL string,
 ) error {
 	link := apiURL + "/p/" + projectID
+	logoURL := sender.publicURL + "/static/img/logo-light.png"
 	return sender.send(ctx, to, "Your Moogo project is ready",
-		projectCreatedHTML(projectName, projectID, secretKey, link), projectID)
+		projectCreatedHTML(projectName, projectID, secretKey, link, logoURL), projectID)
 }
 
 // SendManualBackupCreated emails a notification when a manual backup completes.
@@ -121,8 +124,9 @@ func (sender *Sender) SendManualBackupCreated(
 	downloadLink string,
 ) error {
 	subject := "Manual backup completed for " + projectName
+	logoURL := sender.publicURL + "/static/img/logo-light.png"
 	return sender.send(ctx, to, subject,
-		manualBackupHTML(projectName, backupSizeBytes, backupTime, downloadLink),
+		manualBackupHTML(projectName, backupSizeBytes, backupTime, downloadLink, logoURL),
 		backupTime.Format(time.RFC3339))
 }
 
@@ -256,7 +260,7 @@ func tokenPrefix(token string) string {
 }
 
 // passwordResetHTML renders the reset email.
-func passwordResetHTML(link string) string {
+func passwordResetHTML(link, logoURL string) string {
 	return messageShell(
 		"Reset your Moogo password",
 		"We received a request to reset the password for your account. "+
@@ -264,6 +268,7 @@ func passwordResetHTML(link string) string {
 			"you can safely ignore this email.",
 		"Reset password",
 		link,
+		logoURL,
 	)
 }
 
@@ -272,7 +277,7 @@ func passwordResetHTML(link string) string {
 // The wording leads with what is blocked rather than with what to do, because a
 // new registrant cannot sign in yet and the most likely reason they are reading
 // this is that they tried to and could not.
-func verificationHTML(link string) string {
+func verificationHTML(link, logoURL string) string {
 	return messageShell(
 		"Confirm your Moogo email address",
 		"Your Moogo account is created. Confirm this address to finish setting "+
@@ -280,6 +285,7 @@ func verificationHTML(link string) string {
 			"not create this account, you can safely ignore this email.",
 		"Confirm my email",
 		link,
+		logoURL,
 	)
 }
 
@@ -288,7 +294,7 @@ func verificationHTML(link string) string {
 // It is inline-styled because most mail clients strip <style> blocks and
 // external stylesheets, and the colours are hardcoded because a mail client
 // cannot read the site's design tokens.
-func messageShell(title, intro, buttonText, link string) string {
+func messageShell(title, intro, buttonText, link, logoURL string) string {
 	return `<!doctype html>
 <html>
   <body style="margin:0;background:#f5f7fa;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
@@ -299,7 +305,7 @@ func messageShell(title, intro, buttonText, link string) string {
                  style="max-width:520px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:40px 32px;">
             <tr>
               <td align="center" style="padding-bottom:24px;border-bottom:1px solid #e5e7eb;">
-                <img src="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/1.png"
+                <img src="`+logoURL+`"
                      alt="Moogo"
                      width="120"
                      style="display:block;border:0;outline:none;text-decoration:none;">
@@ -341,7 +347,7 @@ func messageShell(title, intro, buttonText, link string) string {
 }
 
 // projectCreatedHTML renders the project creation email with credentials and details.
-func projectCreatedHTML(projectName, projectID, secretKey, projectLink string) string {
+func projectCreatedHTML(projectName, projectID, secretKey, projectLink, logoURL string) string {
 	return `<!doctype html>
 <html>
   <body style="margin:0;background:#f5f7fa;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
@@ -352,7 +358,7 @@ func projectCreatedHTML(projectName, projectID, secretKey, projectLink string) s
                  style="max-width:520px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:40px 32px;">
             <tr>
               <td align="center" style="padding-bottom:24px;border-bottom:1px solid #e5e7eb;">
-                <img src="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/1.png"
+                <img src="`+logoURL+`"
                      alt="Moogo"
                      width="120"
                      style="display:block;border:0;outline:none;text-decoration:none;">
@@ -419,7 +425,7 @@ func projectCreatedHTML(projectName, projectID, secretKey, projectLink string) s
 }
 
 // manualBackupHTML renders the manual backup completion email.
-func manualBackupHTML(projectName string, backupSizeBytes int64, backupTime time.Time, downloadLink string) string {
+func manualBackupHTML(projectName string, backupSizeBytes int64, backupTime time.Time, downloadLink, logoURL string) string {
 	sizeStr := formatBytes(backupSizeBytes)
 	timeStr := backupTime.Format("2006-01-02 15:04:05 UTC")
 	return `<!doctype html>
@@ -432,7 +438,7 @@ func manualBackupHTML(projectName string, backupSizeBytes int64, backupTime time
                  style="max-width:520px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:40px 32px;">
             <tr>
               <td align="center" style="padding-bottom:24px;border-bottom:1px solid #e5e7eb;">
-                <img src="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/1.png"
+                <img src="`+logoURL+`"
                      alt="Moogo"
                      width="120"
                      style="display:block;border:0;outline:none;text-decoration:none;">
