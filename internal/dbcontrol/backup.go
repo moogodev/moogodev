@@ -131,7 +131,12 @@ type DatabaseBackupState struct {
 	LastSourceModifiedAt *time.Time
 	ConsecutiveFailures  int
 	LastError            *string
-	UpdatedAt            time.Time
+	// LastVerifiedAt is when the newest backup was last downloaded and
+	// integrity-checked; nil means it has never been verified.
+	LastVerifiedAt *time.Time
+	// LastVerifyError is why the last drill failed, or nil when it passed.
+	LastVerifyError *string
+	UpdatedAt       time.Time
 }
 
 // BackupColumns is the projection every backup read shares.
@@ -216,6 +221,77 @@ func (store *Store) ProjectsDueForBackup(ctx context.Context, maxAge time.Durati
 	return projects, nil
 }
 
+// ProjectsDueForVerification returns projects whose newest backup has not been
+// prove-restorable within verifyAge, oldest-verified first.
+//
+// The query joins the state row rather than left-joining it: a project with no
+// state row has never been backed up, so there is nothing to verify and it does
+// not belong in the drill queue. Only the states that can be backed up are
+// eligible, for the same reason the backup query restricts to them.
+//
+// The cutoff is computed in Go and passed as a timestamp, so one clock and one
+// timezone govern the comparison.
+func (store *Store) ProjectsDueForVerification(ctx context.Context, verifyAge time.Duration, limit int) ([]Project, error) {
+	if limit <= 0 {
+		limit = defaultListLimit
+	}
+	if limit > maxListLimit {
+		limit = maxListLimit
+	}
+
+	cutoff := time.Now().Add(-verifyAge)
+
+	const query = `
+		SELECT p.id, p.user_id, p.name, p.status, p.status_detail,
+		       p.secret_key_hash, p.secret_key_prefix, p.secret_key_rotated_at,
+		       p.created_at, p.updated_at
+		  FROM projects p
+		  JOIN database_backup_state s ON s.project_id = p.id
+		 WHERE p.deleted_at IS NULL
+		   AND p.status IN ($1, $2)
+		   AND s.last_success_at IS NOT NULL
+		   AND (s.last_verified_at IS NULL OR s.last_verified_at < $3)
+		 ORDER BY s.last_verified_at ASC NULLS FIRST, p.created_at ASC
+		 LIMIT $4`
+
+	rows, err := store.pool.Query(ctx, query,
+		string(ProjectReady), string(ProjectPaused), cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list projects due for verification: %w", err)
+	}
+	defer rows.Close()
+
+	var projects []Project
+	for rows.Next() {
+		project, err := scanProject(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan project due for verification: %w", err)
+		}
+		projects = append(projects, *project)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate projects due for verification: %w", err)
+	}
+	return projects, nil
+}
+
+// RecordBackupVerification stores the outcome of one restore drill: when it ran
+// and, when it failed, why. A nil verifyErr clears the previous error, so a
+// project that verifies cleanly stops showing a stale failure.
+func (store *Store) RecordBackupVerification(ctx context.Context, projectID uuid.UUID, verifyErr *string) error {
+	const query = `
+		UPDATE database_backup_state
+		   SET last_verified_at  = now(),
+		       last_verify_error = $2,
+		       updated_at        = now()
+		 WHERE project_id = $1`
+
+	if _, err := store.pool.Exec(ctx, query, projectID, verifyErr); err != nil {
+		return fmt.Errorf("record backup verification: %w", err)
+	}
+	return nil
+}
+
 // ProjectBackupState loads the scheduler cursor for one project.
 //
 // A project that has never been backed up has no row; that is reported as an
@@ -224,7 +300,8 @@ func (store *Store) ProjectsDueForBackup(ctx context.Context, maxAge time.Durati
 func (store *Store) ProjectBackupState(ctx context.Context, projectID uuid.UUID) (*DatabaseBackupState, error) {
 	const query = `
 		SELECT project_id, last_success_at, last_size_bytes, last_sha256,
-		       last_source_modified_at, consecutive_failures, last_error, updated_at
+		       last_source_modified_at, consecutive_failures, last_error,
+		       last_verified_at, last_verify_error, updated_at
 		  FROM database_backup_state
 		 WHERE project_id = $1`
 
@@ -237,6 +314,8 @@ func (store *Store) ProjectBackupState(ctx context.Context, projectID uuid.UUID)
 		&state.LastSourceModifiedAt,
 		&state.ConsecutiveFailures,
 		&state.LastError,
+		&state.LastVerifiedAt,
+		&state.LastVerifyError,
 		&state.UpdatedAt,
 	)
 	if err != nil {

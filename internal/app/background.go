@@ -96,6 +96,10 @@ type backupRunner interface {
 	Interval() time.Duration
 	// RunOnce backs up the projects that are due.
 	RunOnce(ctx context.Context) (int, error)
+	// VerifyInterval is how often the restore drill should run.
+	VerifyInterval() time.Duration
+	// VerifyDue proves the newest backups that have not been checked recently.
+	VerifyDue(ctx context.Context, limit int) (int, error)
 }
 
 // Scheduler runs the periodic maintenance jobs.
@@ -151,6 +155,15 @@ func (scheduler *Scheduler) Run(ctx context.Context) {
 		backupTick = ticker.C
 	}
 
+	// The drill runs on its own, longer clock. A nil channel blocks forever, so
+	// it is skipped when backups are disabled.
+	var verifyTick <-chan time.Time
+	if scheduler.backup != nil {
+		ticker := time.NewTicker(scheduler.backup.VerifyInterval())
+		defer ticker.Stop()
+		verifyTick = ticker.C
+	}
+
 	scheduler.runOnce(ctx)
 
 	for {
@@ -163,6 +176,8 @@ func (scheduler *Scheduler) Run(ctx context.Context) {
 			scheduler.pruneActivity(ctx)
 		case <-backupTick:
 			scheduler.runBackup(ctx)
+		case <-verifyTick:
+			scheduler.runVerification(ctx)
 		}
 	}
 }
@@ -179,6 +194,7 @@ func (scheduler *Scheduler) runOnce(ctx context.Context) {
 	scheduler.reconciler.RunOnce(ctx)
 	scheduler.pruneActivity(ctx)
 	scheduler.runBackup(ctx)
+	scheduler.runVerification(ctx)
 }
 
 // runBackup performs one backup pass, if backups are configured.
@@ -188,6 +204,24 @@ func (scheduler *Scheduler) runBackup(ctx context.Context) {
 	}
 	if _, err := scheduler.backup.RunOnce(ctx); err != nil && ctx.Err() == nil {
 		scheduler.log.Warn("backup pass failed", logger.Fields{"error": err.Error()})
+	}
+}
+
+// runVerification performs one restore-drill pass, if backups are configured.
+//
+// The limit is left to the service's own batch cap: the scheduler deliberately
+// does not carry the backup package's configuration.
+func (scheduler *Scheduler) runVerification(ctx context.Context) {
+	if scheduler.backup == nil {
+		return
+	}
+	checked, err := scheduler.backup.VerifyDue(ctx, 0)
+	if err != nil && ctx.Err() == nil {
+		scheduler.log.Warn("backup verification pass failed", logger.Fields{"error": err.Error()})
+		return
+	}
+	if checked > 0 {
+		scheduler.log.Info("backup verification pass finished", logger.Fields{"projects": checked})
 	}
 }
 

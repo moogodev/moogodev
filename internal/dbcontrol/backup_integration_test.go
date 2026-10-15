@@ -105,3 +105,77 @@ func TestTryProjectBackupLockSerializesOneProject(t *testing.T) {
 	}
 	againRelease()
 }
+
+// TestVerificationSchedule covers the drill queue and its verdict storage: a
+// project with nothing backed up is not due, a fresh backup is due at once, a
+// passing drill clears the queue, and a later failing drill records its reason
+// without clearing the previous pass's verdict timestamp.
+func TestVerificationSchedule(t *testing.T) {
+	store := testStore(t)
+	user := newTestUser(t, store, 5)
+	project := newTestProject(t, store, user.ID)
+	ctx := context.Background()
+	window := 7 * 24 * time.Hour
+
+	// No backup state yet: there is nothing to verify.
+	due, err := store.ProjectsDueForVerification(ctx, window, 10)
+	if err != nil {
+		t.Fatalf("due before any backup: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("due = %v, want none before any backup", due)
+	}
+
+	if _, err := store.RecordBackupSuccess(ctx, project.ID, BackupDaily,
+		"daily/2026-03-04.sqlite", "sha", 1, time.Now()); err != nil {
+		t.Fatalf("record backup: %v", err)
+	}
+
+	// A backup that has never been verified is due immediately.
+	due, err = store.ProjectsDueForVerification(ctx, window, 10)
+	if err != nil {
+		t.Fatalf("due after backup: %v", err)
+	}
+	if len(due) != 1 || due[0].ID != project.ID {
+		t.Fatalf("due = %v, want the backed-up project", due)
+	}
+
+	// A passing drill clears the queue for the whole window.
+	if err := store.RecordBackupVerification(ctx, project.ID, nil); err != nil {
+		t.Fatalf("record pass: %v", err)
+	}
+	state, err := store.ProjectBackupState(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("state: %v", err)
+	}
+	if state.LastVerifiedAt == nil {
+		t.Error("passing drill did not record a verification time")
+	}
+	if state.LastVerifyError != nil {
+		t.Errorf("passing drill recorded an error: %v", state.LastVerifyError)
+	}
+	due, err = store.ProjectsDueForVerification(ctx, window, 10)
+	if err != nil {
+		t.Fatalf("due after pass: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("due = %v, want none right after a passing drill", due)
+	}
+
+	// A failing drill records its reason and keeps the queue honest: the error
+	// must be visible, distinct from the backup's own last_error.
+	failure := "integrity check failed"
+	if err := store.RecordBackupVerification(ctx, project.ID, &failure); err != nil {
+		t.Fatalf("record failure: %v", err)
+	}
+	state, err = store.ProjectBackupState(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("state after failure: %v", err)
+	}
+	if state.LastVerifyError == nil || *state.LastVerifyError != failure {
+		t.Errorf("last_verify_error = %v, want %q", state.LastVerifyError, failure)
+	}
+	if state.LastError != nil {
+		t.Errorf("a verification failure must not overwrite the backup error: %v", state.LastError)
+	}
+}

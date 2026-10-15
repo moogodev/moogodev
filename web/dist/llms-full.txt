@@ -3309,6 +3309,17 @@ To avoid storing identical copies, a backup is **skipped when nothing has
 changed**: if the database has not been touched since the last backup, the
 stored copy is already current and nothing new is uploaded.
 
+## Backups are checked
+
+A backup is only worth having if it can be restored, so Moogo periodically checks
+each project's newest backup end to end: the copy must match what was stored
+when it was taken, and it must pass an integrity check. This catches a damaged
+or incomplete copy before you ever need it.
+
+The **Backups** tab shows when the newest backup was last verified. If a check
+fails, Moogo says so there, and taking a fresh backup — or restoring from a
+different point in the list — is the way forward.
+
 ## Take a backup now
 
 Open the **Backups** tab on a project and press **Back up now**. The snapshot is

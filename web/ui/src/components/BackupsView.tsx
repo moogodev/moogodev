@@ -156,7 +156,7 @@ export default function BackupsView({ projectId }: { projectId: string }) {
         </div>
 
         {state ? (
-          <dl className="mt-4 grid grid-cols-1 gap-3 border-t border-edge pt-4 text-sm sm:grid-cols-3">
+          <dl className="mt-4 grid grid-cols-1 gap-3 border-t border-edge pt-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <dt className="text-muted">Last backup</dt>
               <dd className="mt-0.5 font-medium text-foreground">
@@ -179,12 +179,26 @@ export default function BackupsView({ projectId }: { projectId: string }) {
                     : "No backups yet"}
               </dd>
             </div>
+            <div>
+              <dt className="text-muted">Last verified</dt>
+              <dd className="mt-0.5 font-medium text-foreground">
+                {state.last_verified_at
+                  ? new Date(state.last_verified_at).toLocaleString()
+                  : "Not yet checked"}
+              </dd>
+            </div>
           </dl>
         ) : null}
 
         {state && state.consecutive_failures > 0 && state.last_error ? (
           <p className="mt-4 rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-sm text-amber">
             The most recent backup did not finish: {state.last_error}
+          </p>
+        ) : null}
+
+        {state && state.last_verify_error ? (
+          <p className="mt-4 rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-sm text-amber">
+            The last integrity check of your newest backup failed: {state.last_verify_error}
           </p>
         ) : null}
       </div>

@@ -34,6 +34,11 @@ type fakeDatabases struct {
 	restored         string
 	restoredContents []byte
 	restores         int
+
+	// verifyErr is returned by VerifySnapshot; verified records the paths the
+	// drill asked to check.
+	verifyErr error
+	verified  []string
 }
 
 func (fake *fakeDatabases) BackupDatabase(_ context.Context, _ uuid.UUID) (string, error) {
@@ -58,6 +63,11 @@ func (fake *fakeDatabases) RestoreDatabase(_ context.Context, _ uuid.UUID, snaps
 		}
 	}
 	return fake.restoreErr
+}
+
+func (fake *fakeDatabases) VerifySnapshot(_ context.Context, path string) error {
+	fake.verified = append(fake.verified, path)
+	return fake.verifyErr
 }
 
 type fakeObjects struct {
@@ -159,6 +169,12 @@ type fakeProjects struct {
 	lockBusy bool
 	lockErr  error
 	locked   []uuid.UUID
+
+	// verifyDue is the drill queue; verifications records what was recorded.
+	verifyDue       []dbcontrol.Project
+	verifyDueErr    error
+	verifications   []*string
+	verificationErr error
 }
 
 func (fake *fakeProjects) ProjectsDueForBackup(_ context.Context, _ time.Duration, _ int) ([]dbcontrol.Project, error) {
@@ -238,6 +254,15 @@ func (fake *fakeProjects) TryProjectBackupLock(_ context.Context, projectID uuid
 	}
 	fake.locked = append(fake.locked, projectID)
 	return func() {}, true, nil
+}
+
+func (fake *fakeProjects) ProjectsDueForVerification(_ context.Context, _ time.Duration, _ int) ([]dbcontrol.Project, error) {
+	return fake.verifyDue, fake.verifyDueErr
+}
+
+func (fake *fakeProjects) RecordBackupVerification(_ context.Context, _ uuid.UUID, verifyErr *string) error {
+	fake.verifications = append(fake.verifications, verifyErr)
+	return fake.verificationErr
 }
 
 // --- helpers -------------------------------------------------------------
@@ -407,6 +432,75 @@ func TestBackupProjectRecordsFailureOnUploadError(t *testing.T) {
 	}
 	if len(projects.successes) != 0 {
 		t.Errorf("recorded a success despite the failure")
+	}
+}
+
+func TestVerifyProjectRecordsSuccessfulDrill(t *testing.T) {
+	service, projects, databases, objects := newTestService(t, Config{Prefix: "db"})
+	projectID := uuid.New()
+
+	// The fake download verifies size and checksum, so store matching bytes.
+	body := []byte("sqlite-bytes")
+	objectKey := "db/" + projectID.String() + "/daily/2026-01-01.sqlite"
+	objects.stored[objectKey] = body
+	projects.latest = &dbcontrol.DatabaseBackup{
+		ObjectKey: objectKey,
+		SHA256:    sha256Hex(body),
+		SizeBytes: int64(len(body)),
+	}
+
+	if err := service.VerifyProject(context.Background(), projectID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if len(databases.verified) != 1 {
+		t.Fatalf("verify snapshot calls = %d, want one", len(databases.verified))
+	}
+	if len(projects.verifications) != 1 || projects.verifications[0] != nil {
+		t.Fatalf("recorded verifications = %v, want one nil (passing) record", projects.verifications)
+	}
+}
+
+func TestVerifyProjectRecordsCorruptBackup(t *testing.T) {
+	service, projects, databases, objects := newTestService(t, Config{Prefix: "db"})
+	projectID := uuid.New()
+	objectKey := "db/" + projectID.String() + "/daily/2026-01-01.sqlite"
+
+	// The stored bytes do not match the checksum the history recorded, so the
+	// drill must fail at the checksum before it ever opens the file.
+	objects.stored[objectKey] = []byte("tampered")
+	projects.latest = &dbcontrol.DatabaseBackup{
+		ObjectKey: objectKey,
+		SHA256:    sha256Hex([]byte("original")),
+		SizeBytes: int64(len("original")),
+	}
+
+	err := service.VerifyProject(context.Background(), projectID)
+	if !errors.Is(err, ErrBackupCorrupt) {
+		t.Fatalf("err = %v, want ErrBackupCorrupt", err)
+	}
+	if len(databases.verified) != 0 {
+		t.Errorf("a corrupt download must not reach the integrity check: %v", databases.verified)
+	}
+	if len(projects.verifications) != 1 || projects.verifications[0] == nil {
+		t.Fatalf("recorded verifications = %v, want one non-nil (failing) record", projects.verifications)
+	}
+}
+
+func TestVerifyDueProcessesTheQueue(t *testing.T) {
+	service, projects, _, _ := newTestService(t, Config{Prefix: "db", VerifyBatchSize: 2})
+	projects.verifyDue = []dbcontrol.Project{{ID: uuid.New()}, {ID: uuid.New()}}
+
+	// No latest backup for either, so each records a vacuous pass; the point is
+	// that the pass visits the whole queue.
+	count, err := service.VerifyDue(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("verify due: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
+	}
+	if len(projects.verifications) != 2 {
+		t.Fatalf("recorded verifications = %d, want 2", len(projects.verifications))
 	}
 }
 

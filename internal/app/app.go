@@ -116,6 +116,10 @@ func Build(ctx context.Context, options Options) (*App, error) {
 			Timeout:    cfg.BackupTimeout,
 			AlertAfter: cfg.BackupAlertAfter,
 			WebhookURL: cfg.BackupAlertWebhook,
+
+			VerifyInterval:  cfg.BackupVerifyInterval,
+			VerifyMaxAge:    cfg.BackupVerifyMaxAge,
+			VerifyBatchSize: cfg.BackupVerifyBatchSize,
 		}, options.Log)
 		handlerBackups = backupService
 	}

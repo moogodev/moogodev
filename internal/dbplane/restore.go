@@ -209,3 +209,14 @@ func validateSnapshot(ctx context.Context, path string) error {
 	}
 	return nil
 }
+
+// VerifySnapshot checks that a downloaded backup is a well-formed Moogo database
+// that passes SQLite's own integrity check, without touching any live project.
+//
+// It is the restore drill's proof step: a restore that has never been exercised
+// is a hope, and this is what turns the newest backup in storage into a claim
+// that can be checked on a schedule. The file is opened query_only, so the drill
+// cannot modify the copy it inspects.
+func (manager *Manager) VerifySnapshot(ctx context.Context, path string) error {
+	return validateSnapshot(ctx, path)
+}

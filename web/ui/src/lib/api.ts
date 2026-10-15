@@ -265,6 +265,11 @@ export interface BackupState {
   consecutive_failures: number;
   // last_error is null when the most recent attempt succeeded.
   last_error: string | null;
+  // last_verified_at is when the newest backup was last downloaded and
+  // integrity-checked by the restore drill; null until the first drill runs.
+  last_verified_at: string | null;
+  // last_verify_error is why the last drill failed, or null when it passed.
+  last_verify_error: string | null;
 }
 
 // BackupsResponse is GET /api/projects/{id}/backups.

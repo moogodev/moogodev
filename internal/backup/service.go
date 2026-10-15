@@ -54,6 +54,15 @@ type Config struct {
 	BatchSize int
 	// Timeout bounds one project's snapshot-and-upload.
 	Timeout time.Duration
+	// VerifyInterval is how often the drill loop looks for projects whose
+	// newest backup has not been proven restorable recently.
+	VerifyInterval time.Duration
+	// VerifyMaxAge is how long a proven-restorable verdict is trusted before
+	// the project is verified again.
+	VerifyMaxAge time.Duration
+	// VerifyBatchSize caps how many projects one drill pass handles. Each one
+	// downloads a whole backup, so the cap is smaller than the backup batch.
+	VerifyBatchSize int
 	// AlertAfter is how many consecutive failures a project may accumulate
 	// before a failing alert is sent. Zero disables the threshold, in which
 	// case only the metric and the dashboard show the failure.
@@ -80,6 +89,12 @@ type Projects interface {
 	// so two runs cannot snapshot and upload the same project at once. A false
 	// result is contention, not an error.
 	TryProjectBackupLock(ctx context.Context, projectID uuid.UUID) (release func(), ok bool, err error)
+	// ProjectsDueForVerification lists projects whose newest backup has not
+	// been proven restorable within maxAge.
+	ProjectsDueForVerification(ctx context.Context, maxAge time.Duration, limit int) ([]dbcontrol.Project, error)
+	// RecordBackupVerification stores the outcome of one restore drill. A nil
+	// verifyErr clears the previous failure.
+	RecordBackupVerification(ctx context.Context, projectID uuid.UUID, verifyErr *string) error
 }
 
 // Databases is the data-plane surface the service needs.
@@ -87,6 +102,9 @@ type Databases interface {
 	BackupDatabase(ctx context.Context, projectID uuid.UUID) (string, error)
 	DatabaseModTime(projectID uuid.UUID) (time.Time, error)
 	RestoreDatabase(ctx context.Context, projectID uuid.UUID, snapshotPath string) error
+	// VerifySnapshot checks that a downloaded backup is a well-formed database
+	// without touching the live project.
+	VerifySnapshot(ctx context.Context, path string) error
 }
 
 // Objects is the object-storage surface the service needs.
@@ -160,6 +178,15 @@ func New(projects Projects, databases Databases, objects Objects, cfg Config, lo
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 15 * time.Minute
 	}
+	if cfg.VerifyInterval <= 0 {
+		cfg.VerifyInterval = time.Hour
+	}
+	if cfg.VerifyMaxAge <= 0 {
+		cfg.VerifyMaxAge = 7 * 24 * time.Hour
+	}
+	if cfg.VerifyBatchSize < 1 {
+		cfg.VerifyBatchSize = 5
+	}
 	if log == nil {
 		log = logger.Nop()
 	}
@@ -172,6 +199,11 @@ func New(projects Projects, databases Databases, objects Objects, cfg Config, lo
 // Interval reports how often the loop runs, for the caller that owns the loop.
 func (service *Service) Interval() time.Duration {
 	return service.cfg.Interval
+}
+
+// VerifyInterval reports how often the restore-drill loop should run.
+func (service *Service) VerifyInterval() time.Duration {
+	return service.cfg.VerifyInterval
 }
 
 // ListBackups returns a project's backup history, newest first, together with
@@ -288,6 +320,98 @@ func (service *Service) processProject(ctx context.Context, project dbcontrol.Pr
 		return
 	}
 	service.prune(ctx, project.ID)
+}
+
+// VerifyDue downloads and checks the newest backup of every project whose last
+// drill is older than VerifyMaxAge, returning how many were checked.
+//
+// The drill is what separates "there is an object in the bucket" from "that
+// object can actually be restored". It re-downloads the newest regular backup,
+// checks it against the size and checksum recorded at upload, and opens it
+// read-only to run SQLite's own integrity check. A single project failing does
+// not stop the pass: the next project is tried, and the failure is recorded so
+// the dashboard can show it.
+func (service *Service) VerifyDue(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		limit = service.cfg.VerifyBatchSize
+	}
+
+	projects, err := service.projects.ProjectsDueForVerification(ctx, service.cfg.VerifyMaxAge, limit)
+	if err != nil {
+		return 0, err
+	}
+
+	verified := 0
+	for index := range projects {
+		if ctx.Err() != nil {
+			return verified, ctx.Err()
+		}
+		service.VerifyProject(ctx, projects[index].ID)
+		verified++
+	}
+	return verified, nil
+}
+
+// VerifyProject proves one project's newest backup is restorable and records
+// the outcome. The returned error is the drill's own result; the loop caller
+// wants the pass to continue either way, which is why it records rather than
+// returns through VerifyDue.
+func (service *Service) VerifyProject(ctx context.Context, projectID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, service.cfg.Timeout)
+	defer cancel()
+
+	err := service.verifyLatest(ctx, projectID)
+
+	var verifyErr *string
+	if err != nil {
+		message := err.Error()
+		verifyErr = &message
+	}
+
+	result := "ok"
+	if err != nil {
+		result = "failure"
+	}
+	metrics.IncBackupVerification(result)
+
+	// Record on a detached context: a drill that failed because it timed out
+	// must still record why, or the dashboard would show a stale verdict.
+	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer recordCancel()
+	if recordErr := service.projects.RecordBackupVerification(recordCtx, projectID, verifyErr); recordErr != nil {
+		service.log.Error("record backup verification failed", logger.Fields{
+			"project_id": projectID.String(),
+			"error":      recordErr.Error(),
+		})
+	}
+
+	if err != nil {
+		service.log.Warn("backup verification failed", logger.Fields{
+			"project_id": projectID.String(),
+			"error":      err.Error(),
+		})
+	}
+	return err
+}
+
+// verifyLatest downloads the newest regular backup and checks it end to end. A
+// project that has no backup yet has nothing to verify, which is not an error.
+func (service *Service) verifyLatest(ctx context.Context, projectID uuid.UUID) error {
+	latest, err := service.projects.LatestRegularBackup(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if latest == nil {
+		return nil
+	}
+
+	path, err := service.fetchToTemp(ctx, latest.ObjectKey, latest.SHA256, latest.SizeBytes)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(path)
+
+	return service.databases.VerifySnapshot(ctx, path)
 }
 
 // BackupProject snapshots a project and uploads it.

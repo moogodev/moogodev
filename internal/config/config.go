@@ -165,6 +165,13 @@ type Config struct {
 	// alert. Zero disables the threshold.
 	BackupAlertAfter int
 
+	// BackupVerifyInterval is how often the restore drill looks for work.
+	BackupVerifyInterval time.Duration
+	// BackupVerifyMaxAge is how long a passing drill verdict is trusted.
+	BackupVerifyMaxAge time.Duration
+	// BackupVerifyBatchSize caps how many projects one drill pass handles.
+	BackupVerifyBatchSize int
+
 	// Environment name, used to pick log level and relax local-only rules.
 	Environment string
 }
@@ -325,6 +332,13 @@ func Load() (Config, error) {
 		// but a webhook only fires when an operator has set one.
 		BackupAlertWebhook: reader.string("MOOGO_BACKUP_ALERT_WEBHOOK", ""),
 		BackupAlertAfter:   reader.int("MOOGO_BACKUP_ALERT_AFTER", 3),
+
+		// The restore drill proves the newest backup can be restored. It is on
+		// whenever backups are; the interval is how often it looks for work and
+		// the max age is how old a passing verdict may get.
+		BackupVerifyInterval:  reader.duration("MOOGO_BACKUP_VERIFY_INTERVAL", time.Hour),
+		BackupVerifyMaxAge:    reader.duration("MOOGO_BACKUP_VERIFY_MAX_AGE", 7*24*time.Hour),
+		BackupVerifyBatchSize: reader.int("MOOGO_BACKUP_VERIFY_BATCH_SIZE", 5),
 	}
 
 	if len(reader.problems) > 0 {
@@ -474,6 +488,15 @@ func (cfg Config) validate() error {
 		}
 		if cfg.BackupAlertAfter < 0 {
 			problems = append(problems, "MOOGO_BACKUP_ALERT_AFTER must not be negative")
+		}
+		if cfg.BackupVerifyInterval <= 0 {
+			problems = append(problems, "MOOGO_BACKUP_VERIFY_INTERVAL must be greater than zero")
+		}
+		if cfg.BackupVerifyMaxAge <= 0 {
+			problems = append(problems, "MOOGO_BACKUP_VERIFY_MAX_AGE must be greater than zero")
+		}
+		if cfg.BackupVerifyBatchSize < 1 {
+			problems = append(problems, "MOOGO_BACKUP_VERIFY_BATCH_SIZE must be at least 1")
 		}
 		if cfg.BackupAlertWebhook != "" && !strings.HasPrefix(cfg.BackupAlertWebhook, "http://") &&
 			!strings.HasPrefix(cfg.BackupAlertWebhook, "https://") {

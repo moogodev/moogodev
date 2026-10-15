@@ -40,6 +40,11 @@ type BackupStateResponse struct {
 	// visible instead of silently missing from the list.
 	ConsecutiveFailures int     `json:"consecutive_failures"`
 	LastError           *string `json:"last_error"`
+	// LastVerifiedAt is when the newest backup was last downloaded and
+	// integrity-checked, and LastVerifyError is why that check failed, if it
+	// did. Together they say whether the newest backup is proven restorable.
+	LastVerifiedAt  *time.Time `json:"last_verified_at"`
+	LastVerifyError *string    `json:"last_verify_error"`
 }
 
 // BackupsResponse is the list endpoint's body.
@@ -87,6 +92,8 @@ func (handler *ControlPlane) ListBackups(w http.ResponseWriter, r *http.Request)
 			LastSizeBytes:       state.LastSizeBytes,
 			ConsecutiveFailures: state.ConsecutiveFailures,
 			LastError:           state.LastError,
+			LastVerifiedAt:      state.LastVerifiedAt,
+			LastVerifyError:     state.LastVerifyError,
 		}
 	}
 
