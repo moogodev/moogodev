@@ -80,6 +80,31 @@ is better to keep a working database than to overwrite it with a truncated one.
 Restoring works even while a project is **paused**. A paused or misbehaving
 project is exactly the one whose owner may need to roll it back.
 
+## Download, open and delete a backup
+
+Besides **Restore**, every row in the list has three more actions.
+
+**Download** saves the snapshot as a SQLite file on your computer, named after
+the project, the reason the backup was taken and its date — for example
+\`my-project_daily_14_10_2026.sqlite\`. The file opens in any SQLite tool. It is
+served from the same copy that a restore would use, checked against the recorded
+size and checksum, so a download that finished is a file that is intact.
+
+**Open** shows the backup in a new tab as a **read-only** browser: the same
+tables, columns and rows the live **Tables** tab shows, with paging, but nothing
+can be changed. No row can be edited and no table can be created, renamed or
+dropped. It is a way to look inside a snapshot — to find the row a bad edit
+touched, or to check that a restore would bring back what you expect — without
+restoring anything. The snapshot is fetched and cached on the server the first
+time you open it, so a very large backup can take a moment to appear.
+
+**Delete** removes one backup permanently, after a confirmation. It cannot be
+undone, so reach for it only when you no longer want that copy. Deleting the
+newest **daily, manual or initial** backup also removes \`latest.sqlite\`, the
+stable key that mirrors the newest one; the next backup recreates it. Deleting a
+**Before restore** snapshot never moves \`latest.sqlite\`, because that key always
+follows the newest state of the data, not the state just before a restore.
+
 ## Retention
 
 Backups older than the retention window (30 days by default) are pruned from the
