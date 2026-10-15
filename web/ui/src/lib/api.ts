@@ -383,6 +383,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   projects: () => request<ProjectList>("/api/projects"),
+  getProject: (id: string) => request<Project>(`/api/projects/${id}`),
   createProject: (name: string) =>
     request<Project>("/api/projects", {
       method: "POST",

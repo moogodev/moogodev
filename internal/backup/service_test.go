@@ -511,9 +511,9 @@ func TestObjectKeyLayout(t *testing.T) {
 
 	cases := map[dbcontrol.BackupKind]string{
 		dbcontrol.BackupDaily:      prefix + "daily/2026-03-04.sqlite",
-		dbcontrol.BackupManual:     prefix + "manual/20260304T050607Z.sqlite",
-		dbcontrol.BackupPreRestore: prefix + "pre-restore/20260304T050607Z.sqlite",
-		dbcontrol.BackupInitial:    prefix + "initial/20260304T050607Z.sqlite",
+		dbcontrol.BackupManual:     prefix + "manual/20260304T050607.000Z.sqlite",
+		dbcontrol.BackupPreRestore: prefix + "pre-restore/20260304T050607.000Z.sqlite",
+		dbcontrol.BackupInitial:    prefix + "initial/20260304T050607.000Z.sqlite",
 	}
 	for kind, want := range cases {
 		if got := service.objectKey(projectID, kind, when); got != want {

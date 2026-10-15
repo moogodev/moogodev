@@ -92,7 +92,10 @@ const maxCachedSnapshots = 6
 
 // snapshotEntry is one downloaded backup kept for viewing.
 type snapshotEntry struct {
-	path     string
+	path string
+	// project scopes eviction: deleting one project must not throw away the
+	// copies another project's viewer is using.
+	project  uuid.UUID
 	lastUsed time.Time
 }
 
@@ -292,21 +295,34 @@ func (service *Service) BackupProject(ctx context.Context, projectID uuid.UUID, 
 		return nil, err
 	}
 
+	// The history row is written before latest.sqlite is moved. The row is what
+	// the list and the restore path read, so recording it first means a failure
+	// here leaves latest.sqlite pointing at the previous backup rather than at
+	// an object no listing can name. An owner then still has a listed, usable
+	// backup instead of an invisible one.
+	if err := service.projects.RecordBackupSuccess(ctx, projectID, kind, key, checksum, size, watermark); err != nil {
+		service.recordFailure(ctx, projectID, err)
+		return nil, err
+	}
+
 	// latest.sqlite is a stable pointer to the newest regular backup. It
 	// deliberately sits outside the history: it survives retention pruning and
 	// gives an operator a predictable key to fetch without asking Postgres.
 	// A pre-restore snapshot does not move it, because that snapshot is not the
 	// newest state of the data, it is the state just before it was replaced.
+	//
+	// A failure to move the pointer is logged and stepped over rather than
+	// reported as a failed backup: the snapshot is uploaded and recorded, and
+	// the pointer is a convenience key that the next backup of changed data
+	// will bring up to date. Losing the whole backup over it would be worse.
 	if kind != dbcontrol.BackupPreRestore {
 		if err := service.putFile(ctx, service.latestKey(projectID), snapshotPath, size, checksum); err != nil {
-			service.recordFailure(ctx, projectID, err)
-			return nil, err
+			service.log.Warn("update latest backup pointer failed", logger.Fields{
+				"project_id": projectID.String(),
+				"backup_id":  key,
+				"error":      err.Error(),
+			})
 		}
-	}
-
-	if err := service.projects.RecordBackupSuccess(ctx, projectID, kind, key, checksum, size, watermark); err != nil {
-		service.recordFailure(ctx, projectID, err)
-		return nil, err
 	}
 
 	service.log.Info("database backed up", logger.Fields{
@@ -462,7 +478,7 @@ func (service *Service) SnapshotPath(ctx context.Context, projectID uuid.UUID, b
 		return "", err
 	}
 
-	service.snapshots[backupID] = snapshotEntry{path: path, lastUsed: time.Now()}
+	service.snapshots[backupID] = snapshotEntry{path: path, project: projectID, lastUsed: time.Now()}
 	service.evictSnapshotsLocked()
 	return path, nil
 }
@@ -497,13 +513,18 @@ func (service *Service) forgetSnapshot(backupID uuid.UUID) {
 	}
 }
 
-// clearSnapshots removes every cached backup copy, for a project being deleted
-// where the exact set of backup ids is not worth tracking down.
-func (service *Service) clearSnapshots() {
+// clearProjectSnapshots removes every cached backup copy belonging to one
+// project, for a project being deleted. Scoping the sweep to the project means
+// deleting one project does not force every other project's viewer to download
+// its snapshot again.
+func (service *Service) clearProjectSnapshots(projectID uuid.UUID) {
 	service.snapshotMu.Lock()
 	defer service.snapshotMu.Unlock()
 
 	for backupID, entry := range service.snapshots {
+		if entry.project != projectID {
+			continue
+		}
 		_ = os.Remove(entry.path)
 		delete(service.snapshots, backupID)
 	}
@@ -537,7 +558,7 @@ func (service *Service) DeleteProjectBackups(ctx context.Context, projectID uuid
 	if err := service.projects.DeleteProjectBackups(ctx, projectID); err != nil {
 		return err
 	}
-	service.clearSnapshots()
+	service.clearProjectSnapshots(projectID)
 	if failures > 0 {
 		return fmt.Errorf("delete project backups: %d objects could not be removed", failures)
 	}
@@ -587,6 +608,11 @@ func (service *Service) prune(ctx context.Context, projectID uuid.UUID) {
 			"error":      err.Error(),
 		})
 		return
+	}
+	// A pruned backup must not stay readable from the viewer's cache: its object
+	// and row are gone, so a cached copy would show data the list no longer has.
+	for _, backupID := range removed {
+		service.forgetSnapshot(backupID)
 	}
 	service.log.Info("pruned expired backups", logger.Fields{
 		"project_id": projectID.String(),
@@ -673,22 +699,26 @@ func (service *Service) fetchToTemp(ctx context.Context, key, wantSHA256 string,
 //
 // Daily keys use the date, which is enough because the due window is at least a
 // day: two successful daily backups of one project cannot land on the same
-// date. The other kinds can be taken several times a day, so they carry a
-// timestamp.
+// date. The other kinds can be taken several times a day — including twice in
+// quick succession from two clicks of the same button — so they carry a
+// timestamp with milliseconds. Second precision was not enough: two manual
+// backups within the same second wrote to one key, so the second overwrote the
+// first and both history rows pointed at the same object.
 func (service *Service) objectKey(projectID uuid.UUID, kind dbcontrol.BackupKind, when time.Time) string {
 	base := service.projectPrefix(projectID)
+	stamp := when.UTC().Format("20060102T150405.000Z")
 
 	switch kind {
 	case dbcontrol.BackupDaily:
 		return base + "daily/" + when.UTC().Format("2006-01-02") + ".sqlite"
 	case dbcontrol.BackupManual:
-		return base + "manual/" + when.UTC().Format("20060102T150405Z") + ".sqlite"
+		return base + "manual/" + stamp + ".sqlite"
 	case dbcontrol.BackupPreRestore:
-		return base + "pre-restore/" + when.UTC().Format("20060102T150405Z") + ".sqlite"
+		return base + "pre-restore/" + stamp + ".sqlite"
 	case dbcontrol.BackupInitial:
-		return base + "initial/" + when.UTC().Format("20060102T150405Z") + ".sqlite"
+		return base + "initial/" + stamp + ".sqlite"
 	default:
-		return base + "other/" + when.UTC().Format("20060102T150405Z") + ".sqlite"
+		return base + "other/" + stamp + ".sqlite"
 	}
 }
 

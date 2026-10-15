@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 )
@@ -47,7 +48,14 @@ func (manager *Manager) QuerySnapshot(
 	// The connection-scoped pragmas match the read pool's tuning: a bounded
 	// page cache and in-memory scratch space, since the snapshot is a file we
 	// do not own and must not litter.
-	dsn := "file:" + path +
+	//
+	// The path is escaped as a file: URI rather than concatenated. A cache
+	// directory under a user's home, or any path with a space or a character
+	// SQLite reads as URI syntax, would otherwise be split and open the wrong
+	// file — or none. url.URL turns the absolute path into file:///... with the
+	// special characters percent-encoded, which is the form SQLite's URI
+	// parser expects.
+	dsn := (&url.URL{Scheme: "file", Path: path}).String() +
 		"?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)" +
 		"&_pragma=temp_store(MEMORY)&_pragma=cache_size(-2000)"
 

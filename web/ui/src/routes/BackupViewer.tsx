@@ -39,13 +39,13 @@ export default function BackupViewer() {
       try {
         // The backup names itself and the project names the breadcrumb. They
         // are independent reads, so they go out together rather than in turn.
-        const [found, listing] = await Promise.all([
+        const [found, proj] = await Promise.all([
           api.getBackup(projectId, wanted),
-          api.projects(),
+          api.getProject(projectId),
         ]);
         if (cancelled) return;
         setBackup(found);
-        setProject(listing.projects.find((item) => item.id === projectId) ?? null);
+        setProject(proj);
       } catch (cause) {
         if (!cancelled) {
           setLoadError(

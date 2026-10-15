@@ -13,6 +13,7 @@ import (
 	"github.com/moogodev/moogodev/internal/backup"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
 	"github.com/moogodev/moogodev/internal/dbplane"
+	"github.com/moogodev/moogodev/internal/storage"
 	"github.com/moogodev/moogodev/pkg/httpx"
 	"github.com/moogodev/moogodev/pkg/logger"
 	"github.com/moogodev/moogodev/pkg/sanitizer"
@@ -219,8 +220,10 @@ func (handler *ControlPlane) DownloadBackup(w http.ResponseWriter, r *http.Reque
 	defer body.Close()
 
 	// Content-Length comes from the recorded size, so a browser can show a real
-	// progress bar. It is advisory: the header is already sent by the time a
-	// short copy would be noticed, and the log records that case.
+	// progress bar. The body is a copy that was verified against that size and
+	// checksum before this point, so the length is exact. The header is already
+	// sent by the time the copy runs, so a failure now — a client that hung up
+	// mid-download — cannot become a different status and is logged instead.
 	w.Header().Set("Content-Type", "application/vnd.sqlite3")
 	w.Header().Set("Content-Disposition", contentDisposition(snapshotFilename(project.Name, stored)))
 	w.Header().Set("Cache-Control", "private, no-store")
@@ -321,10 +324,26 @@ func (handler *ControlPlane) QueryBackup(w http.ResponseWriter, r *http.Request)
 
 	started := now()
 	result, err := handler.databases.QuerySnapshot(r.Context(), path, request.Query, request.Args, 0)
+	if err != nil && errors.Is(err, dbplane.ErrNotFound) {
+		// The cached copy was evicted between being handed to us and being
+		// opened, which the viewer's least-recently-used cache can do when
+		// several backups are looked at at once. Fetch it again and run the
+		// statement once more; a second miss is a real absence, not a race.
+		if fresh, retryErr := handler.backups.SnapshotPath(r.Context(), project.ID, backupID); retryErr == nil {
+			result, err = handler.databases.QuerySnapshot(r.Context(), fresh, request.Query, request.Args, 0)
+		}
+	}
 	if err != nil {
-		// Reuses the data plane's mapping and activity logging so a viewer
-		// failure reads the same as the same statement failing on a live
+		// A backup that cannot be opened or read is a backup problem, with the
+		// same 404/422 the rest of the backup routes give. Anything else is the
+		// statement itself failing, which belongs in the data plane's mapping
+		// and activity log so it reads like the same statement on a live
 		// database.
+		if errors.Is(err, dbplane.ErrNotFound) || errors.Is(err, dbplane.ErrInvalidSnapshot) ||
+			errors.Is(err, backup.ErrBackupCorrupt) || errors.Is(err, dbcontrol.ErrNotFound) {
+			handler.writeBackupError(w, r, err, "backup query")
+			return
+		}
 		handler.sql.writeDataPlaneError(w, r, project.ID, err, "backup query")
 		return
 	}
@@ -401,9 +420,14 @@ func (handler *ControlPlane) writeBackupsDisabled(w http.ResponseWriter) {
 // The corrupt-snapshot case is a 422 rather than a 500: the file exists but is
 // not usable, and the client can act on that by choosing another backup. The
 // restore-in-progress case is a 409 so a retry is the obvious next step.
+//
+// A missing object is a 404, not a 500. The row can outlive its object when a
+// prune removed the bytes but not the row, or when the metadata and the bucket
+// have drifted apart, and that is a thing the caller can see and act on.
 func (handler *ControlPlane) writeBackupError(w http.ResponseWriter, r *http.Request, err error, action string) {
 	switch {
-	case errors.Is(err, dbcontrol.ErrNotFound):
+	case errors.Is(err, dbcontrol.ErrNotFound), errors.Is(err, dbplane.ErrNotFound),
+		errors.Is(err, storage.ErrObjectNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "backup_not_found", "no such backup")
 	case errors.Is(err, backup.ErrBackupCorrupt), errors.Is(err, dbplane.ErrInvalidSnapshot):
 		handler.log.Warn("backup unusable", logger.Fields{

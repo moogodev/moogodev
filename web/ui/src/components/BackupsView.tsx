@@ -174,7 +174,9 @@ export default function BackupsView({ projectId }: { projectId: string }) {
               <dd className="mt-0.5 font-medium text-foreground">
                 {state.consecutive_failures > 0
                   ? `${state.consecutive_failures} failed attempt${state.consecutive_failures === 1 ? "" : "s"}`
-                  : "Healthy"}
+                  : newest
+                    ? "Healthy"
+                    : "No backups yet"}
               </dd>
             </div>
           </dl>
@@ -311,7 +313,7 @@ export default function BackupsView({ projectId }: { projectId: string }) {
           <>
             The backup from {deleting ? new Date(deleting.created_at).toLocaleString() : ""} will
             be removed permanently. This cannot be undone.
-            {deleting && deleting.kind === "daily"
+            {deleting && deleting.kind !== "pre_restore"
               ? " If it is the most recent backup, the copy used for a one-click restore is removed with it; the next backup recreates it."
               : ""}
           </>
