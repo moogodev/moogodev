@@ -245,7 +245,8 @@ func (handler *ControlPlane) CreateBackup(w http.ResponseWriter, r *http.Request
 					})
 				} else {
 					// Direct download link with signed token (valid 24h).
-					downloadLink := handler.cfg.APIURL + "/api/projects/" + project.ID.String() + "/backups/" + latest.ID.String() + "/download?token=" + token
+					// Path is /api/backup-download?token=... (public, no session).
+					downloadLink := handler.cfg.APIURL + "/api/backup-download?token=" + token
 					if err := handler.mailer.SendManualBackupCreated(ctx, user.Email, project.Name, result.SizeBytes, time.Now(), downloadLink); err != nil {
 						handler.log.Warn("send manual backup email", logger.Fields{
 							"project_id": project.ID.String(),

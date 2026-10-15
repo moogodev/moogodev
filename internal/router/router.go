@@ -355,6 +355,10 @@ func New(deps Deps) http.Handler {
 	root.With(credentialWrite...).Post("/auth/verify-email", deps.Credentials.VerifyEmail)
 	root.With(credentialWrite...).Post("/auth/resend-verification", deps.Credentials.ResendVerification)
 
+	// Public backup download with signed token (no session required).
+	// Token embeds project_id:backup_id:expiry, signed with HMAC-SHA256.
+	root.Get("/api/backup-download", deps.Control.DownloadBackupPublic)
+
 	// --- Control plane: a signed-in person, session cookie ---
 
 	root.Group(func(private chi.Router) {
@@ -413,8 +417,6 @@ func New(deps Deps) http.Handler {
 						backup.Get("/", deps.Control.GetBackup)
 						backup.Delete("/", deps.Control.DeleteBackup)
 						backup.Get("/download", deps.Control.DownloadBackup)
-						// Public download with signed token (no session required).
-						backup.Get("/download", deps.Control.DownloadBackupPublic)
 						backup.Post("/restore", deps.Control.RestoreBackup)
 						// The read-only viewer's read path: same body and same
 						// response as the console's /query, run against the
