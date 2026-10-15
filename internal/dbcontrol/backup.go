@@ -568,10 +568,17 @@ func (store *Store) DeleteBackupRows(ctx context.Context, ids []uuid.UUID) error
 	return nil
 }
 
-// DeleteProjectBackups removes a project's backup history and cursor.
+// DeleteProjectBackups removes a project's backup history, restore queue and
+// cursor.
 //
 // It is called when a project or account is deleted, before the rows would
-// otherwise cascade, so the object keys can be collected first.
+// otherwise cascade, so the object keys can be collected first. Account
+// deletion hard-deletes the user, so the cascade takes these rows anyway;
+// project deletion is a soft delete, so this is the only thing that clears them.
+//
+// The restore queue goes with the history: a queued restore names a project
+// that no longer exists, and leaving it behind would let a background worker
+// pick it up and rebuild a database nobody can reach.
 func (store *Store) DeleteProjectBackups(ctx context.Context, projectID uuid.UUID) error {
 	transaction, err := store.pool.Begin(ctx)
 	if err != nil {
@@ -584,6 +591,9 @@ func (store *Store) DeleteProjectBackups(ctx context.Context, projectID uuid.UUI
 	}
 	if _, err := transaction.Exec(ctx, `DELETE FROM database_backup_state WHERE project_id = $1`, projectID); err != nil {
 		return fmt.Errorf("delete backup state: %w", err)
+	}
+	if _, err := transaction.Exec(ctx, `DELETE FROM database_restores WHERE project_id = $1`, projectID); err != nil {
+		return fmt.Errorf("delete restore queue: %w", err)
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		return fmt.Errorf("commit delete project backups: %w", err)

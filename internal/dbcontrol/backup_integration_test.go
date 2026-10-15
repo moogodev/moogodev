@@ -287,3 +287,56 @@ func TestMarkAbandonedRestoresFailsRunning(t *testing.T) {
 		t.Fatalf("restore after abandonment: %v", err)
 	}
 }
+
+// TestDeleteProjectBackupsClearsRestoreQueue covers the restore half of project
+// cleanup: the queue rows belong to the project, so deleting the project's
+// backup data has to take them too.
+func TestDeleteProjectBackupsClearsRestoreQueue(t *testing.T) {
+	store := testStore(t)
+	user := newTestUser(t, store, 1)
+	project := newTestProject(t, store, user.ID)
+	ctx := context.Background()
+
+	restore, err := store.CreateRestore(ctx, project.ID, uuid.New())
+	if err != nil {
+		t.Fatalf("create restore: %v", err)
+	}
+
+	if err := store.DeleteProjectBackups(ctx, project.ID); err != nil {
+		t.Fatalf("delete project backups: %v", err)
+	}
+
+	if _, err := store.RestoreByID(ctx, project.ID, restore.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("restore after cleanup err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestPendingRestoresSkipsDeletedProjects covers the resumption path: a restore
+// left pending for a project the owner has deleted must not be picked back up,
+// or a background worker would rebuild a database nobody can reach.
+func TestPendingRestoresSkipsDeletedProjects(t *testing.T) {
+	store := testStore(t)
+	user := newTestUser(t, store, 5)
+	live := newTestProject(t, store, user.ID)
+	deleted := newTestProject(t, store, user.ID)
+	ctx := context.Background()
+
+	if _, err := store.CreateRestore(ctx, live.ID, uuid.New()); err != nil {
+		t.Fatalf("create restore for live project: %v", err)
+	}
+	if _, err := store.CreateRestore(ctx, deleted.ID, uuid.New()); err != nil {
+		t.Fatalf("create restore for deleted project: %v", err)
+	}
+
+	if err := store.SoftDeleteProject(ctx, deleted.ID, user.ID); err != nil {
+		t.Fatalf("soft delete project: %v", err)
+	}
+
+	pending, err := store.PendingRestores(ctx, 10)
+	if err != nil {
+		t.Fatalf("list pending restores: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ProjectID != live.ID {
+		t.Fatalf("pending = %v, want only the live project's restore", pending)
+	}
+}

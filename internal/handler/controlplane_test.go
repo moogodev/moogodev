@@ -1004,6 +1004,24 @@ func TestDeleteProjectRemovesFile(t *testing.T) {
 	}
 }
 
+// The off-site backups live outside both the row and the disk, so nothing else
+// on this path reaches them: the handler has to ask for the sweep, and this
+// pins that it does.
+func TestDeleteProjectSweepsBackups(t *testing.T) {
+	handler, backups, projectID := backupPlane(t)
+
+	request := signedIn(t, testUserID, "/api/projects/"+projectID.String())
+	recorder := httptest.NewRecorder()
+	handler.DeleteProject(recorder, withProjectID(request, projectID))
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(backups.sweptProjects) != 1 || backups.sweptProjects[0] != projectID {
+		t.Fatalf("swept backups = %v, want [%s]", backups.sweptProjects, projectID)
+	}
+}
+
 func TestDeleteProjectRejectsOtherUsersProject(t *testing.T) {
 	handler, store, plane := testControlPlane(testUserID)
 	foreign := &dbcontrol.Project{ID: uuid.New(), UserID: otherUserID, Name: "theirs"}
@@ -1381,6 +1399,50 @@ func TestDeleteAccountRemovesTheAccountProjectsAndFiles(t *testing.T) {
 	}
 	if !removed[first.ID] || !removed[second.ID] {
 		t.Errorf("expected both project files removed, got %v", plane.removed)
+	}
+}
+
+// Account deletion reaches every project at once, so each project's off-site
+// backups have to go with it rather than outliving the account.
+func TestDeleteAccountSweepsEveryProjectsBackups(t *testing.T) {
+	handler, store, _ := testControlPlane(testUserID)
+	backups := &fakeBackups{}
+	handler.backups = backups
+
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	store.user.PasswordHash = hash
+
+	// The projects are inserted directly rather than through CreateProject:
+	// that path schedules an initial backup on its own goroutine, which is not
+	// what this test is about and would race the shared fake.
+	first := &dbcontrol.Project{ID: uuid.New(), UserID: testUserID, Name: "first", Status: dbcontrol.ProjectReady}
+	second := &dbcontrol.Project{ID: uuid.New(), UserID: testUserID, Name: "second", Status: dbcontrol.ProjectReady}
+	store.projects[first.ID] = first
+	store.projects[second.ID] = second
+
+	body := `{"password":"correct horse battery"}`
+	request := signedIn(t, testUserID, "/api/account")
+	request.Method = http.MethodDelete
+	request.Body = io.NopCloser(strings.NewReader(body))
+	request.ContentLength = int64(len(body))
+	request.Header.Set("Content-Type", "application/json")
+
+	recorder := httptest.NewRecorder()
+	handler.DeleteAccount(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	swept := map[uuid.UUID]bool{}
+	for _, id := range backups.sweptProjects {
+		swept[id] = true
+	}
+	if len(backups.sweptProjects) != 2 || !swept[first.ID] || !swept[second.ID] {
+		t.Fatalf("swept backups = %v, want both %s and %s",
+			backups.sweptProjects, first.ID, second.ID)
 	}
 }
 

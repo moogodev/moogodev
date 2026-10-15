@@ -42,6 +42,7 @@ type fakeBackups struct {
 	activeRestore *dbcontrol.DatabaseRestore
 	deletedID     uuid.UUID
 	snapshotID    uuid.UUID
+	sweptProjects []uuid.UUID
 	downloadBytes []byte
 }
 
@@ -131,7 +132,8 @@ func (fake *fakeBackups) SnapshotPath(_ context.Context, _, backupID uuid.UUID) 
 	return "/tmp/snapshot.sqlite", nil
 }
 
-func (fake *fakeBackups) DeleteProjectBackups(context.Context, uuid.UUID) error {
+func (fake *fakeBackups) DeleteProjectBackups(_ context.Context, projectID uuid.UUID) error {
+	fake.sweptProjects = append(fake.sweptProjects, projectID)
 	return nil
 }
 

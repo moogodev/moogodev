@@ -124,9 +124,14 @@ func (store *Store) PendingRestores(ctx context.Context, limit int) ([]DatabaseR
 		limit = maxListLimit
 	}
 
+	// Only restores whose project still exists are returned. Project deletion
+	// is a soft delete, so a queued row can outlive its project; resuming it
+	// would download a snapshot and write the database file back for a project
+	// the owner has already removed.
 	query := `SELECT ` + restoreColumns + `
 		  FROM database_restores
 		 WHERE status = $1
+		   AND project_id IN (SELECT id FROM projects WHERE deleted_at IS NULL)
 		 ORDER BY requested_at ASC
 		 LIMIT $2`
 
