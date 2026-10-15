@@ -299,13 +299,10 @@ func messageShell(title, intro, buttonText, link string) string {
                  style="max-width:520px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:40px 32px;">
             <tr>
               <td align="center" style="padding-bottom:24px;border-bottom:1px solid #e5e7eb;">
-                <!-- A wordmark rather than an <img>: the logo used to be
-                     hotlinked from raw.githubusercontent.com, which made every
-                     delivery depend on GitHub being up and told a third party
-                     which addresses this service mails. A styled text row has
-                     neither problem and survives every client that strips
-                     remote images. -->
-                <span style="display:inline-block;font-size:20px;font-weight:700;letter-spacing:0.14em;color:#15803d;">MOOGO</span>
+                <img src="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/1.png"
+                     alt="Moogo"
+                     width="120"
+                     style="display:block;border:0;outline:none;text-decoration:none;">
               </td>
             </tr>
             <tr>
@@ -355,7 +352,10 @@ func projectCreatedHTML(projectName, projectID, secretKey, projectLink string) s
                  style="max-width:520px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:40px 32px;">
             <tr>
               <td align="center" style="padding-bottom:24px;border-bottom:1px solid #e5e7eb;">
-                <span style="display:inline-block;font-size:20px;font-weight:700;letter-spacing:0.14em;color:#15803d;">MOOGO</span>
+                <img src="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/1.png"
+                     alt="Moogo"
+                     width="120"
+                     style="display:block;border:0;outline:none;text-decoration:none;">
               </td>
             </tr>
             <tr>
@@ -432,7 +432,10 @@ func manualBackupHTML(projectName string, backupSizeBytes int64, backupTime time
                  style="max-width:520px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:40px 32px;">
             <tr>
               <td align="center" style="padding-bottom:24px;border-bottom:1px solid #e5e7eb;">
-                <span style="display:inline-block;font-size:20px;font-weight:700;letter-spacing:0.14em;color:#15803d;">MOOGO</span>
+                <img src="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/1.png"
+                     alt="Moogo"
+                     width="120"
+                     style="display:block;border:0;outline:none;text-decoration:none;">
               </td>
             </tr>
             <tr>
