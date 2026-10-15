@@ -112,6 +112,11 @@ type Projects interface {
 	MarkRestoreFinished(ctx context.Context, restoreID uuid.UUID, errText *string) error
 	// MarkAbandonedRestores fails restores left running by a dead process.
 	MarkAbandonedRestores(ctx context.Context) (int, error)
+
+	// ProjectByID returns a project by ID, or ErrNotFound.
+	ProjectByID(ctx context.Context, projectID uuid.UUID) (*dbcontrol.Project, error)
+	// UserByID returns a user by ID, or ErrNotFound.
+	UserByID(ctx context.Context, userID uuid.UUID) (*dbcontrol.User, error)
 }
 
 // Databases is the data-plane surface the service needs.
@@ -524,6 +529,13 @@ func (service *Service) backupProject(ctx context.Context, projectID uuid.UUID, 
 			service.log.Warn("update latest backup pointer failed", logger.Fields{
 				"project_id": projectID.String(),
 				"key":        key,
+				"error":      err.Error(),
+			})
+		}
+		// Also write (or refresh) the human-readable project metadata.
+		if err := service.writeProjectMetadata(ctx, projectID); err != nil {
+			service.log.Warn("write project metadata failed", logger.Fields{
+				"project_id": projectID.String(),
 				"error":      err.Error(),
 			})
 		}
@@ -1135,6 +1147,55 @@ func (service *Service) writeLatestPointer(ctx context.Context, projectID uuid.U
 		return fmt.Errorf("encode latest pointer: %w", err)
 	}
 	return service.putBytes(ctx, service.latestKey(projectID), document, "application/json")
+}
+
+// projectMetadataKey returns the key for the project metadata JSON file.
+func (service *Service) projectMetadataKey(projectID uuid.UUID) string {
+	return service.projectPrefix(projectID) + "project.json"
+}
+
+// projectMetadata is a small document describing the project for human readability
+// when browsing the R2 bucket directly.
+type projectMetadata struct {
+	ProjectID    string `json:"project_id"`
+	ProjectName  string `json:"project_name"`
+	OwnerEmail   string `json:"owner_email"`
+	DatabaseFile string `json:"database_file"`
+	CreatedAt    string `json:"created_at"`
+}
+
+// writeProjectMetadata writes the project metadata document.
+func (service *Service) writeProjectMetadata(ctx context.Context, projectID uuid.UUID) error {
+	project, err := service.projects.ProjectByID(ctx, projectID)
+	if err != nil {
+		// Project not found is not a fatal error for backup; we just skip metadata.
+		if errors.Is(err, dbcontrol.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("load project for metadata: %w", err)
+	}
+
+	user, err := service.projects.UserByID(ctx, project.UserID)
+	if err != nil {
+		if errors.Is(err, dbcontrol.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("load user for metadata: %w", err)
+	}
+
+	meta := projectMetadata{
+		ProjectID:    project.ID.String(),
+		ProjectName:  project.Name,
+		OwnerEmail:   user.Email,
+		DatabaseFile: projectID.String() + ".db",
+		CreatedAt:    project.CreatedAt.UTC().Format(time.RFC3339),
+	}
+
+	document, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("encode project metadata: %w", err)
+	}
+	return service.putBytes(ctx, service.projectMetadataKey(projectID), document, "application/json")
 }
 
 // putBytes uploads an in-memory object, signing its own length and hash.

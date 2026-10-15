@@ -192,6 +192,10 @@ type fakeProjects struct {
 	// than polling the maps above: reading them while that goroutine writes is
 	// a data race, which -race reports as a failed build.
 	restoreDone chan dbcontrol.DatabaseRestore
+
+	// For project metadata
+	projects map[uuid.UUID]*dbcontrol.Project
+	users    map[uuid.UUID]*dbcontrol.User
 }
 
 // statusOf reports the status recorded for a restore id, defaulting to pending
@@ -263,6 +267,26 @@ func (fake *fakeProjects) MarkRestoreFinished(_ context.Context, restoreID uuid.
 
 func (fake *fakeProjects) MarkAbandonedRestores(_ context.Context) (int, error) {
 	return fake.abandoned, nil
+}
+
+func (fake *fakeProjects) ProjectByID(_ context.Context, projectID uuid.UUID) (*dbcontrol.Project, error) {
+	if fake.projects == nil {
+		return nil, dbcontrol.ErrNotFound
+	}
+	if p, ok := fake.projects[projectID]; ok {
+		return p, nil
+	}
+	return nil, dbcontrol.ErrNotFound
+}
+
+func (fake *fakeProjects) UserByID(_ context.Context, userID uuid.UUID) (*dbcontrol.User, error) {
+	if fake.users == nil {
+		return nil, dbcontrol.ErrNotFound
+	}
+	if u, ok := fake.users[userID]; ok {
+		return u, nil
+	}
+	return nil, dbcontrol.ErrNotFound
 }
 
 func (fake *fakeProjects) ProjectsDueForBackup(_ context.Context, _ time.Duration, _ int) ([]dbcontrol.Project, error) {
@@ -367,7 +391,11 @@ func writeSnapshot(t *testing.T, contents string) string {
 
 func newTestService(t *testing.T, cfg Config) (*Service, *fakeProjects, *fakeDatabases, *fakeObjects) {
 	t.Helper()
-	projects := &fakeProjects{restoreDone: make(chan dbcontrol.DatabaseRestore, 16)}
+	projects := &fakeProjects{
+		restoreDone: make(chan dbcontrol.DatabaseRestore, 16),
+		projects:    make(map[uuid.UUID]*dbcontrol.Project),
+		users:       make(map[uuid.UUID]*dbcontrol.User),
+	}
 	databases := &fakeDatabases{modTime: time.Unix(1000, 0)}
 	objects := newFakeObjects()
 	service := New(projects, databases, objects, cfg, logger.Nop())
@@ -449,6 +477,20 @@ func TestBackupProjectUploadsAndRecords(t *testing.T) {
 	service, projects, databases, objects := newTestService(t, Config{Prefix: "db", MaxAge: time.Hour})
 	databases.snapshotPath = writeSnapshot(t, "sqlite-bytes")
 	projectID := uuid.New()
+	userID := uuid.New()
+
+	// Seed project and user so metadata can be written
+	projects.projects[projectID] = &dbcontrol.Project{
+		ID:        projectID,
+		UserID:    userID,
+		Name:      "my-project",
+		CreatedAt: time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC),
+	}
+	projects.users[userID] = &dbcontrol.User{
+		ID:    userID,
+		Email: "owner@example.com",
+		Name:  "Owner Name",
+	}
 
 	result, err := service.BackupProject(context.Background(), projectID, dbcontrol.BackupDaily)
 	if err != nil {
@@ -484,6 +526,28 @@ func TestBackupProjectUploadsAndRecords(t *testing.T) {
 	}
 	if bytes.Equal(pointerBytes, []byte("sqlite-bytes")) {
 		t.Errorf("the latest pointer must not be a copy of the database bytes")
+	}
+
+	// project.json metadata for human-readable browsing
+	metaBytes, ok := objects.stored[prefix+"project.json"]
+	if !ok {
+		t.Fatalf("project.json not uploaded")
+	}
+	var meta projectMetadata
+	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		t.Fatalf("project.json is not valid JSON: %v", err)
+	}
+	if meta.ProjectID != projectID.String() {
+		t.Errorf("meta project_id = %q, want %q", meta.ProjectID, projectID.String())
+	}
+	if meta.ProjectName != "my-project" {
+		t.Errorf("meta project_name = %q, want %q", meta.ProjectName, "my-project")
+	}
+	if meta.OwnerEmail != "owner@example.com" {
+		t.Errorf("meta owner_email = %q, want %q", meta.OwnerEmail, "owner@example.com")
+	}
+	if meta.DatabaseFile != projectID.String()+".db" {
+		t.Errorf("meta database_file = %q, want %q", meta.DatabaseFile, projectID.String()+".db")
 	}
 
 	if len(projects.successes) != 1 {
