@@ -145,7 +145,10 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		RedirectURL:  cfg.PublicURL + "/auth/google/callback",
 	}, sessions, options.Log)
 
-	controlHandler := handler.NewControlPlane(store, databases, handlerBackups, sessions, cfg, options.Log)
+	mailer := mail.New(cfg.ResendAPIKey, cfg.MailFrom, cfg.PublicURL, options.Log, cfg.IsProduction())
+
+	controlHandler := handler.NewControlPlane(store, databases, handlerBackups, sessions, cfg, options.Log, mailer)
+	credentialsHandler := handler.NewCredentials(store, sessions, mailer, cfg, options.Log)
 	dataHandler := handler.NewDataPlane(databases, options.Log)
 	oauthHandler := handler.NewOAuth(google, sessions, store, cfg, options.Log)
 	// Object URLs and public links are data-plane addresses, so they are built
@@ -158,9 +161,6 @@ func Build(ctx context.Context, options Options) (*App, error) {
 	docsHandler := handler.NewDocsHandler(handler.GetDocsFS(), options.Log)
 	updatesHandler := handler.NewUpdatesHandler(cfg.NewsURL, options.Log)
 	metaHandler := handler.NewMeta(cfg.PublicURL, docsHandler, options.Log)
-
-	mailer := mail.New(cfg.ResendAPIKey, cfg.MailFrom, cfg.PublicURL, options.Log, cfg.IsProduction())
-	credentialsHandler := handler.NewCredentials(store, sessions, mailer, cfg, options.Log)
 
 	var staticFS http.FileSystem
 	if options.Frontend != nil {

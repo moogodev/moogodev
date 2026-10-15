@@ -90,6 +90,42 @@ func (sender *Sender) SendEmailVerification(ctx context.Context, to, token strin
 		verificationHTML(link), token)
 }
 
+// SendProjectCreated emails the project details to the owner upon creation.
+//
+// This includes the project credentials (shown only once), bucket information,
+// and a welcome message. The email is best-effort: a failure is logged but
+// does not fail the project creation request.
+func (sender *Sender) SendProjectCreated(
+	ctx context.Context,
+	to string,
+	projectName string,
+	projectID string,
+	secretKey string,
+	apiURL string,
+) error {
+	link := apiURL + "/p/" + projectID
+	return sender.send(ctx, to, "Your Moogo project is ready",
+		projectCreatedHTML(projectName, projectID, secretKey, link), projectID)
+}
+
+// SendManualBackupCreated emails a notification when a manual backup completes.
+//
+// Includes the backup size, timestamp, and a download link. Best-effort: a
+// failure is logged but does not fail the backup request.
+func (sender *Sender) SendManualBackupCreated(
+	ctx context.Context,
+	to string,
+	projectName string,
+	backupSizeBytes int64,
+	backupTime time.Time,
+	downloadLink string,
+) error {
+	subject := "Manual backup completed for " + projectName
+	return sender.send(ctx, to, subject,
+		manualBackupHTML(projectName, backupSizeBytes, backupTime, downloadLink),
+		backupTime.Format(time.RFC3339))
+}
+
 // send is the single Resend request path.
 //
 // Both message kinds go through it so the headers, the error mapping, and the
@@ -305,4 +341,166 @@ func messageShell(title, intro, buttonText, link string) string {
     </table>
   </body>
 </html>`
+}
+
+// projectCreatedHTML renders the project creation email with credentials and details.
+func projectCreatedHTML(projectName, projectID, secretKey, projectLink string) string {
+	return `<!doctype html>
+<html>
+  <body style="margin:0;background:#f5f7fa;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                 style="max-width:520px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:40px 32px;">
+            <tr>
+              <td align="center" style="padding-bottom:24px;border-bottom:1px solid #e5e7eb;">
+                <span style="display:inline-block;font-size:20px;font-weight:700;letter-spacing:0.14em;color:#15803d;">MOOGO</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-top:24px;">
+                <p style="margin:0 0 16px;font-size:22px;font-weight:600;color:#111827;">Your Moogo project is ready</p>
+                <p style="margin:0 0 24px;color:#6b7280;line-height:1.6;">
+                  Your project <strong>`+projectName+`</strong> has been created successfully. 
+                  Below are your project credentials and connection details. 
+                  <strong>Save the secret key now &mdash; it will not be shown again.</strong>
+                </p>
+                <p style="margin:0 0 8px;">
+                  <a href="`+projectLink+`"
+                     style="display:inline-block;background:#15803d;color:#ffffff;font-weight:600;
+                            text-decoration:none;padding:14px 24px;border-radius:8px;">
+                    Open project dashboard
+                  </a>
+                </p>
+                <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
+                  Or paste this link into your browser:<br/>
+                  <a href="`+projectLink+`" style="color:#15803d;word-break:break-all;">`+projectLink+`</a>
+                </p>
+                <hr style="margin:32px 0 16px;border:none;border-top:1px solid #e5e7eb;" />
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#374151;">
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;width:30%;">Project ID</td>
+                    <td style="padding:8px 0;font-family:monospace;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;">`+projectID+`</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">Secret Key</td>
+                    <td style="padding:8px 0;font-family:monospace;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:8px 12px;color:#92400e;"><strong>`+secretKey+`</strong></td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">Project Name</td>
+                    <td style="padding:8px 0;">`+projectName+`</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">API Endpoint</td>
+                    <td style="padding:8px 0;font-family:monospace;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;">`+projectLink+`/db</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">Bucket Storage</td>
+                    <td style="padding:8px 0;">Available at <code>`+projectLink+`/bucket</code> (requires secret key)</td>
+                  </tr>
+                </table>
+                <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
+                  <strong>Important:</strong> The secret key above is shown only once. Store it securely &mdash; it provides full access to your project's database and bucket storage. If lost, you can rotate it from the dashboard, but the old key will be invalidated immediately.
+                </p>
+                <hr style="margin:32px 0 16px;border:none;border-top:1px solid #e5e7eb;" />
+                <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.5;">
+                  &copy; Moogo &mdash; SQLite over HTTP for serverless apps.<br/>
+                  If you did not request this, you can safely ignore this email.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`
+}
+
+// manualBackupHTML renders the manual backup completion email.
+func manualBackupHTML(projectName string, backupSizeBytes int64, backupTime time.Time, downloadLink string) string {
+	sizeStr := formatBytes(backupSizeBytes)
+	timeStr := backupTime.Format("2006-01-02 15:04:05 UTC")
+	return `<!doctype html>
+<html>
+  <body style="margin:0;background:#f5f7fa;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                 style="max-width:520px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:40px 32px;">
+            <tr>
+              <td align="center" style="padding-bottom:24px;border-bottom:1px solid #e5e7eb;">
+                <span style="display:inline-block;font-size:20px;font-weight:700;letter-spacing:0.14em;color:#15803d;">MOOGO</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-top:24px;">
+                <p style="margin:0 0 16px;font-size:22px;font-weight:600;color:#111827;">Manual backup completed for `+projectName+`</p>
+                <p style="margin:0 0 24px;color:#6b7280;line-height:1.6;">
+                  A manual backup of <strong>`+projectName+`</strong> has been created and stored off-site.
+                </p>
+                <p style="margin:0 0 8px;">
+                  <a href="`+downloadLink+`"
+                     style="display:inline-block;background:#15803d;color:#ffffff;font-weight:600;
+                            text-decoration:none;padding:14px 24px;border-radius:8px;">
+                    Download backup
+                  </a>
+                </p>
+                <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
+                  Or paste this link into your browser:<br/>
+                  <a href="`+downloadLink+`" style="color:#15803d;word-break:break-all;">`+downloadLink+`</a>
+                </p>
+                <hr style="margin:32px 0 16px;border:none;border-top:1px solid #e5e7eb;" />
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#374151;">
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;width:30%;">Project</td>
+                    <td style="padding:8px 0;">`+projectName+`</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">Backup Size</td>
+                    <td style="padding:8px 0;">`+sizeStr+`</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">Completed At</td>
+                    <td style="padding:8px 0;">`+timeStr+`</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">Type</td>
+                    <td style="padding:8px 0;">Manual (on-demand)</td>
+                  </tr>
+                </table>
+                <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
+                  This backup is stored in your configured off-site storage (R2/S3-compatible). 
+                  The download link above is valid for 24 hours. After that, you can download the backup 
+                  from the project dashboard at any time.
+                </p>
+                <hr style="margin:32px 0 16px;border:none;border-top:1px solid #e5e7eb;" />
+                <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.5;">
+                  &copy; Moogo &mdash; SQLite over HTTP for serverless apps.<br/>
+                  If you did not request this, you can safely ignore this email.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`
+}
+
+// formatBytes formats bytes as a human-readable string.
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }

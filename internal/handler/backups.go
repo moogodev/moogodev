@@ -144,9 +144,28 @@ func (handler *ControlPlane) CreateBackup(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if _, err := handler.backups.BackupProject(r.Context(), project.ID, dbcontrol.BackupManual); err != nil {
+	result, err := handler.backups.BackupProject(r.Context(), project.ID, dbcontrol.BackupManual)
+	if err != nil {
 		handler.writeBackupError(w, r, err, "manual backup")
 		return
+	}
+
+	// Send manual backup completion email (best-effort, non-blocking).
+	if handler.mailer != nil && handler.mailer.Enabled() {
+		go func() {
+			ctx := context.Background()
+			user, err := handler.store.UserByID(ctx, project.UserID)
+			if err == nil && user.Email != "" {
+				// Link to the project backups page where the backup can be downloaded.
+				downloadLink := handler.cfg.APIURL + "/p/" + project.ID.String() + "/backups"
+				if err := handler.mailer.SendManualBackupCreated(ctx, user.Email, project.Name, result.SizeBytes, time.Now(), downloadLink); err != nil {
+					handler.log.Warn("send manual backup email", logger.Fields{
+						"project_id": project.ID.String(),
+						"error":      err.Error(),
+					})
+				}
+			}
+		}()
 	}
 
 	httpx.WriteJSON(w, http.StatusCreated, map[string]any{

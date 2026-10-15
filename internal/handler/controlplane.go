@@ -157,6 +157,7 @@ type ControlPlane struct {
 	sql       sqlRunner
 	cfg       config.Config
 	log       *logger.Logger
+	mailer    mailSender
 }
 
 // NewControlPlane creates a ControlPlane handler.
@@ -168,7 +169,9 @@ type ControlPlane struct {
 // listing answers with an empty, disabled document and the mutating endpoints
 // answer 503. That is the whole reason it is a separate dependency rather than
 // folded into databases.
-func NewControlPlane(store Store, databases Databases, backups Backups, sessions *auth.SessionManager, cfg config.Config, log *logger.Logger) *ControlPlane {
+//
+// mailer may be nil if email is not configured; notifications will be skipped.
+func NewControlPlane(store Store, databases Databases, backups Backups, sessions *auth.SessionManager, cfg config.Config, log *logger.Logger, mailer mailSender) *ControlPlane {
 	return &ControlPlane{
 		store:     store,
 		databases: databases,
@@ -177,6 +180,7 @@ func NewControlPlane(store Store, databases Databases, backups Backups, sessions
 		sql:       sqlRunner{databases: databases, log: log},
 		cfg:       cfg,
 		log:       log,
+		mailer:    mailer,
 	}
 }
 
@@ -640,6 +644,22 @@ func (handler *ControlPlane) CreateProject(w http.ResponseWriter, r *http.Reques
 	// upload of a few kilobytes. It is queued rather than awaited so a slow
 	// or unavailable bucket cannot delay the response.
 	handler.scheduleInitialBackup(r.Context(), result.Project.ID)
+
+	// Send project creation email with credentials (best-effort, non-blocking).
+	if handler.mailer != nil && handler.mailer.Enabled() {
+		go func() {
+			ctx := context.Background()
+			user, err := handler.store.UserByID(ctx, userID)
+			if err == nil && user.Email != "" {
+				if err := handler.mailer.SendProjectCreated(ctx, user.Email, result.Project.Name, result.Project.ID.String(), result.SecretKeyPlaintext, handler.cfg.APIURL); err != nil {
+					handler.log.Warn("send project created email", logger.Fields{
+						"project_id": result.Project.ID.String(),
+						"error":      err.Error(),
+					})
+				}
+			}
+		}()
+	}
 
 	httpx.WriteJSON(w, http.StatusCreated, response)
 }

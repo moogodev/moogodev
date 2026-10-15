@@ -55,6 +55,8 @@ type credentialStore interface {
 type mailSender interface {
 	SendPasswordReset(ctx context.Context, to, token string) error
 	SendEmailVerification(ctx context.Context, to, token string) error
+	SendProjectCreated(ctx context.Context, to, projectName, projectID, secretKey, apiURL string) error
+	SendManualBackupCreated(ctx context.Context, to, projectName string, backupSizeBytes int64, backupTime time.Time, downloadLink string) error
 	// Enabled reports whether a provider is configured at all. Without it the
 	// sender is not a slow or failing provider, it is one that cannot send, and
 	// registration has to be handled differently from a temporary outage.

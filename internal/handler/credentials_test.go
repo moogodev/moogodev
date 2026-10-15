@@ -186,6 +186,22 @@ func (mailer *credMailer) SendEmailVerification(ctx context.Context, to, token s
 	return nil
 }
 
+func (mailer *credMailer) SendProjectCreated(ctx context.Context, to, projectName, projectID, secretKey, apiURL string) error {
+	if mailer.sentErr != nil {
+		return mailer.sentErr
+	}
+	mailer.sentTo = to
+	return nil
+}
+
+func (mailer *credMailer) SendManualBackupCreated(ctx context.Context, to, projectName string, backupSizeBytes int64, backupTime time.Time, downloadLink string) error {
+	if mailer.sentErr != nil {
+		return mailer.sentErr
+	}
+	mailer.sentTo = to
+	return nil
+}
+
 // newCredHandler wires a Credentials handler over the fakes.
 func newCredHandler(t *testing.T, store *credStore, mailer *credMailer) *Credentials {
 	return newCredHandlerIn(t, store, mailer, "development")

@@ -481,7 +481,7 @@ func testControlPlane(userID uuid.UUID) (*ControlPlane, *fakeStore, *fakeDatabas
 	}
 	sessions := auth.NewSessionManager(signer, false)
 
-	return NewControlPlane(store, plane, nil, sessions, cfg, logger.Nop()), store, plane
+	return NewControlPlane(store, plane, nil, sessions, cfg, logger.Nop(), nil), store, plane
 }
 
 // signedIn returns a request carrying a valid session for the given user.
