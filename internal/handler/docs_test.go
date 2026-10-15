@@ -442,3 +442,26 @@ func TestMarkdownToHTMLListItemContinuation(t *testing.T) {
 		t.Errorf("the continuation line became a paragraph:\n%s", got)
 	}
 }
+
+// The embedded documentation set that /api/docs serves is maintained separately
+// from the site's docs, so a page can exist on the site and be missing from the
+// API. The backups page is pinned here so the two cannot drift apart silently.
+func TestEmbeddedDocsServeBackupsPage(t *testing.T) {
+	built := NewDocsHandler(GetDocsFS(), logger.Nop())
+
+	recorder := httptest.NewRecorder()
+	built.Doc(recorder, httptest.NewRequest(http.MethodGet, "/api/docs/backups", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "<h1>Backups</h1>") {
+		t.Errorf("expected the backups page, got: %s", recorder.Body.String())
+	}
+
+	list := httptest.NewRecorder()
+	built.DocList(list, httptest.NewRequest(http.MethodGet, "/api/docs", nil))
+	if !strings.Contains(list.Body.String(), `"slug":"backups"`) {
+		t.Errorf("backups is missing from the document list: %s", list.Body.String())
+	}
+}
