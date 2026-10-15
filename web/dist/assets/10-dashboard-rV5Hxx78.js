@@ -113,15 +113,14 @@ Renaming and deleting work on objects and on whole prefixes.
 
 ## The backups tab
 
-Off-site copies of the database in **Cloudflare R2**, taken automatically and
-restorable in one click. The tab lists every backup with the reason it exists — a
-daily run, a manual click, a snapshot taken just before a restore — and lets you
-take one now or roll the database back to an earlier point.
+Off-site copies of the database, taken automatically and restorable in one
+click. The tab lists every backup with the reason it exists — a daily run, a
+manual click, a snapshot taken just before a restore — and lets you take one now
+or roll the database back to an earlier point.
 
 Restoring replaces the current database, so it asks for confirmation first — but
 it is reversible: a snapshot of the current state is saved before anything is
-replaced. See [Backups](/docs/backups) for the full picture, including where the
-copies are stored and the schedule.
+replaced. See [Backups](/docs/backups) for the full picture.
 
 ## Settings tab
 

@@ -54,7 +54,7 @@ This is the fundamental difference you must understand before starting:
 - **No SDK needed** — just `curl` with header `Authorization: Bearer ...` and `Content-Type: application/json`
 - **Honest limits** — every limit reported by API, so you know when you exceed limits
 - **Managed infrastructure** — all infrastructure handled by Moogo
-- **Off-site backups built in** — every database is copied to Cloudflare R2 on a schedule and can be restored from the dashboard, so you are not on your own for backup. See [Backups](/docs/backups).
+- **Off-site backups built in** — every database is copied off-site on a schedule and can be restored from the dashboard, so you are not on your own for backup. See [Backups](/docs/backups).
 
 **In short:** Regular SQLite = install driver + local file connection. Moogo = HTTP requests + environment variables only.
 
