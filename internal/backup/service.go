@@ -8,9 +8,11 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +24,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/internal/metrics"
 	"github.com/moogodev/moogodev/internal/storage"
 	"github.com/moogodev/moogodev/pkg/logger"
 )
@@ -30,6 +33,12 @@ import (
 // recorded when it was uploaded. It is reported instead of restoring bytes that
 // are not what the history says they are.
 var ErrBackupCorrupt = errors.New("backup object is corrupt")
+
+// ErrBackupInProgress means another backup of the same project is already
+// running, so this one did not start. It is contention rather than a failure:
+// nothing was recorded, and the caller can retry once the running backup
+// finishes.
+var ErrBackupInProgress = errors.New("a backup of this project is already running")
 
 // Config controls the backup loop. It mirrors the MOOGO_BACKUP_* settings.
 type Config struct {
@@ -45,21 +54,32 @@ type Config struct {
 	BatchSize int
 	// Timeout bounds one project's snapshot-and-upload.
 	Timeout time.Duration
+	// AlertAfter is how many consecutive failures a project may accumulate
+	// before a failing alert is sent. Zero disables the threshold, in which
+	// case only the metric and the dashboard show the failure.
+	AlertAfter int
+	// WebhookURL is where alerts are POSTed as JSON. Empty disables delivery;
+	// the threshold still governs the metric and the log line.
+	WebhookURL string
 }
 
 // Projects is the control-plane surface the service needs.
 type Projects interface {
 	ProjectsDueForBackup(ctx context.Context, maxAge time.Duration, limit int) ([]dbcontrol.Project, error)
 	ProjectBackupState(ctx context.Context, projectID uuid.UUID) (*dbcontrol.DatabaseBackupState, error)
-	RecordBackupSuccess(ctx context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind, objectKey string, sha256 string, sizeBytes int64, sourceModifiedAt time.Time) error
+	RecordBackupSuccess(ctx context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind, objectKey string, sha256 string, sizeBytes int64, sourceModifiedAt time.Time) (previousFailures int, err error)
 	MarkBackupCurrent(ctx context.Context, projectID uuid.UUID) error
-	RecordBackupFailure(ctx context.Context, projectID uuid.UUID, reason string) error
+	RecordBackupFailure(ctx context.Context, projectID uuid.UUID, reason string) (consecutiveFailures int, err error)
 	DatabaseBackupByID(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (*dbcontrol.DatabaseBackup, error)
 	ListDatabaseBackups(ctx context.Context, projectID uuid.UUID, limit int, offset int) ([]dbcontrol.DatabaseBackup, error)
 	LatestRegularBackup(ctx context.Context, projectID uuid.UUID) (*dbcontrol.DatabaseBackup, error)
 	ExpiredBackups(ctx context.Context, projectID uuid.UUID, cutoff time.Time) ([]dbcontrol.DatabaseBackup, error)
 	DeleteBackupRows(ctx context.Context, ids []uuid.UUID) error
 	DeleteProjectBackups(ctx context.Context, projectID uuid.UUID) error
+	// TryProjectBackupLock takes a per-project lock for the length of a backup,
+	// so two runs cannot snapshot and upload the same project at once. A false
+	// result is contention, not an error.
+	TryProjectBackupLock(ctx context.Context, projectID uuid.UUID) (release func(), ok bool, err error)
 }
 
 // Databases is the data-plane surface the service needs.
@@ -107,6 +127,14 @@ type Service struct {
 	cfg       Config
 	log       *logger.Logger
 
+	// notifier receives failure-streak and recovery alerts. It is never nil:
+	// a disabled webhook is a notifier that does nothing, so the record paths
+	// do not have to check.
+	notifier Notifier
+	// alertAfter is the failure streak that triggers an alert. Zero disables
+	// alerting.
+	alertAfter int
+
 	// snapshotMu guards the viewer's downloaded-backup cache. It is held for
 	// the length of a download, which serializes viewer requests across
 	// projects; that is acceptable for a dashboard action and keeps the cache
@@ -136,7 +164,9 @@ func New(projects Projects, databases Databases, objects Objects, cfg Config, lo
 		log = logger.Nop()
 	}
 	return &Service{projects: projects, databases: databases, objects: objects, cfg: cfg, log: log,
-		snapshots: make(map[uuid.UUID]snapshotEntry)}
+		notifier:   NewWebhook(cfg.WebhookURL, log),
+		alertAfter: cfg.AlertAfter,
+		snapshots:  make(map[uuid.UUID]snapshotEntry)}
 }
 
 // Interval reports how often the loop runs, for the caller that owns the loop.
@@ -226,13 +256,13 @@ func (service *Service) processProject(ctx context.Context, project dbcontrol.Pr
 
 	modifiedAt, err := service.databases.DatabaseModTime(project.ID)
 	if err != nil {
-		service.recordFailure(ctx, project.ID, err)
+		service.recordFailure(ctx, project.ID, dbcontrol.BackupDaily, err)
 		return
 	}
 
 	state, err := service.projects.ProjectBackupState(ctx, project.ID)
 	if err != nil {
-		service.recordFailure(ctx, project.ID, err)
+		service.recordFailure(ctx, project.ID, dbcontrol.BackupDaily, err)
 		return
 	}
 
@@ -265,64 +295,109 @@ func (service *Service) processProject(ctx context.Context, project dbcontrol.Pr
 // On success it records the history row and advances the project's cursor. On
 // failure it records the failure and returns the error, so a caller can decide
 // whether to surface it without having to remember to record anything.
+//
+// It wraps the work to time it once for the duration metric, so every caller --
+// the scheduler, the dashboard and the pre-restore safety snapshot -- measures
+// the same span without repeating the bookkeeping.
 func (service *Service) BackupProject(ctx context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind) (*Result, error) {
+	started := time.Now()
+	result, err := service.backupProject(ctx, projectID, kind)
+	// Contention means nothing ran, so it is not a duration to report.
+	if !errors.Is(err, ErrBackupInProgress) {
+		metrics.ObserveBackupDuration(string(kind), time.Since(started))
+	}
+	return result, err
+}
+
+func (service *Service) backupProject(ctx context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind) (*Result, error) {
+	// One backup per project at a time. The lock is cross-process, so it also
+	// covers a manual run racing the scheduler on another instance, which is the
+	// case that would otherwise write two history rows naming one object.
+	release, acquired, err := service.projects.TryProjectBackupLock(ctx, projectID)
+	if err != nil {
+		service.recordFailure(ctx, projectID, kind, err)
+		return nil, err
+	}
+	if !acquired {
+		return nil, ErrBackupInProgress
+	}
+	defer release()
+
 	// Read the watermark before the snapshot, never after: a write that lands
 	// after the snapshot must leave the watermark behind the file so the next
 	// tick tries again, rather than ahead of it and skipping the write.
 	watermark, err := service.databases.DatabaseModTime(projectID)
 	if err != nil {
-		service.recordFailure(ctx, projectID, err)
+		service.recordFailure(ctx, projectID, kind, err)
 		return nil, err
 	}
 
 	snapshotPath, err := service.databases.BackupDatabase(ctx, projectID)
 	if err != nil {
-		service.recordFailure(ctx, projectID, err)
+		service.recordFailure(ctx, projectID, kind, err)
 		return nil, err
 	}
 	defer os.RemoveAll(filepath.Dir(snapshotPath))
 
 	size, checksum, err := hashFile(snapshotPath)
 	if err != nil {
-		service.recordFailure(ctx, projectID, err)
+		service.recordFailure(ctx, projectID, kind, err)
 		return nil, err
 	}
 
 	now := time.Now()
 	key := service.objectKey(projectID, kind, now)
 	if err := service.putFile(ctx, key, snapshotPath, size, checksum); err != nil {
-		service.recordFailure(ctx, projectID, err)
+		service.recordFailure(ctx, projectID, kind, err)
 		return nil, err
 	}
 
-	// The history row is written before latest.sqlite is moved. The row is what
-	// the list and the restore path read, so recording it first means a failure
-	// here leaves latest.sqlite pointing at the previous backup rather than at
-	// an object no listing can name. An owner then still has a listed, usable
+	// The history row is written before the latest pointer is moved. The row is
+	// what the list and the restore path read, so recording it first means a
+	// failure here leaves the pointer aiming at the previous backup rather than
+	// at an object no listing can name. An owner then still has a listed, usable
 	// backup instead of an invisible one.
-	if err := service.projects.RecordBackupSuccess(ctx, projectID, kind, key, checksum, size, watermark); err != nil {
-		service.recordFailure(ctx, projectID, err)
+	previousFailures, err := service.projects.RecordBackupSuccess(ctx, projectID, kind, key, checksum, size, watermark)
+	if err != nil {
+		service.recordFailure(ctx, projectID, kind, err)
 		return nil, err
 	}
 
-	// latest.sqlite is a stable pointer to the newest regular backup. It
-	// deliberately sits outside the history: it survives retention pruning and
-	// gives an operator a predictable key to fetch without asking Postgres.
-	// A pre-restore snapshot does not move it, because that snapshot is not the
-	// newest state of the data, it is the state just before it was replaced.
+	// latest.json is a stable pointer to the newest regular backup. It is a
+	// small document naming the object key, not a second copy of the database:
+	// duplicating the bytes doubled the storage held for the newest backup of
+	// every project, and the object it copied is already listed and fetchable.
+	// The key sits outside the history and survives retention pruning, so an
+	// operator keeps one predictable name to fetch without asking Postgres.
+	//
+	// A pre-restore snapshot does not move the pointer, because that snapshot is
+	// not the newest state of the data, it is the state just before it was
+	// replaced.
 	//
 	// A failure to move the pointer is logged and stepped over rather than
 	// reported as a failed backup: the snapshot is uploaded and recorded, and
 	// the pointer is a convenience key that the next backup of changed data
 	// will bring up to date. Losing the whole backup over it would be worse.
 	if kind != dbcontrol.BackupPreRestore {
-		if err := service.putFile(ctx, service.latestKey(projectID), snapshotPath, size, checksum); err != nil {
+		if err := service.writeLatestPointer(ctx, projectID, key, checksum, size, now); err != nil {
 			service.log.Warn("update latest backup pointer failed", logger.Fields{
 				"project_id": projectID.String(),
-				"backup_id":  key,
+				"key":        key,
 				"error":      err.Error(),
 			})
 		}
+	}
+
+	metrics.IncBackupAttempt(string(kind), "success")
+	metrics.SetBackupLastSuccess(projectID.String(), now)
+	// A success clears the streak, and the gauge has to say so: otherwise a
+	// project that recovered would keep matching a "has been failing" alert.
+	metrics.SetBackupConsecutiveFailures(projectID.String(), 0)
+
+	// A recovery is only worth an alert if the failure was loud enough to alert
+	// on in the first place.
+	if service.alertAfter > 0 && previousFailures >= service.alertAfter {
+		service.notifier.BackupRecovered(ctx, projectID)
 	}
 
 	service.log.Info("database backed up", logger.Fields{
@@ -395,8 +470,7 @@ func (service *Service) DownloadBackup(ctx context.Context, projectID uuid.UUID,
 }
 
 // DeleteBackup removes one stored backup: its object, its history row, and,
-// when it is the newest regular backup, the latest.sqlite pointer that mirrors
-// it.
+// when it is the newest regular backup, the latest pointer that mirrors it.
 //
 // The object goes first and the row last. A row removed before its object can
 // no longer name it, and an orphaned object is only a storage bill while an
@@ -412,12 +486,12 @@ func (service *Service) DeleteBackup(ctx context.Context, projectID uuid.UUID, b
 		return fmt.Errorf("delete backup object: %w", err)
 	}
 
-	// latest.sqlite mirrors the newest non-pre-restore backup. When that is the
-	// one being deleted, the pointer is removed too, so the owner's data does
-	// not linger under a key the list never showed them. A lookup failure is
-	// logged and stepped over: the backup the owner asked to delete is already
-	// gone, and leaving the pointer is recoverable while failing the request
-	// would make the delete look unsuccessful.
+	// The latest pointer mirrors the newest non-pre-restore backup. When that is
+	// the one being deleted, the pointer is removed too, so the owner's data
+	// does not linger under a key the list never showed them. A lookup failure
+	// is logged and stepped over: the backup the owner asked to delete is
+	// already gone, and leaving the pointer is recoverable while failing the
+	// request would make the delete look unsuccessful.
 	latest, latestErr := service.projects.LatestRegularBackup(ctx, projectID)
 	if latestErr != nil {
 		service.log.Warn("look up latest backup failed", logger.Fields{
@@ -620,18 +694,32 @@ func (service *Service) prune(ctx context.Context, projectID uuid.UUID) {
 	})
 }
 
-// recordFailure stores why an attempt failed. The context is detached from the
-// caller's so a timed-out backup still records its failure instead of losing it
-// to the cancellation that caused it.
-func (service *Service) recordFailure(ctx context.Context, projectID uuid.UUID, cause error) {
+// recordFailure stores why an attempt failed and drives the failure-streak
+// metric and alert. The context is detached from the caller's so a timed-out
+// backup still records its failure instead of losing it to the cancellation that
+// caused it.
+func (service *Service) recordFailure(ctx context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind, cause error) {
+	metrics.IncBackupAttempt(string(kind), "failure")
+
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 
-	if err := service.projects.RecordBackupFailure(recordCtx, projectID, cause.Error()); err != nil {
+	failures, err := service.projects.RecordBackupFailure(recordCtx, projectID, cause.Error())
+	if err != nil {
 		service.log.Error("record backup failure failed", logger.Fields{
 			"project_id": projectID.String(),
 			"error":      err.Error(),
 		})
+		return
+	}
+
+	metrics.SetBackupConsecutiveFailures(projectID.String(), failures)
+
+	// Alert on the exact attempt that reaches the threshold, not on every later
+	// one: a project that has been failing for a day should have produced one
+	// alert, not one per tick.
+	if service.alertAfter > 0 && failures == service.alertAfter {
+		service.notifier.BackupFailing(recordCtx, projectID, failures, cause.Error())
 	}
 }
 
@@ -730,8 +818,45 @@ func (service *Service) projectPrefix(projectID uuid.UUID) string {
 }
 
 // latestKey is the stable key for a project's newest regular backup.
+//
+// It names a small JSON pointer rather than a copy of the database. The suffix
+// is .json so it cannot be mistaken for a restorable .sqlite file.
 func (service *Service) latestKey(projectID uuid.UUID) string {
-	return service.projectPrefix(projectID) + "latest.sqlite"
+	return service.projectPrefix(projectID) + "latest.json"
+}
+
+// latestPointer is the document stored at latestKey. It names the newest regular
+// backup so an operator has one stable key to read, without the storage cost of
+// keeping a second full copy of the object it points at.
+type latestPointer struct {
+	ObjectKey string `json:"object_key"`
+	SHA256    string `json:"sha256"`
+	SizeBytes int64  `json:"size_bytes"`
+	CreatedAt string `json:"created_at"`
+}
+
+// writeLatestPointer writes the small pointer document for a project's newest
+// regular backup.
+func (service *Service) writeLatestPointer(ctx context.Context, projectID uuid.UUID, objectKey, checksum string, size int64, createdAt time.Time) error {
+	document, err := json.Marshal(latestPointer{
+		ObjectKey: objectKey,
+		SHA256:    checksum,
+		SizeBytes: size,
+		CreatedAt: createdAt.UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return fmt.Errorf("encode latest pointer: %w", err)
+	}
+	return service.putBytes(ctx, service.latestKey(projectID), document, "application/json")
+}
+
+// putBytes uploads an in-memory object, signing its own length and hash.
+func (service *Service) putBytes(ctx context.Context, key string, data []byte, contentType string) error {
+	sum := sha256.Sum256(data)
+	if err := service.objects.PutObject(ctx, key, bytes.NewReader(data), int64(len(data)), hex.EncodeToString(sum[:]), contentType); err != nil {
+		return fmt.Errorf("upload %s: %w", key, err)
+	}
+	return nil
 }
 
 // hashFile returns the size and hex SHA-256 of a file.

@@ -133,7 +133,7 @@ type Backups interface {
 	// DownloadBackup opens a stored backup for streaming to the owner.
 	DownloadBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) (io.ReadCloser, *dbcontrol.DatabaseBackup, error)
 	// DeleteBackup removes one stored backup and, when it is the newest regular
-	// backup, the latest.sqlite pointer that mirrors it.
+	// backup, the latest pointer that mirrors it.
 	DeleteBackup(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID) error
 	// SnapshotPath returns the path of a verified local copy of a backup, for
 	// the read-only viewer.

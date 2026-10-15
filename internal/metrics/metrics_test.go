@@ -226,3 +226,51 @@ func TestLabelValuesAreEscaped(t *testing.T) {
 		t.Errorf("missing escaped line %q in:\n%s", want, body)
 	}
 }
+
+func TestBackupMetricsRender(t *testing.T) {
+	resetForTest()
+
+	IncBackupAttempt("daily", "success")
+	IncBackupAttempt("daily", "failure")
+	IncBackupAttempt("daily", "failure")
+	ObserveBackupDuration("daily", 90*time.Second)
+	SetBackupLastSuccess("p1", time.Unix(1_700_000_000, 0))
+	SetBackupConsecutiveFailures("p1", 2)
+	IncBackupVerification("ok")
+
+	body := scrape(t, Providers{})
+
+	for _, want := range []string{
+		`# TYPE moogo_backup_attempts_total counter`,
+		`moogo_backup_attempts_total{kind="daily",result="success"} 1`,
+		`moogo_backup_attempts_total{kind="daily",result="failure"} 2`,
+		`# TYPE moogo_backup_duration_seconds histogram`,
+		`moogo_backup_duration_seconds_bucket{kind="daily",le="120"} 1`,
+		`moogo_backup_duration_seconds_bucket{kind="daily",le="+Inf"} 1`,
+		`moogo_backup_duration_seconds_count{kind="daily"} 1`,
+		`moogo_backup_last_success_timestamp_seconds{project="p1"} 1.7e+09`,
+		`moogo_backup_consecutive_failures{project="p1"} 2`,
+		`moogo_backup_verification_total{result="ok"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing line %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestBackupGaugesFoldPastTheCap(t *testing.T) {
+	resetForTest()
+
+	for index := 0; index < backupSeriesCap+20; index++ {
+		SetBackupConsecutiveFailures("project-"+strconv.Itoa(index), 1)
+	}
+
+	body := scrape(t, Providers{})
+
+	if !strings.Contains(body, `moogo_backup_consecutive_failures{project="_other"}`) {
+		t.Errorf("expected overflow to fold into %q, body:\n%s", otherProject, body)
+	}
+	if count := strings.Count(body, "moogo_backup_consecutive_failures{"); count > backupSeriesCap+1 {
+		t.Errorf("rendered %d series, want at most %d", count, backupSeriesCap+1)
+	}
+}

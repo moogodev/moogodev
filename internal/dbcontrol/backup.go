@@ -2,11 +2,87 @@ package dbcontrol
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/moogodev/moogodev/pkg/logger"
 )
+
+// backupLockNamespace namespaces the per-project backup lock inside Postgres.
+//
+// Advisory locks share one 64-bit space (or a (class, object) pair), so the
+// namespace keeps this lock from colliding with the migration lock or with any
+// other advisory lock the process takes. The value is a fixed constant so every
+// instance contends on the same lock.
+const backupLockNamespace int32 = 0x4D4F4F48 // "MOOH"
+
+// TryProjectBackupLock takes a session-scoped advisory lock for one project's
+// backup, so two processes -- two instances, or a manual run racing the
+// scheduler -- cannot snapshot and upload the same project at once. Contention
+// matters because two concurrent runs would each write a history row, and for a
+// daily backup both rows would name the same date-keyed object: deleting one
+// would then leave the other pointing at bytes that are gone.
+//
+// It returns a release function and whether the lock was taken. A false result
+// is normal contention, not an error. The returned function must be called when
+// the backup finishes; it unlocks and returns the pooled connection. It returns
+// a nil release function when the lock was not acquired.
+//
+// The lock pins one pooled connection for the length of the backup, so a
+// deployment should keep MOOGO_DB_MAX_CONNS comfortably above the number of
+// backups that can be in flight at once. The default is generous and the
+// scheduler runs projects one at a time, so this only matters for a
+// deliberately tiny pool.
+func (store *Store) TryProjectBackupLock(ctx context.Context, projectID uuid.UUID) (func(), bool, error) {
+	// The lock lives for as long as the session holds it, so it has to be taken
+	// on one dedicated connection that is not handed back until it is released.
+	connection, err := store.pool.Acquire(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("acquire backup lock connection: %w", err)
+	}
+
+	key := backupLockKey(projectID)
+
+	var acquired bool
+	if err := connection.QueryRow(ctx,
+		"SELECT pg_try_advisory_lock($1, $2)", backupLockNamespace, key).Scan(&acquired); err != nil {
+		connection.Release()
+		return nil, false, fmt.Errorf("take backup lock: %w", err)
+	}
+	if !acquired {
+		connection.Release()
+		return nil, false, nil
+	}
+
+	release := func() {
+		// Unlock on a fresh context: the caller's is likely cancelled by the
+		// time a backup finishes, and a cancelled unlock would leave the lock
+		// held until the pooled session ends.
+		unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lockReleaseTimeout)
+		defer cancel()
+		if _, err := connection.Exec(unlockCtx,
+			"SELECT pg_advisory_unlock($1, $2)", backupLockNamespace, key); err != nil {
+			store.logger.Warn("release backup lock failed", logger.Fields{
+				"project_id": projectID.String(),
+				"error":      err.Error(),
+			})
+		}
+		connection.Release()
+	}
+
+	return release, true, nil
+}
+
+// backupLockKey derives a stable int32 from a project id. Any deterministic
+// function works: the key only has to agree across instances for the same
+// project and be unlikely to collide between projects. The first four bytes of
+// the UUID are already random, so they need no further hashing.
+func backupLockKey(projectID uuid.UUID) int32 {
+	return int32(binary.BigEndian.Uint32(projectID[:4]))
+}
 
 // BackupKind labels why a backup was taken. The dashboard shows it next to
 // each entry, and the restore path refuses nothing based on it but does keep
@@ -175,6 +251,10 @@ func (store *Store) ProjectBackupState(ctx context.Context, projectID uuid.UUID)
 // RecordBackupSuccess appends a history row and advances the project's cursor in
 // one transaction, so a crash cannot leave a listed backup whose state says the
 // project is still overdue.
+//
+// It returns the failure streak the project had before this success, so the
+// caller can tell a recovery (a long streak reset to zero) from an ordinary
+// successful backup without a second read.
 func (store *Store) RecordBackupSuccess(
 	ctx context.Context,
 	projectID uuid.UUID,
@@ -183,12 +263,18 @@ func (store *Store) RecordBackupSuccess(
 	sha256 string,
 	sizeBytes int64,
 	sourceModifiedAt time.Time,
-) error {
+) (int, error) {
 	transaction, err := store.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin backup success transaction: %w", err)
+		return 0, fmt.Errorf("begin backup success transaction: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
+
+	previousFailures := 0
+	const readFailures = `SELECT consecutive_failures FROM database_backup_state WHERE project_id = $1`
+	if err := transaction.QueryRow(ctx, readFailures, projectID).Scan(&previousFailures); err != nil && !isNoRows(err) {
+		return 0, fmt.Errorf("read backup state before success: %w", err)
+	}
 
 	const insertBackup = `
 		INSERT INTO database_backups
@@ -197,7 +283,7 @@ func (store *Store) RecordBackupSuccess(
 
 	if _, err := transaction.Exec(ctx, insertBackup,
 		projectID, string(kind), objectKey, sizeBytes, sha256, sourceModifiedAt); err != nil {
-		return fmt.Errorf("insert backup: %w", err)
+		return 0, fmt.Errorf("insert backup: %w", err)
 	}
 
 	const upsertState = `
@@ -216,13 +302,13 @@ func (store *Store) RecordBackupSuccess(
 
 	if _, err := transaction.Exec(ctx, upsertState,
 		projectID, sizeBytes, sha256, sourceModifiedAt); err != nil {
-		return fmt.Errorf("advance backup state: %w", err)
+		return 0, fmt.Errorf("advance backup state: %w", err)
 	}
 
 	if err := transaction.Commit(ctx); err != nil {
-		return fmt.Errorf("commit backup success: %w", err)
+		return 0, fmt.Errorf("commit backup success: %w", err)
 	}
-	return nil
+	return previousFailures, nil
 }
 
 // MarkBackupCurrent advances the project's freshness clock without writing a
@@ -248,7 +334,11 @@ func (store *Store) MarkBackupCurrent(ctx context.Context, projectID uuid.UUID) 
 
 // RecordBackupFailure records a failed attempt without touching the history, so
 // the list of restorable backups is unaffected by an outage.
-func (store *Store) RecordBackupFailure(ctx context.Context, projectID uuid.UUID, reason string) error {
+//
+// It returns the failure streak after this attempt, so the caller can alert on
+// the exact attempt that crosses a threshold rather than repeating the alert on
+// every attempt that keeps failing.
+func (store *Store) RecordBackupFailure(ctx context.Context, projectID uuid.UUID, reason string) (int, error) {
 	const query = `
 		INSERT INTO database_backup_state
 			(project_id, consecutive_failures, last_error, updated_at)
@@ -256,12 +346,14 @@ func (store *Store) RecordBackupFailure(ctx context.Context, projectID uuid.UUID
 		ON CONFLICT (project_id) DO UPDATE
 		   SET consecutive_failures = database_backup_state.consecutive_failures + 1,
 		       last_error           = EXCLUDED.last_error,
-		       updated_at           = now()`
+		       updated_at           = now()
+		RETURNING consecutive_failures`
 
-	if _, err := store.pool.Exec(ctx, query, projectID, reason); err != nil {
-		return fmt.Errorf("record backup failure: %w", err)
+	var failures int
+	if err := store.pool.QueryRow(ctx, query, projectID, reason).Scan(&failures); err != nil {
+		return 0, fmt.Errorf("record backup failure: %w", err)
 	}
-	return nil
+	return failures, nil
 }
 
 // ListDatabaseBackups returns one project's backups, newest first.
@@ -320,7 +412,7 @@ func (store *Store) DatabaseBackupByID(ctx context.Context, projectID uuid.UUID,
 }
 
 // LatestRegularBackup returns the project's newest backup that is not a
-// pre-restore snapshot: the one latest.sqlite mirrors.
+// pre-restore snapshot: the one the latest pointer mirrors.
 //
 // A project with no such backup -- only pre-restore snapshots, or none at all
 // -- is reported as (nil, nil) rather than an error, because "there is nothing

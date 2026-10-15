@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -144,9 +145,20 @@ type fakeProjects struct {
 	successes   []recordedSuccess
 	failures    []uuid.UUID
 	failureMsgs []string
+	failureErr  error
 	current     []uuid.UUID
 	deletedRows [][]uuid.UUID
 	deletedProj []uuid.UUID
+
+	// failureCount is the streak the fake tracks so a suite can simulate a
+	// project that failed repeatedly before succeeding.
+	failureCount int
+
+	// lockBusy makes the per-project lock report contention, simulating another
+	// run already backing the project up.
+	lockBusy bool
+	lockErr  error
+	locked   []uuid.UUID
 }
 
 func (fake *fakeProjects) ProjectsDueForBackup(_ context.Context, _ time.Duration, _ int) ([]dbcontrol.Project, error) {
@@ -163,15 +175,17 @@ func (fake *fakeProjects) ProjectBackupState(_ context.Context, projectID uuid.U
 	return &dbcontrol.DatabaseBackupState{ProjectID: projectID}, nil
 }
 
-func (fake *fakeProjects) RecordBackupSuccess(_ context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind, objectKey, sha256 string, sizeBytes int64, sourceModifiedAt time.Time) error {
+func (fake *fakeProjects) RecordBackupSuccess(_ context.Context, projectID uuid.UUID, kind dbcontrol.BackupKind, objectKey, sha256 string, sizeBytes int64, sourceModifiedAt time.Time) (int, error) {
 	if fake.recordErr != nil {
-		return fake.recordErr
+		return 0, fake.recordErr
 	}
 	fake.successes = append(fake.successes, recordedSuccess{
 		projectID: projectID, kind: kind, objectKey: objectKey,
 		sha256: sha256, size: sizeBytes, watermark: sourceModifiedAt,
 	})
-	return nil
+	previous := fake.failureCount
+	fake.failureCount = 0
+	return previous, nil
 }
 
 func (fake *fakeProjects) MarkBackupCurrent(_ context.Context, projectID uuid.UUID) error {
@@ -179,10 +193,14 @@ func (fake *fakeProjects) MarkBackupCurrent(_ context.Context, projectID uuid.UU
 	return nil
 }
 
-func (fake *fakeProjects) RecordBackupFailure(_ context.Context, projectID uuid.UUID, reason string) error {
+func (fake *fakeProjects) RecordBackupFailure(_ context.Context, projectID uuid.UUID, reason string) (int, error) {
 	fake.failures = append(fake.failures, projectID)
 	fake.failureMsgs = append(fake.failureMsgs, reason)
-	return nil
+	if fake.failureErr != nil {
+		return 0, fake.failureErr
+	}
+	fake.failureCount++
+	return fake.failureCount, nil
 }
 
 func (fake *fakeProjects) DatabaseBackupByID(_ context.Context, _, _ uuid.UUID) (*dbcontrol.DatabaseBackup, error) {
@@ -211,6 +229,17 @@ func (fake *fakeProjects) DeleteProjectBackups(_ context.Context, projectID uuid
 	return nil
 }
 
+func (fake *fakeProjects) TryProjectBackupLock(_ context.Context, projectID uuid.UUID) (func(), bool, error) {
+	if fake.lockErr != nil {
+		return nil, false, fake.lockErr
+	}
+	if fake.lockBusy {
+		return nil, false, nil
+	}
+	fake.locked = append(fake.locked, projectID)
+	return func() {}, true, nil
+}
+
 // --- helpers -------------------------------------------------------------
 
 func writeSnapshot(t *testing.T, contents string) string {
@@ -234,6 +263,75 @@ func newTestService(t *testing.T, cfg Config) (*Service, *fakeProjects, *fakeDat
 
 // --- tests ---------------------------------------------------------------
 
+// fakeNotifier records the alerts the service raises, so a test can assert on
+// how many fired and when.
+type fakeNotifier struct {
+	failing   []uuid.UUID
+	recovered []uuid.UUID
+}
+
+func (n *fakeNotifier) BackupFailing(_ context.Context, projectID uuid.UUID, _ int, _ string) {
+	n.failing = append(n.failing, projectID)
+}
+
+func (n *fakeNotifier) BackupRecovered(_ context.Context, projectID uuid.UUID) {
+	n.recovered = append(n.recovered, projectID)
+}
+
+func TestBackupAlertsAtThresholdAndOnRecovery(t *testing.T) {
+	service, _, databases, _ := newTestService(t, Config{Prefix: "db", AlertAfter: 2})
+	notifier := &fakeNotifier{}
+	service.notifier = notifier
+	databases.snapshotPath = writeSnapshot(t, "bytes")
+	projectID := uuid.New()
+
+	databases.backupErr = errors.New("disk full")
+	if _, err := service.BackupProject(context.Background(), projectID, dbcontrol.BackupDaily); err == nil {
+		t.Fatal("expected the first attempt to fail")
+	}
+	if len(notifier.failing) != 0 {
+		t.Fatalf("alerted before the threshold: %v", notifier.failing)
+	}
+
+	if _, err := service.BackupProject(context.Background(), projectID, dbcontrol.BackupDaily); err == nil {
+		t.Fatal("expected the second attempt to fail")
+	}
+	if len(notifier.failing) != 1 {
+		t.Fatalf("failing alerts = %v, want one at the threshold", notifier.failing)
+	}
+
+	// A project that keeps failing must not alert again on every attempt.
+	if _, err := service.BackupProject(context.Background(), projectID, dbcontrol.BackupDaily); err == nil {
+		t.Fatal("expected the third attempt to fail")
+	}
+	if len(notifier.failing) != 1 {
+		t.Fatalf("failing alerts = %v, want exactly one", notifier.failing)
+	}
+
+	databases.backupErr = nil
+	if _, err := service.BackupProject(context.Background(), projectID, dbcontrol.BackupDaily); err != nil {
+		t.Fatalf("recovery backup: %v", err)
+	}
+	if len(notifier.recovered) != 1 {
+		t.Fatalf("recovery alerts = %v, want one", notifier.recovered)
+	}
+}
+
+func TestBackupRecoveryDoesNotAlertWithoutPriorThreshold(t *testing.T) {
+	service, _, databases, _ := newTestService(t, Config{Prefix: "db", AlertAfter: 3})
+	notifier := &fakeNotifier{}
+	service.notifier = notifier
+	databases.snapshotPath = writeSnapshot(t, "bytes")
+
+	// No prior failures: an ordinary successful backup must stay quiet.
+	if _, err := service.BackupProject(context.Background(), uuid.New(), dbcontrol.BackupDaily); err != nil {
+		t.Fatalf("backup: %v", err)
+	}
+	if len(notifier.recovered) != 0 {
+		t.Fatalf("unexpected recovery alert: %v", notifier.recovered)
+	}
+}
+
 func TestBackupProjectUploadsAndRecords(t *testing.T) {
 	service, projects, databases, objects := newTestService(t, Config{Prefix: "db", MaxAge: time.Hour})
 	databases.snapshotPath = writeSnapshot(t, "sqlite-bytes")
@@ -252,8 +350,27 @@ func TestBackupProjectUploadsAndRecords(t *testing.T) {
 	if _, ok := objects.stored[wantKey]; !ok {
 		t.Errorf("daily object not uploaded")
 	}
-	if _, ok := objects.stored[prefix+"latest.sqlite"]; !ok {
-		t.Errorf("latest.sqlite not uploaded")
+	// The latest pointer is a small JSON document naming the object, not a
+	// second full copy of the database.
+	pointerBytes, ok := objects.stored[prefix+"latest.json"]
+	if !ok {
+		t.Fatalf("latest.json not uploaded")
+	}
+	if _, ok := objects.stored[prefix+"latest.sqlite"]; ok {
+		t.Errorf("latest.sqlite full copy should no longer be written")
+	}
+	var pointer latestPointer
+	if err := json.Unmarshal(pointerBytes, &pointer); err != nil {
+		t.Fatalf("latest.json is not valid JSON: %v", err)
+	}
+	if pointer.ObjectKey != wantKey {
+		t.Errorf("pointer key = %q, want %q", pointer.ObjectKey, wantKey)
+	}
+	if pointer.SizeBytes != int64(len("sqlite-bytes")) {
+		t.Errorf("pointer size = %d", pointer.SizeBytes)
+	}
+	if bytes.Equal(pointerBytes, []byte("sqlite-bytes")) {
+		t.Errorf("the latest pointer must not be a copy of the database bytes")
 	}
 
 	if len(projects.successes) != 1 {
@@ -290,6 +407,24 @@ func TestBackupProjectRecordsFailureOnUploadError(t *testing.T) {
 	}
 	if len(projects.successes) != 0 {
 		t.Errorf("recorded a success despite the failure")
+	}
+}
+
+func TestBackupProjectSkipsWhenLockHeld(t *testing.T) {
+	service, projects, databases, objects := newTestService(t, Config{Prefix: "db"})
+	databases.snapshotPath = writeSnapshot(t, "bytes")
+	projects.lockBusy = true
+
+	_, err := service.BackupProject(context.Background(), uuid.New(), dbcontrol.BackupManual)
+	if !errors.Is(err, ErrBackupInProgress) {
+		t.Fatalf("err = %v, want ErrBackupInProgress", err)
+	}
+	// Contention is not a failure: nothing is recorded and nothing is uploaded.
+	if len(projects.failures) != 0 {
+		t.Errorf("contention recorded as a failure: %v", projects.failures)
+	}
+	if len(objects.stored) != 0 {
+		t.Errorf("a contended backup uploaded an object: %v", objects.stored)
 	}
 }
 
@@ -439,7 +574,7 @@ func TestDeleteProjectBackupsSweepsPrefix(t *testing.T) {
 	prefix := "db/" + projectID.String() + "/"
 	objects.listed = []storage.Object{
 		{Key: prefix + "daily/2026-01-01.sqlite"},
-		{Key: prefix + "latest.sqlite"},
+		{Key: prefix + "latest.json"},
 	}
 
 	if err := service.DeleteProjectBackups(context.Background(), projectID); err != nil {
@@ -457,8 +592,8 @@ func TestDeleteProjectBackupsReportsFailedSweep(t *testing.T) {
 	projectID := uuid.New()
 	service, projects, _, objects := newTestService(t, Config{Prefix: "db"})
 	prefix := "db/" + projectID.String() + "/"
-	objects.listed = []storage.Object{{Key: prefix + "latest.sqlite"}}
-	objects.delete[prefix+"latest.sqlite"] = errors.New("denied")
+	objects.listed = []storage.Object{{Key: prefix + "latest.json"}}
+	objects.delete[prefix+"latest.json"] = errors.New("denied")
 
 	if err := service.DeleteProjectBackups(context.Background(), projectID); err == nil {
 		t.Fatal("expected an error when an object cannot be deleted")
@@ -593,7 +728,7 @@ func TestDeleteBackupRemovesObjectAndRow(t *testing.T) {
 	key := service.objectKey(projectID, dbcontrol.BackupDaily, time.Now())
 	stored := storedBackup(t, objects, projectID, key, []byte("older"))
 	projects.byID = &stored
-	// A different, newer backup is what latest.sqlite mirrors.
+	// A different, newer backup is what the latest pointer mirrors.
 	newer := stored
 	newer.ID = uuid.New()
 	projects.latest = &newer
@@ -628,7 +763,7 @@ func TestDeleteBackupRemovesLatestPointerWhenNewest(t *testing.T) {
 	}
 
 	if _, ok := objects.stored[service.latestKey(projectID)]; ok {
-		t.Error("deleting the newest backup must also remove latest.sqlite")
+		t.Error("deleting the newest backup must also remove the latest pointer")
 	}
 }
 

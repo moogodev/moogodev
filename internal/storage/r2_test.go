@@ -348,3 +348,39 @@ func TestRetryableStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckSucceedsAgainstReachableBucket(t *testing.T) {
+	fake := newFakeS3()
+	fake.objects["backups/p1/daily/a.sqlite"] = []byte("x")
+	server := httptest.NewServer(fake)
+	defer server.Close()
+	client := newTestClient(t, server.URL)
+
+	if err := client.Check(context.Background(), "backups/"); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+
+	// The probe must be a single-key listing under the configured prefix.
+	last := fake.requests[len(fake.requests)-1]
+	if last.method != http.MethodGet || last.path != "/bucket" {
+		t.Errorf("probe request = %+v", last)
+	}
+	if !strings.Contains(last.query, "max-keys=1") {
+		t.Errorf("probe query missing max-keys: %q", last.query)
+	}
+	if !strings.Contains(last.query, "prefix=backups") {
+		t.Errorf("probe query missing prefix: %q", last.query)
+	}
+}
+
+func TestCheckFailsOnForbiddenBucket(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "denied", http.StatusForbidden)
+	}))
+	defer server.Close()
+	client := newTestClient(t, server.URL)
+
+	if err := client.Check(context.Background(), "backups/"); err == nil {
+		t.Fatal("expected an error for a forbidden bucket")
+	}
+}

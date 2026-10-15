@@ -439,8 +439,8 @@ export const api = {
   // needs rather than searching a list it may not have.
   getBackup: (id: string, backupId: string) =>
     request<Backup>(`/api/projects/${id}/backups/${backupId}`),
-  // deleteBackup removes one stored backup. The server also drops latest.sqlite
-  // when the deleted backup is the newest regular one.
+  // deleteBackup removes one stored backup. The server also drops the latest
+  // pointer when the deleted backup is the newest regular one.
   deleteBackup: (id: string, backupId: string) =>
     request<void>(`/api/projects/${id}/backups/${backupId}`, {
       method: "DELETE",

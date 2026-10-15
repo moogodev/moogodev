@@ -441,6 +441,9 @@ func (handler *ControlPlane) writeBackupError(w http.ResponseWriter, r *http.Req
 	case errors.Is(err, dbplane.ErrRestoring):
 		httpx.WriteError(w, http.StatusConflict, "restore_in_progress",
 			"a restore of this project is already running")
+	case errors.Is(err, backup.ErrBackupInProgress):
+		httpx.WriteError(w, http.StatusConflict, "backup_in_progress",
+			"a backup of this project is already running")
 	default:
 		handler.writeStoreError(w, r, err, action)
 	}

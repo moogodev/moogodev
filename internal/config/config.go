@@ -158,6 +158,13 @@ type Config struct {
 	// BackupTimeout bounds one project's snapshot-and-upload.
 	BackupTimeout time.Duration
 
+	// BackupAlertWebhook is where backup alerts are POSTed as JSON. Empty
+	// disables delivery.
+	BackupAlertWebhook string
+	// BackupAlertAfter is how many consecutive backup failures trigger an
+	// alert. Zero disables the threshold.
+	BackupAlertAfter int
+
 	// Environment name, used to pick log level and relax local-only rules.
 	Environment string
 }
@@ -313,6 +320,11 @@ func Load() (Config, error) {
 		BackupRetention: reader.duration("MOOGO_BACKUP_RETENTION", 30*24*time.Hour),
 		BackupBatchSize: reader.int("MOOGO_BACKUP_BATCH_SIZE", 20),
 		BackupTimeout:   reader.duration("MOOGO_BACKUP_TIMEOUT", 15*time.Minute),
+
+		// Alerting on a failing backup is opt-in: the metric is always exposed,
+		// but a webhook only fires when an operator has set one.
+		BackupAlertWebhook: reader.string("MOOGO_BACKUP_ALERT_WEBHOOK", ""),
+		BackupAlertAfter:   reader.int("MOOGO_BACKUP_ALERT_AFTER", 3),
 	}
 
 	if len(reader.problems) > 0 {
@@ -459,6 +471,13 @@ func (cfg Config) validate() error {
 		}
 		if cfg.BackupTimeout <= 0 {
 			problems = append(problems, "MOOGO_BACKUP_TIMEOUT must be greater than zero")
+		}
+		if cfg.BackupAlertAfter < 0 {
+			problems = append(problems, "MOOGO_BACKUP_ALERT_AFTER must not be negative")
+		}
+		if cfg.BackupAlertWebhook != "" && !strings.HasPrefix(cfg.BackupAlertWebhook, "http://") &&
+			!strings.HasPrefix(cfg.BackupAlertWebhook, "https://") {
+			problems = append(problems, "MOOGO_BACKUP_ALERT_WEBHOOK must be an http:// or https:// URL")
 		}
 	}
 

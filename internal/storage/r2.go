@@ -120,6 +120,38 @@ func New(cfg Config, log *logger.Logger) (*Client, error) {
 // Bucket returns the bucket name the client writes to.
 func (c *Client) Bucket() string { return c.bucket }
 
+// Check verifies the bucket is reachable with the configured credentials, using
+// a one-key listing under prefix. It is meant for startup: a wrong endpoint or
+// credential then fails the boot with one clear message instead of turning every
+// later backup into a silent, repeated failure nobody is watching for.
+//
+// A minimal ListObjectsV2 is used rather than a HEAD on the bucket because a
+// listing is the one bucket-level request every S3-compatible endpoint supports,
+// and because it also proves the prefix is readable, not merely that the bucket
+// exists. max-keys keeps it cheap even when the bucket is full: the server
+// returns at most one key and the body is tiny.
+func (c *Client) Check(ctx context.Context, prefix string) error {
+	u := c.bucketURL()
+	values := url.Values{}
+	values.Set("list-type", "2")
+	values.Set("max-keys", "1")
+	if prefix != "" {
+		values.Set("prefix", prefix)
+	}
+	u.RawQuery = encodeQuery(values)
+
+	upstream := func() (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	}
+
+	resp, err := c.execute(ctx, upstream, EmptySHA256)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
 // PutObject uploads body to key.
 //
 // sha256Hex must be the hex SHA-256 of exactly the size bytes the reader

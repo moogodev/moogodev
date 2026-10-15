@@ -93,13 +93,29 @@ func Build(ctx context.Context, options Options) (*App, error) {
 			return nil, fmt.Errorf("backup storage: %w", err)
 		}
 
+		// Prove the bucket is reachable before serving traffic. A wrong
+		// endpoint or credential is a configuration mistake, and failing here
+		// names it once at boot instead of letting every scheduled backup fail
+		// the same way in the background, where an operator only finds out by
+		// opening the dashboard or reading the log.
+		checkCtx, cancel := context.WithTimeout(ctx, backupCheckTimeout)
+		checkErr := objectStore.Check(checkCtx, cfg.BackupPrefix)
+		cancel()
+		if checkErr != nil {
+			databases.Close()
+			store.Close()
+			return nil, fmt.Errorf("backup storage unreachable: %w", checkErr)
+		}
+
 		backupService = backup.New(store, databases, objectStore, backup.Config{
-			Prefix:    cfg.BackupPrefix,
-			Interval:  cfg.BackupInterval,
-			MaxAge:    cfg.BackupMaxAge,
-			Retention: cfg.BackupRetention,
-			BatchSize: cfg.BackupBatchSize,
-			Timeout:   cfg.BackupTimeout,
+			Prefix:     cfg.BackupPrefix,
+			Interval:   cfg.BackupInterval,
+			MaxAge:     cfg.BackupMaxAge,
+			Retention:  cfg.BackupRetention,
+			BatchSize:  cfg.BackupBatchSize,
+			Timeout:    cfg.BackupTimeout,
+			AlertAfter: cfg.BackupAlertAfter,
+			WebhookURL: cfg.BackupAlertWebhook,
 		}, options.Log)
 		handlerBackups = backupService
 	}
@@ -246,6 +262,11 @@ func activityRetention(cfg config.Config) time.Duration {
 
 // healthCheckTimeout bounds the readiness probe's database check.
 const healthCheckTimeout = 2 * time.Second
+
+// backupCheckTimeout bounds the startup probe of the backup bucket. It is short
+// on purpose: the probe exists to catch a misconfiguration quickly, not to wait
+// out an outage that would be better retried by starting the service again.
+const backupCheckTimeout = 30 * time.Second
 
 // requestGrace is added to the statement timeout for the HTTP timeout, so the
 // database layer gets to return its own error first. Without it the outer
