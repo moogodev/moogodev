@@ -194,6 +194,24 @@ const pillars = [
       },
     ],
   },
+  {
+    label: "Backups",
+    accent: false,
+    items: [
+      {
+        title: "Copied automatically, off-site",
+        body: "A backup runs about once a day, and a new project is copied as soon as it is created, so the earliest restore point is the state it started in. The copy does not live on the server running your project.",
+      },
+      {
+        title: "Back up before you change anything",
+        body: "Press Back up now and the database is copied immediately, so a migration or a bulk edit has a restore point that predates it. Restoring is one click, and reversible.",
+      },
+      {
+        title: "Notified by email",
+        body: "With notifications on, creating a project emails its credentials, and finishing a manual backup emails a single-use download link that works straight from your inbox.",
+      },
+    ],
+  },
 ];
 
 const steps = [
@@ -732,11 +750,11 @@ function Pillars() {
           What you actually get
         </h2>
         <p className="mb-10 max-w-[46em] text-muted">
-          Three things, described plainly. Everything below works today, not on
+          Four things, described plainly. Everything below works today, not on
           the roadmap.
         </p>
 
-        <div className="grid gap-8 lg:grid-cols-3">
+        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           {pillars.map((pillar) => (
             <div key={pillar.label}>
               {/* The column header carries the accent and sits directly on the
