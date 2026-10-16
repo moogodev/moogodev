@@ -158,6 +158,10 @@ type Config struct {
 	// BackupTimeout bounds one project's snapshot-and-upload, and one
 	// background restore of the same project.
 	BackupTimeout time.Duration
+	// BackupDownloadTTL bounds how long a backup download link from a
+	// notification email stays valid. The link is single-use regardless; this
+	// is only how long an unused one stays live.
+	BackupDownloadTTL time.Duration
 
 	// BackupAlertWebhook is where backup alerts are POSTed as JSON. Empty
 	// disables delivery.
@@ -329,6 +333,11 @@ func Load() (Config, error) {
 		BackupBatchSize: reader.int("MOOGO_BACKUP_BATCH_SIZE", 20),
 		BackupTimeout:   reader.duration("MOOGO_BACKUP_TIMEOUT", 15*time.Minute),
 
+		// A download link from an email is single-use; one hour is enough for
+		// someone to open a just-sent message without leaving a live, replayable
+		// link sitting in an inbox for a day.
+		BackupDownloadTTL: reader.duration("MOOGO_BACKUP_DOWNLOAD_TTL", time.Hour),
+
 		// Alerting on a failing backup is opt-in: the metric is always exposed,
 		// but a webhook only fires when an operator has set one.
 		BackupAlertWebhook: reader.string("MOOGO_BACKUP_ALERT_WEBHOOK", ""),
@@ -486,6 +495,9 @@ func (cfg Config) validate() error {
 		}
 		if cfg.BackupTimeout <= 0 {
 			problems = append(problems, "MOOGO_BACKUP_TIMEOUT must be greater than zero")
+		}
+		if cfg.BackupDownloadTTL <= 0 {
+			problems = append(problems, "MOOGO_BACKUP_DOWNLOAD_TTL must be greater than zero")
 		}
 		if cfg.BackupAlertAfter < 0 {
 			problems = append(problems, "MOOGO_BACKUP_ALERT_AFTER must not be negative")

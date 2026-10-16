@@ -40,6 +40,13 @@ type fakeStore struct {
 	user     *dbcontrol.User
 	buckets  map[uuid.UUID][]*dbcontrol.Bucket
 
+	// downloadTokens records single-use backup download links by token hash,
+	// mirroring backup_download_tokens. used marks a token already redeemed.
+	downloadTokens map[string]downloadTokenRow
+	// downloadConsumeErr injects a store failure on redemption, standing in for
+	// a database that is down.
+	downloadConsumeErr error
+
 	// Counters prove which code path ran, which is how the tests tell a real
 	// authorization failure apart from a handler that never looked.
 	createdCalls      int
@@ -72,6 +79,14 @@ type fakeStore struct {
 	bumpedUser  uuid.UUID
 }
 
+// downloadTokenRow is one issued single-use backup download link in the fake.
+type downloadTokenRow struct {
+	projectID uuid.UUID
+	backupID  uuid.UUID
+	expiresAt time.Time
+	used      bool
+}
+
 func newFakeStore(userID uuid.UUID) *fakeStore {
 	return &fakeStore{
 		projects: map[uuid.UUID]*dbcontrol.Project{},
@@ -83,7 +98,8 @@ func newFakeStore(userID uuid.UUID) *fakeStore {
 			QuotaMaxDBBytes:      250 * 1024 * 1024,
 			QuotaMaxStorageBytes: 250 * 1024 * 1024,
 		},
-		credentials: map[uuid.UUID]*dbcontrol.StorageCredential{},
+		credentials:    map[uuid.UUID]*dbcontrol.StorageCredential{},
+		downloadTokens: map[string]downloadTokenRow{},
 	}
 }
 
@@ -196,6 +212,29 @@ func (store *fakeStore) ProjectByID(_ context.Context, projectID uuid.UUID) (*db
 		return nil, dbcontrol.ErrNotFound
 	}
 	return project, nil
+}
+
+func (store *fakeStore) CreateBackupDownloadToken(
+	_ context.Context, projectID uuid.UUID, backupID uuid.UUID, tokenHash string, ttl time.Duration,
+) error {
+	store.downloadTokens[tokenHash] = downloadTokenRow{projectID: projectID, backupID: backupID,
+		expiresAt: time.Now().Add(ttl)}
+	return nil
+}
+
+func (store *fakeStore) ConsumeBackupDownloadToken(
+	_ context.Context, tokenHash string,
+) (uuid.UUID, uuid.UUID, error) {
+	if store.downloadConsumeErr != nil {
+		return uuid.Nil, uuid.Nil, store.downloadConsumeErr
+	}
+	row, found := store.downloadTokens[tokenHash]
+	if !found || row.used || time.Now().After(row.expiresAt) {
+		return uuid.Nil, uuid.Nil, dbcontrol.ErrDownloadTokenInvalid
+	}
+	row.used = true
+	store.downloadTokens[tokenHash] = row
+	return row.projectID, row.backupID, nil
 }
 
 func (store *fakeStore) RotateSecretKey(_ context.Context, projectID uuid.UUID) (string, error) {

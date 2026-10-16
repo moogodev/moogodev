@@ -366,7 +366,7 @@ func (handler *Credentials) issueVerification(
 	ctx context.Context,
 	user *dbcontrol.User,
 ) (int, error) {
-	token, err := generateResetToken()
+	token, err := generateOpaqueToken()
 	if err != nil {
 		handler.log.Error("generate verification token", logger.Fields{
 			"error": err.Error(), "user_id": user.ID.String(),
@@ -374,7 +374,7 @@ func (handler *Credentials) issueVerification(
 		return http.StatusInternalServerError, err
 	}
 
-	tokenHash := hashResetToken(token)
+	tokenHash := hashOpaqueToken(token)
 	if err := handler.store.CreateVerificationToken(
 		ctx, user.ID, tokenHash, handler.cfg.VerificationTTL,
 	); err != nil {
@@ -414,7 +414,7 @@ func (handler *Credentials) VerifyEmail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := handler.store.VerifyEmail(r.Context(), hashResetToken(request.Token)); err != nil {
+	if err := handler.store.VerifyEmail(r.Context(), hashOpaqueToken(request.Token)); err != nil {
 		if errors.Is(err, dbcontrol.ErrVerificationTokenInvalid) {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid_token",
 				"this confirmation link is invalid or has expired")
@@ -546,14 +546,14 @@ func (handler *Credentials) ForgotPassword(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	token, err := generateResetToken()
+	token, err := generateOpaqueToken()
 	if err != nil {
 		handler.log.Error("generate reset token", logger.Fields{"error": err.Error()})
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not start the reset")
 		return
 	}
 
-	tokenHash := hashResetToken(token)
+	tokenHash := hashOpaqueToken(token)
 	if err := handler.store.CreatePasswordResetToken(
 		r.Context(), user.ID, tokenHash, handler.cfg.PasswordResetTTL,
 	); err != nil {
@@ -601,7 +601,7 @@ func (handler *Credentials) ResetPassword(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tokenHash := hashResetToken(request.Token)
+	tokenHash := hashOpaqueToken(request.Token)
 	if err := handler.store.ResetPassword(r.Context(), tokenHash, hash); err != nil {
 		if err == dbcontrol.ErrResetTokenInvalid {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid_token", "this reset link is invalid or has expired")
@@ -679,8 +679,13 @@ type validationError struct{ message string }
 
 func (err *validationError) Error() string { return err.message }
 
-// generateResetToken returns a URL-safe random token for a reset link.
-func generateResetToken() (string, error) {
+// generateOpaqueToken returns a URL-safe random token for an email link.
+//
+// It is shared by every single-use email link: password reset, address
+// confirmation, and the backup download link. They differ only in what the
+// token is bound to in the database, not in how it is generated, so one
+// generator keeps the strength in one place.
+func generateOpaqueToken() (string, error) {
 	buffer := make([]byte, 32)
 	if _, err := rand.Read(buffer); err != nil {
 		return "", err
@@ -688,9 +693,9 @@ func generateResetToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buffer), nil
 }
 
-// hashResetToken is the value stored in the database. The raw token travels in
+// hashOpaqueToken is the value stored in the database. The raw token travels in
 // the email and is never persisted, so a leak does not hand out working links.
-func hashResetToken(token string) string {
+func hashOpaqueToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }

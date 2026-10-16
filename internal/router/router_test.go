@@ -785,6 +785,24 @@ func TestDashboardBackupRoutesAcceptOwnerSession(t *testing.T) {
 	}
 }
 
+func TestPublicBackupDownloadNeedsNoSession(t *testing.T) {
+	// The link from a notification email must be reachable with no cookie: the
+	// route sits outside the session group, so a bare GET reaches the handler.
+	built, _, controlStub, _ := testRouter(t, uuid.New())
+
+	controlStub.called = ""
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, httptest.NewRequest(
+		http.MethodGet, "/api/backup-download?token=whatever", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 without a session, got %d", recorder.Code)
+	}
+	if controlStub.called != "DownloadBackupPublic" {
+		t.Errorf("handler = %q, want DownloadBackupPublic", controlStub.called)
+	}
+}
+
 func TestDashboardBucketRoutesAcceptOwnerSession(t *testing.T) {
 	projectID := uuid.New()
 	built, _, _, _ := testRouter(t, projectID)
@@ -1021,6 +1039,40 @@ func TestStaticAssetsAreServed(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "color:#fff") {
 		t.Errorf("expected the asset body, got %q", recorder.Body.String())
+	}
+}
+
+func TestStaticDirectoriesAreNotListed(t *testing.T) {
+	// A directory under /static/ must answer 404, not an HTML index of every
+	// file the build shipped. The file server would otherwise enumerate img/,
+	// assets/, and the root itself, which is an inventory of the deploy handed
+	// to anyone who types the path.
+	built, _, _, _ := testRouter(t, uuid.New())
+
+	for _, target := range []string{"/static/img/", "/static/img", "/static/assets/", "/static/"} {
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+
+		if recorder.Code != http.StatusNotFound {
+			t.Errorf("%s: expected 404, got %d", target, recorder.Code)
+		}
+		// The listing body names files; a 404 must not leak them.
+		if body := recorder.Body.String(); strings.Contains(body, "favicon.svg") {
+			t.Errorf("%s: 404 body leaked a filename: %q", target, body)
+		}
+	}
+}
+
+func TestStaticRootAssetStillServedAfterListingBlock(t *testing.T) {
+	// The listing block must not swallow a real file that happens to sit at a
+	// shallow path. llms.txt is at the StaticFS root and must still stream.
+	built, _, _, _ := testRouter(t, uuid.New())
+
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/static/llms.txt", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for a root-level file, got %d", recorder.Code)
 	}
 }
 

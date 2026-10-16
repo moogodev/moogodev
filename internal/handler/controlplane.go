@@ -60,6 +60,11 @@ type Store interface {
 	ListProjects(ctx context.Context, userID uuid.UUID, limit int, offset int) ([]dbcontrol.Project, error)
 	ProjectOwnedBy(ctx context.Context, projectID uuid.UUID, userID uuid.UUID) (*dbcontrol.Project, error)
 	ProjectByID(ctx context.Context, projectID uuid.UUID) (*dbcontrol.Project, error)
+	// Backup download links from notification emails are single-use: issued by
+	// hash here, redeemed once by ConsumeBackupDownloadToken. The raw token
+	// never reaches the store, only its SHA-256.
+	CreateBackupDownloadToken(ctx context.Context, projectID uuid.UUID, backupID uuid.UUID, tokenHash string, ttl time.Duration) error
+	ConsumeBackupDownloadToken(ctx context.Context, tokenHash string) (uuid.UUID, uuid.UUID, error)
 	RotateSecretKey(ctx context.Context, projectID uuid.UUID) (string, error)
 	PauseProject(ctx context.Context, projectID uuid.UUID) error
 	ResumeProject(ctx context.Context, projectID uuid.UUID) error

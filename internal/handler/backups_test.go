@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -519,6 +520,124 @@ func TestDownloadBackupStreamsObject(t *testing.T) {
 	}
 	if length := recorder.Header().Get("Content-Length"); length != strconv.Itoa(len(backups.downloadBytes)) {
 		t.Errorf("Content-Length = %q, want %d", length, len(backups.downloadBytes))
+	}
+}
+
+// publicDownloadPlane wires a handler whose public download endpoint works,
+// returning the handler and store so a test can issue and inspect tokens.
+func publicDownloadPlane(t *testing.T) (*ControlPlane, *fakeStore, *fakeBackups, uuid.UUID) {
+	t.Helper()
+
+	handler, store, _ := testControlPlane(testUserID)
+	handler.cfg.BackupDownloadTTL = time.Hour
+
+	projectID := uuid.New()
+	store.projects[projectID] = &dbcontrol.Project{
+		ID: projectID, UserID: testUserID, Name: "demo", Status: dbcontrol.ProjectReady,
+	}
+
+	backups := &fakeBackups{downloadBytes: []byte("SQLite format 3\x00 one database")}
+	handler.backups = backups
+	return handler, store, backups, projectID
+}
+
+func TestPublicBackupDownloadIsSingleUse(t *testing.T) {
+	// The link from a notification email must work once and then die: a second
+	// click — or a leaked URL — is refused rather than replayable.
+	handler, _, backups, projectID := publicDownloadPlane(t)
+
+	token, err := handler.generateBackupDownloadToken(context.Background(), projectID, uuid.New())
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+
+	first := httptest.NewRecorder()
+	handler.DownloadBackupPublic(first, httptest.NewRequest(
+		http.MethodGet, "/api/backup-download?token="+token, nil))
+	if first.Code != http.StatusOK {
+		t.Fatalf("first download status = %d, want 200", first.Code)
+	}
+	if !bytes.Equal(first.Body.Bytes(), backups.downloadBytes) {
+		t.Errorf("first download body = %q, want the object", first.Body.Bytes())
+	}
+
+	second := httptest.NewRecorder()
+	handler.DownloadBackupPublic(second, httptest.NewRequest(
+		http.MethodGet, "/api/backup-download?token="+token, nil))
+	if second.Code != http.StatusUnauthorized {
+		t.Fatalf("second download status = %d, want 401", second.Code)
+	}
+	if code := errorCode(t, second); code != "invalid_token" {
+		t.Errorf("second download code = %q, want invalid_token", code)
+	}
+}
+
+func TestPublicBackupDownloadRejectsUnknownToken(t *testing.T) {
+	handler, _, _, _ := publicDownloadPlane(t)
+
+	recorder := httptest.NewRecorder()
+	handler.DownloadBackupPublic(recorder, httptest.NewRequest(
+		http.MethodGet, "/api/backup-download?token=not-a-real-token", nil))
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", recorder.Code)
+	}
+	if code := errorCode(t, recorder); code != "invalid_token" {
+		t.Errorf("code = %q, want invalid_token", code)
+	}
+}
+
+func TestPublicBackupDownloadRequiresToken(t *testing.T) {
+	handler, _, _, _ := publicDownloadPlane(t)
+
+	recorder := httptest.NewRecorder()
+	handler.DownloadBackupPublic(recorder, httptest.NewRequest(
+		http.MethodGet, "/api/backup-download", nil))
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", recorder.Code)
+	}
+	if code := errorCode(t, recorder); code != "missing_token" {
+		t.Errorf("code = %q, want missing_token", code)
+	}
+}
+
+func TestPublicBackupDownloadRejectsExpiredToken(t *testing.T) {
+	// An unused link that aged out is refused, and the raw token is never the
+	// key: the store is asked for the hash of what the client sent.
+	handler, store, _, projectID := publicDownloadPlane(t)
+
+	raw := "expired-token-value"
+	store.downloadTokens[hashOpaqueToken(raw)] = downloadTokenRow{
+		projectID: projectID,
+		backupID:  uuid.New(),
+		expiresAt: time.Now().Add(-time.Minute),
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.DownloadBackupPublic(recorder, httptest.NewRequest(
+		http.MethodGet, "/api/backup-download?token="+raw, nil))
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", recorder.Code)
+	}
+}
+
+func TestPublicBackupDownloadHidesStoreFailure(t *testing.T) {
+	// The endpoint answers an anonymous caller, so a store failure must not
+	// hand back the internal error text the session routes include.
+	handler, store, _, _ := publicDownloadPlane(t)
+	store.downloadConsumeErr = errors.New("connection refused to the control plane")
+
+	recorder := httptest.NewRecorder()
+	handler.DownloadBackupPublic(recorder, httptest.NewRequest(
+		http.MethodGet, "/api/backup-download?token=whatever", nil))
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", recorder.Code)
+	}
+	if body := recorder.Body.String(); strings.Contains(body, "connection refused") {
+		t.Errorf("500 body leaked the internal error: %q", body)
 	}
 }
 

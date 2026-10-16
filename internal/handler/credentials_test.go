@@ -107,7 +107,7 @@ func (store *credStore) VerifyEmail(ctx context.Context, tokenHash string) error
 		return store.verifyErr
 	}
 	for raw, user := range store.verificationTokens {
-		if hashResetToken(raw) != tokenHash {
+		if hashOpaqueToken(raw) != tokenHash {
 			continue
 		}
 		stamp := time.Now()
@@ -298,7 +298,7 @@ func TestRegisterCreatesAccountAndSendsConfirmation(t *testing.T) {
 	if store.verifyTokenHash == mailer.verificationToken {
 		t.Error("expected the raw token not to be stored")
 	}
-	if store.verifyTokenHash != hashResetToken(mailer.verificationToken) {
+	if store.verifyTokenHash != hashOpaqueToken(mailer.verificationToken) {
 		t.Error("expected the stored value to be the hash of the mailed token")
 	}
 }

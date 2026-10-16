@@ -342,6 +342,14 @@ func New(deps Deps) http.Handler {
 	// handler's minute-long cache expires.
 	updatesLimited := ratelimit.New(ratelimit.Config{Limit: 60, Window: time.Minute}).Plane("updates").Middleware
 
+	// The public backup-download link is unauthenticated too, and each request
+	// a valid token turns into a database read plus an object stream. Tokens are
+	// 256-bit random, so guessing is not the concern; the ceiling keeps an open
+	// endpoint from being a free way to hammer the host. It gets its own limiter
+	// rather than joining the credential one: a download has nothing to do with
+	// signing in, and the two should not spend each other's allowance.
+	downloadLimited := ratelimit.New(ratelimit.Config{Limit: 60, Window: time.Minute}).Plane("download").Middleware
+
 	root.With(credentialWrite...).Post("/auth/register", deps.Credentials.Register)
 	root.With(credentialWrite...).Post("/auth/login", deps.Credentials.Login)
 	root.With(credentialWrite...).Post("/auth/forgot-password", deps.Credentials.ForgotPassword)
@@ -355,9 +363,12 @@ func New(deps Deps) http.Handler {
 	root.With(credentialWrite...).Post("/auth/verify-email", deps.Credentials.VerifyEmail)
 	root.With(credentialWrite...).Post("/auth/resend-verification", deps.Credentials.ResendVerification)
 
-	// Public backup download with signed token (no session required).
-	// Token embeds project_id:backup_id:expiry, signed with HMAC-SHA256.
-	root.Get("/api/backup-download", deps.Control.DownloadBackupPublic)
+	// Public backup download. It sits outside the session group on purpose:
+	// the link is meant to be opened straight from a notification email,
+	// without signing in. Safety comes from the token itself — random, stored
+	// only as a hash, expired after a short window and redeemed once — plus the
+	// address-keyed ceiling above.
+	root.With(downloadLimited).Get("/api/backup-download", deps.Control.DownloadBackupPublic)
 
 	// --- Control plane: a signed-in person, session cookie ---
 
@@ -924,6 +935,40 @@ func withStaticCache(next http.Handler) http.Handler {
 	})
 }
 
+// noDirectoryListing refuses a request that resolves to a directory.
+//
+// The file server renders an HTML index for any directory that has no
+// index.html, which is an inventory of every asset a deployment ships — a
+// fingerprint of the frontend build and its exact filenames — handed to anyone
+// who types the path. Nothing legitimate asks for the listing: a page loads a
+// named file, so a directory request is answered 404 rather than enumerated.
+//
+// The check runs before the file server, on the path after the /static/ prefix,
+// normalized so both /static/img and /static/img/ are refused. The root itself
+// (/static/) is a directory and is refused for the same reason.
+func noDirectoryListing(fsys http.FileSystem, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rel := path.Clean(strings.TrimPrefix(r.URL.Path, "/static/"))
+		rel = strings.TrimPrefix(rel, "/")
+
+		// The root of the tree, and anything the filesystem calls a directory,
+		// is not a downloadable file.
+		if rel == "" || rel == "." {
+			http.NotFound(w, r)
+			return
+		}
+		if file, err := fsys.Open(rel); err == nil {
+			defer file.Close()
+			if info, statErr := file.Stat(); statErr == nil && info.IsDir() {
+				http.NotFound(w, r)
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // registerPages serves the single-page frontend and its static assets.
 //
 // The frontend is a React app, so every page route returns the same index.html
@@ -932,7 +977,8 @@ func withStaticCache(next http.Handler) http.Handler {
 // specific pattern first.
 func registerPages(root chi.Router, deps Deps) {
 	if deps.StaticFS != nil {
-		root.Handle("/static/*", withStaticCache(http.StripPrefix("/static/", http.FileServer(deps.StaticFS))))
+		root.Handle("/static/*", withStaticCache(noDirectoryListing(deps.StaticFS,
+			http.StripPrefix("/static/", http.FileServer(deps.StaticFS)))))
 	}
 
 	index := deps.spa()
