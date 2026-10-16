@@ -405,7 +405,7 @@ function Hero() {
           SQLite over HTTP
         </p>
         <h1 className="mb-5 text-[clamp(2.4rem,5.2vw,3.6rem)] font-semibold leading-tight tracking-tight">
-          A Lightweight Database for Serverless Applications
+          A <span className="text-accent-strong">Lightweight</span> Database for Serverless Applications
         </h1>
         <p className="mb-10 max-w-[42em] mx-auto text-lg text-muted">
           Built with Go for serverless apps. Each project gets its own SQLite
