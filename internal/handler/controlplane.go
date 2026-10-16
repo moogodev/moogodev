@@ -484,6 +484,22 @@ type ProjectResponse struct {
 	StorageBytes int64 `json:"storage_bytes"`
 }
 
+// ActivityResponse is one audit row as the dashboard reads it.
+//
+// It is a separate shape from dbcontrol.ActivityEntry so the wire format is
+// explicit and snake_cased, and so the millisecond duration is named for what it
+// is: the stored column is duration_ms, and a bare "duration" would leave the
+// unit to guesswork.
+type ActivityResponse struct {
+	ID         uuid.UUID `json:"id"`
+	Method     string    `json:"method"`
+	Path       string    `json:"path"`
+	Status     int       `json:"status"`
+	DurationMS int64     `json:"duration_ms"`
+	Source     string    `json:"source"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // Me handles GET /api/me.
 func (handler *ControlPlane) Me(w http.ResponseWriter, r *http.Request) {
 	userID, ok := auth.UserIDFromContext(r.Context())
@@ -990,8 +1006,21 @@ func (handler *ControlPlane) Activity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	activity := make([]ActivityResponse, 0, len(entries))
+	for _, entry := range entries {
+		activity = append(activity, ActivityResponse{
+			ID:         entry.ID,
+			Method:     entry.Method,
+			Path:       entry.Path,
+			Status:     entry.Status,
+			DurationMS: entry.Duration.Milliseconds(),
+			Source:     entry.Source,
+			CreatedAt:  entry.CreatedAt,
+		})
+	}
+
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"activity": entries,
+		"activity": activity,
 		"limit":    limit,
 	})
 }

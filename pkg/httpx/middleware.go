@@ -153,6 +153,40 @@ func AccessLog(log *logger.Logger) func(http.Handler) http.Handler {
 	}
 }
 
+// Activity captures each request's status and duration and hands them to
+// record, which the router uses to write one audit row per data plane request.
+//
+// It reuses the same status capture as the access log, so the two cannot
+// disagree about what a request returned. record runs after the handler has
+// written its response, which is what keeps the audit write off the client's
+// critical path: the reply is already on the wire when the row is written.
+//
+// A nil record leaves the chain untouched, so a deployment that has not wired a
+// recorder pays nothing. A request whose handler panicked is not recorded here:
+// the panic unwinds past this frame before the status is known.
+func Activity(
+	record func(r *http.Request, status int, duration time.Duration),
+) func(http.Handler) http.Handler {
+	if record == nil {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			recorder := &statusRecorder{ResponseWriter: w}
+
+			next.ServeHTTP(recorder, r)
+
+			// A handler that never called WriteHeader still answered 200, the
+			// same default net/http applies when it flushes the response.
+			if recorder.status == 0 {
+				recorder.status = http.StatusOK
+			}
+			record(r, recorder.status, time.Since(start))
+		})
+	}
+}
+
 // originalBodyKey remembers the request body before any cap wrapped it.
 //
 // It is what lets two MaxBodyBytes middlewares nest: the innermost cap is the

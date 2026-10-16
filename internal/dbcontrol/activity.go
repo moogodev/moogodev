@@ -62,6 +62,10 @@ func (store *Store) ListActivity(ctx context.Context, projectID uuid.UUID, limit
 	entries := make([]ActivityEntry, 0, limit)
 	for rows.Next() {
 		entry := ActivityEntry{}
+		// The column is milliseconds; time.Duration counts nanoseconds, so the
+		// two are not interchangeable without the multiply. Scanning straight
+		// into entry.Duration would read 5 ms as 5 ns.
+		var durationMS int64
 		if err := rows.Scan(
 			&entry.ID,
 			&entry.ProjectID,
@@ -69,12 +73,13 @@ func (store *Store) ListActivity(ctx context.Context, projectID uuid.UUID, limit
 			&entry.Method,
 			&entry.Path,
 			&entry.Status,
-			&entry.Duration,
+			&durationMS,
 			&entry.Source,
 			&entry.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan activity: %w", err)
 		}
+		entry.Duration = time.Duration(durationMS) * time.Millisecond
 		entries = append(entries, entry)
 	}
 	if err := rows.Err(); err != nil {

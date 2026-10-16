@@ -236,6 +236,13 @@ function SidebarContent({
               Backups
             </NavItem>
             <NavItem
+              to={`/app/projects/${projectId}/activity`}
+              active={pathname.includes("/activity")}
+              icon={<ActivityIcon />}
+            >
+              Activity
+            </NavItem>
+            <NavItem
               to={`/app/projects/${projectId}/settings`}
               active={pathname === `/app/projects/${projectId}/settings`}
               icon={<SettingsIcon />}
@@ -407,6 +414,14 @@ function BackupsIcon() {
       <polyline points="3 4 3 9 8 9" />
       <line x1="12" y1="8" x2="12" y2="12" />
       <line x1="12" y1="12" x2="15" y2="14" />
+    </svg>
+  );
+}
+
+function ActivityIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12h4l3 8 4-16 3 8h4" />
     </svg>
   );
 }

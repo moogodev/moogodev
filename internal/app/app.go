@@ -183,6 +183,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 		ProjectKeys:    store,
 		Projects:       store,
 		StorageKeys:    store,
+		Activity:       store,
 		Log:            options.Log,
 		StaticFS:       staticFS,
 		IndexFS:        options.Frontend,

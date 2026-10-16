@@ -12,8 +12,9 @@ import BucketView from "../components/BucketView";
 import BucketSettingsPage from "../components/BucketSettingsPage";
 import ProjectSettings from "../components/ProjectSettings";
 import BackupsView from "../components/BackupsView";
+import ActivityView from "../components/ActivityView";
 
-type Tab = "database" | "bucket" | "backups" | "settings";
+type Tab = "database" | "bucket" | "backups" | "activity" | "settings";
 type DatabaseTab = "sql" | "tables" | "visual";
 
 // readDatabaseTab turns the query string into the sub-tab to open. The visual
@@ -99,9 +100,11 @@ export default function ProjectDetail() {
     ? "bucket"
     : location.pathname.endsWith("/backups")
       ? "backups"
-      : location.pathname.endsWith("/settings")
-        ? "settings"
-        : "database";
+      : location.pathname.endsWith("/activity")
+        ? "activity"
+        : location.pathname.endsWith("/settings")
+          ? "settings"
+          : "database";
 
   const goToTab = useCallback(
     (tab: Tab) => {
@@ -217,6 +220,9 @@ export default function ProjectDetail() {
               <TabButton active={activeTab === "backups"} onClick={() => goToTab("backups")}>
                 Backups
               </TabButton>
+              <TabButton active={activeTab === "activity"} onClick={() => goToTab("activity")}>
+                Activity
+              </TabButton>
               <TabButton active={activeTab === "settings"} onClick={() => goToTab("settings")}>
                 Settings
               </TabButton>
@@ -236,6 +242,11 @@ export default function ProjectDetail() {
               // restore it, and backups only read the file rather than going
               // through the query path that pausing closes.
               <BackupsView projectId={project.id} />
+            ) : activeTab === "activity" ? (
+              // The activity log sits above the paused check too: it reads the
+              // control database, not the project's file, so it stays readable
+              // exactly when a paused project is being investigated.
+              <ActivityView projectId={project.id} />
             ) : isPaused ? (
               <div className="rounded-xl border border-dashed border-edge-strong px-6 py-12 text-center">
                 <p className="text-lg font-semibold text-foreground">This project is paused</p>

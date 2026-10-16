@@ -86,6 +86,24 @@ type DataPlaneHandlers interface {
 	Transaction(http.ResponseWriter, *http.Request)
 }
 
+// ActivityRecorder appends one audit row per data plane request, so the
+// dashboard's Activity tab can answer what an application ran and what it cost.
+//
+// The control store implements it. It is best effort by contract: a failure is
+// logged and never turns a request that already succeeded into an error.
+type ActivityRecorder interface {
+	RecordActivity(
+		ctx context.Context,
+		projectID *uuid.UUID,
+		userID *uuid.UUID,
+		method string,
+		path string,
+		status int,
+		duration time.Duration,
+		source string,
+	) error
+}
+
 // HealthHandlers are the liveness and readiness probes.
 type HealthHandlers interface {
 	Liveness(http.ResponseWriter, *http.Request)
@@ -164,7 +182,11 @@ type Deps struct {
 	// StorageKeys resolves the storage credentials that object storage is
 	// authorized with.
 	StorageKeys auth.StorageCredentialResolver
-	Log         *logger.Logger
+	// Activity records one audit row per data plane request, for the
+	// dashboard's Activity tab. Nil leaves recording off, the same convention
+	// Metrics and Updates follow.
+	Activity ActivityRecorder
+	Log      *logger.Logger
 	// StaticFS serves /static/* and IndexFS provides index.html for the
 	// single-page app. Both point at the same built frontend; they are separate
 	// fields because one is a file server and the other is read as a document.
@@ -560,6 +582,10 @@ func New(deps Deps) http.Handler {
 		projectPlane.Use(httpx.Timeout(deps.RequestTimeout))
 		projectPlane.Use(ProjectContext)
 		projectPlane.Use(auth.RequireProjectKey(deps.ProjectKeys))
+		// After the key check and before the limiter, so the audit row is
+		// written for every authenticated request including the 429s the limit
+		// turns away -- "what it cost" includes what was refused.
+		projectPlane.Use(activityRecorder(deps, activitySourceAPI))
 		// After the key check, so the allowance belongs to whoever holds the
 		// key: one project's traffic never spends another's budget, and an
 		// unauthenticated probe is answered by RequireProjectKey first.
@@ -612,6 +638,7 @@ func New(deps Deps) http.Handler {
 		// the project id in the path, so the id has to be in the context first.
 		dataPlane.Use(ProjectContext)
 		dataPlane.Use(auth.RequireProjectKey(deps.ProjectKeys))
+		dataPlane.Use(activityRecorder(deps, activitySourceAPI))
 		// The same limiter as /p, so switching prefixes hands out no second
 		// allowance.
 		dataPlane.Use(queryLimited)
@@ -703,6 +730,68 @@ func ProjectContext(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(
 			context.WithValue(r.Context(), auth.ContextKeyProjectID, projectID.String())))
 	})
+}
+
+// activitySourceAPI marks a row written for the data plane, the requests an
+// application makes with a project key. The column exists so a future writer
+// (the dashboard's own actions) can be told apart without changing the schema.
+const activitySourceAPI = "api"
+
+// activityWriteTimeout bounds the audit insert. It is short because the row is
+// written after the client already has its response: a slow or unreachable
+// control database must not hold a data plane goroutine open.
+const activityWriteTimeout = 5 * time.Second
+
+// activityRecorder builds the middleware that writes one audit row per request
+// it wraps.
+//
+// It is mounted after the credential check, so an unauthenticated caller cannot
+// add rows: the audit table would otherwise be an unauthenticated write path,
+// and anyone who knew a project id could fill it. A nil recorder is a no-op, so
+// a deployment without one pays nothing.
+func activityRecorder(deps Deps, source string) func(http.Handler) http.Handler {
+	if deps.Activity == nil {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return httpx.Activity(func(r *http.Request, status int, duration time.Duration) {
+		recordActivity(deps, r, source, status, duration)
+	})
+}
+
+// recordActivity writes the audit row, best effort. A failure is logged and
+// dropped: the request it describes has already been answered.
+func recordActivity(
+	deps Deps,
+	r *http.Request,
+	source string,
+	status int,
+	duration time.Duration,
+) {
+	projectID, ok := auth.ProjectIDFromContext(r.Context())
+	if !ok {
+		return
+	}
+
+	var userID *uuid.UUID
+	if id, ok := auth.UserIDFromContext(r.Context()); ok {
+		userID = &id
+	}
+
+	// A fresh context rather than the request's: that one is cancelled the
+	// moment the handler returns, which is exactly when this insert starts.
+	ctx, cancel := context.WithTimeout(context.Background(), activityWriteTimeout)
+	defer cancel()
+
+	if err := deps.Activity.RecordActivity(
+		ctx, &projectID, userID, r.Method, r.URL.Path, status, duration, source,
+	); err != nil && deps.Log != nil {
+		deps.Log.Warn("record activity", logger.Fields{
+			"project_id": projectID.String(),
+			"method":     r.Method,
+			"path":       r.URL.Path,
+			"error":      err.Error(),
+		})
+	}
 }
 
 // projectRateKey identifies a data plane caller by the project their

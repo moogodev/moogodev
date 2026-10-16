@@ -244,7 +244,7 @@ const dashboardTools = [
   },
   {
     title: "Activity log",
-    body: "Every request with its method, status and duration, kept for seven days. Answers what ran and what it cost.",
+    body: "Every request your app makes, with its method, status and duration, kept for seven days. Answers what ran and what it cost.",
   },
   {
     title: "Backups",

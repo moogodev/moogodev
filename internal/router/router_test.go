@@ -398,22 +398,12 @@ func withStorageCredential(request *http.Request) *http.Request {
 // testRouterOwner is the user id the test router's authorizer recognizes.
 var testRouterOwner = uuid.MustParse("33333333-3333-4333-8333-333333333333")
 
-// testRouter builds a router over stub handlers plus a real session signer and
-// the real project key middleware, so routing and authentication are exercised
-// together rather than in isolation.
-func testRouter(t *testing.T, projectID uuid.UUID) (
-	http.Handler, *stubOAuth, *stubControl, *stubData,
-) {
+// testDeps is the dependency set the routing tests share: stub handlers, a real
+// session signer and the real project key middleware, so routing and
+// authentication are exercised together rather than in isolation. A test that
+// needs one more field takes this and sets it, rather than rebuilding the lot.
+func testDeps(t *testing.T, projectID uuid.UUID) Deps {
 	t.Helper()
-
-	signer := mustSigner(t)
-
-	oauthStub := &stubOAuth{}
-	credentialsStub := &stubCredentials{}
-	controlStub := &stubControl{}
-	dataStub := &stubData{}
-	bucketStub := &stubBucket{}
-	docsStub := &stubDocs{}
 
 	ready := &dbcontrol.Project{
 		ID:              projectID,
@@ -423,16 +413,16 @@ func testRouter(t *testing.T, projectID uuid.UUID) (
 		SecretKeyPrefix: secretkey.Prefix(testProjectKey),
 	}
 
-	built := New(Deps{
+	return Deps{
 		Health:      &stubHealth{},
-		OAuth:       oauthStub,
-		Credentials: credentialsStub,
-		Control:     controlStub,
-		Data:        dataStub,
-		Bucket:      bucketStub,
-		Docs:        docsStub,
+		OAuth:       &stubOAuth{},
+		Credentials: &stubCredentials{},
+		Control:     &stubControl{},
+		Data:        &stubData{},
+		Bucket:      &stubBucket{},
+		Docs:        &stubDocs{},
 		Meta:        &stubMeta{},
-		Sessions:    auth.NewSessionManager(signer, false),
+		Sessions:    auth.NewSessionManager(mustSigner(t), false),
 		ProjectKeys: stubResolver{project: ready},
 		Projects:    stubAuthorizer{project: ready, owner: testRouterOwner},
 		StorageKeys: stubStorageResolver{credential: &dbcontrol.StorageCredential{
@@ -449,9 +439,62 @@ func testRouter(t *testing.T, projectID uuid.UUID) (
 		MaxObjectBytes: 8 * 1024 * 1024,
 		RequestTimeout: 5 * time.Second,
 		Metrics:        metrics.Handler(metrics.Providers{}),
-	})
+	}
+}
 
-	return built, oauthStub, controlStub, dataStub
+// testRouter builds the shared dependencies and hands back the stubs the
+// routing tests inspect.
+func testRouter(t *testing.T, projectID uuid.UUID) (
+	http.Handler, *stubOAuth, *stubControl, *stubData,
+) {
+	t.Helper()
+
+	deps := testDeps(t, projectID)
+	return New(deps),
+		deps.OAuth.(*stubOAuth),
+		deps.Control.(*stubControl),
+		deps.Data.(*stubData)
+}
+
+// stubActivity captures the audit rows the router writes, so a routing test can
+// assert what would have gone to the database without one.
+type stubActivity struct {
+	rows []stubActivityRow
+	err  error
+}
+
+// stubActivityRow is one captured RecordActivity call.
+type stubActivityRow struct {
+	projectID uuid.UUID
+	userID    *uuid.UUID
+	method    string
+	path      string
+	status    int
+	duration  time.Duration
+	source    string
+}
+
+func (stub *stubActivity) RecordActivity(
+	_ context.Context,
+	projectID *uuid.UUID,
+	userID *uuid.UUID,
+	method, path string,
+	status int,
+	duration time.Duration,
+	source string,
+) error {
+	if projectID != nil {
+		stub.rows = append(stub.rows, stubActivityRow{
+			projectID: *projectID,
+			userID:    userID,
+			method:    method,
+			path:      path,
+			status:    status,
+			duration:  duration,
+			source:    source,
+		})
+	}
+	return stub.err
 }
 
 // withProjectKey adds a valid bearer token to a request.
@@ -610,6 +653,116 @@ func TestProjectScopedRoutesDispatch(t *testing.T) {
 				t.Errorf("expected %s to run, got %q", testCase.wantRoute, dataStub.called)
 			}
 		})
+	}
+}
+
+func TestDataPlaneRequestWritesActivity(t *testing.T) {
+	projectID := uuid.New()
+	deps := testDeps(t, projectID)
+	activity := &stubActivity{}
+	deps.Activity = activity
+	built := New(deps)
+
+	request := withProjectKey(httptest.NewRequest(http.MethodPost,
+		"/p/"+projectID.String()+"/query", strings.NewReader("{}")))
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, request)
+
+	if len(activity.rows) != 1 {
+		t.Fatalf("expected one audit row, got %d", len(activity.rows))
+	}
+	row := activity.rows[0]
+	if row.projectID != projectID {
+		t.Errorf("expected project %s, got %s", projectID, row.projectID)
+	}
+	if row.method != http.MethodPost {
+		t.Errorf("expected POST, got %s", row.method)
+	}
+	if row.path != "/p/"+projectID.String()+"/query" {
+		t.Errorf("unexpected path %q", row.path)
+	}
+	if row.status != http.StatusOK {
+		t.Errorf("expected status 200, got %d", row.status)
+	}
+	if row.source != "api" {
+		t.Errorf("expected source api, got %q", row.source)
+	}
+	// An application holds a project key, not a user session, so the row has no
+	// user attached.
+	if row.userID != nil {
+		t.Errorf("expected no user id on a data plane row, got %s", row.userID)
+	}
+}
+
+func TestActivityIsNotWrittenForAnUnauthenticatedRequest(t *testing.T) {
+	projectID := uuid.New()
+	deps := testDeps(t, projectID)
+	activity := &stubActivity{}
+	deps.Activity = activity
+	built := New(deps)
+
+	// No key. The audit table must not be an unauthenticated write path, so the
+	// 401 is answered by the key check before the recorder is ever reached.
+	request := httptest.NewRequest(http.MethodPost,
+		"/p/"+projectID.String()+"/query", strings.NewReader("{}"))
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", recorder.Code)
+	}
+	if len(activity.rows) != 0 {
+		t.Errorf("expected no audit row for a rejected request, got %d", len(activity.rows))
+	}
+}
+
+func TestDataPlaneRequestIsRecordedOnBothPrefixes(t *testing.T) {
+	projectID := uuid.New()
+	deps := testDeps(t, projectID)
+	activity := &stubActivity{}
+	deps.Activity = activity
+	built := New(deps)
+
+	// The /db prefix is the older surface; it has to be audited the same way or
+	// an integration written against it would be invisible in the log.
+	request := withProjectKey(httptest.NewRequest(http.MethodPost,
+		"/db/"+projectID.String()+"/exec", strings.NewReader("{}")))
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, request)
+
+	if len(activity.rows) != 1 {
+		t.Fatalf("expected one audit row, got %d", len(activity.rows))
+	}
+	if got := activity.rows[0].path; got != "/db/"+projectID.String()+"/exec" {
+		t.Errorf("unexpected path %q", got)
+	}
+}
+
+func TestBucketRequestIsNotRecordedAsActivity(t *testing.T) {
+	projectID := uuid.New()
+	deps := testDeps(t, projectID)
+	activity := &stubActivity{}
+	deps.Activity = activity
+	bucketStub := deps.Bucket.(*stubBucket)
+	built := New(deps)
+
+	// Object traffic is deliberately left out of the audit log: a page loading
+	// fifty images would write fifty rows and drown the query history the tab
+	// exists to show.
+	request := withStorageCredential(httptest.NewRequest(http.MethodGet,
+		"/p/"+projectID.String()+"/bucket/logo.png", nil))
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, request)
+
+	// The request has to actually reach the handler, or "nothing was recorded"
+	// would be true for the wrong reason: the credential check refusing it would
+	// also leave the log empty.
+	if recorder.Code != http.StatusOK || bucketStub.called != "Download" {
+		t.Fatalf("expected the bucket handler to serve, got %d / %q",
+			recorder.Code, bucketStub.called)
+	}
+	if len(activity.rows) != 0 {
+		t.Errorf("expected no audit row for bucket traffic, got %d", len(activity.rows))
 	}
 }
 

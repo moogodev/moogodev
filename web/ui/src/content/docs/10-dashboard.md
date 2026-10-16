@@ -152,15 +152,21 @@ pre‑filled in the UI.
 
 ## Activity log
 
-Every request against your project is recorded with its method, path, status, and
-duration. Use it to answer two questions: **what ran**, and **what it cost**.
+The **Activity** tab of a project lists the requests your application made to it,
+newest first, with the method, path, status, and duration of each. Use it to answer
+two questions: **what ran**, and **what it cost**.
 
 A few things it is good for:
 
 - Confirming a deployment is actually reaching the right project.
-- Finding which query is slow, from the `duration` column.
-- Spotting requests you do not recognise after rotating a key.
+- Finding which query is slow, from the duration column.
 - Checking that a background job is still running.
+- Catching a burst of errors: a run of 4xx or 5xx rows is visible at a glance.
+
+Only authenticated requests are recorded. An unauthenticated probe is refused
+before the log is reached, so nobody who merely knows your project id can write to
+it. Object storage is left out on purpose — a page that loads fifty images would
+write fifty rows and bury the query history.
 
 It is kept for **7 days** and then pruned.
 

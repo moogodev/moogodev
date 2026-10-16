@@ -35,3 +35,15 @@ you have lost the key.
 Take one before anything destructive — a large edit through the spreadsheet, a
 schema change, or a bulk delete. It is a full SQLite file, so you can open it with
 any SQLite tooling.
+
+## Activity log
+
+The **Activity** tab lists the requests your application made to the project,
+newest first, with the method, path, status, and duration of each. Use it to answer
+what ran and what it cost.
+
+Only authenticated requests are recorded: an unauthenticated probe is refused
+before the log is reached. Object storage is left out on purpose, so the list stays
+about your SQL traffic rather than every image a page fetched.
+
+It is kept for **7 days** and then pruned.

@@ -304,6 +304,29 @@ export interface BackupsResponse {
   restore: Restore | null;
 }
 
+// ActivityEntry is one audit row: a request the data plane answered for the
+// project, with how long it took. Served by GET /api/projects/{id}/activity.
+export interface ActivityEntry {
+  id: string;
+  method: string;
+  path: string;
+  status: number;
+  // duration_ms is server-side milliseconds, the same unit the SQL responses
+  // report, so a query and its audit row can be read side by side.
+  duration_ms: number;
+  // source names where the request came from. It is "api" for the data plane
+  // today; the column exists so a future writer can be told apart.
+  source: string;
+  created_at: string;
+}
+
+// ActivityResponse is GET /api/projects/{id}/activity. limit is the page size
+// the server applied, which it caps server-side.
+export interface ActivityResponse {
+  activity: ActivityEntry[];
+  limit: number;
+}
+
 // ProjectList is the dashboard's project listing.
 export interface ProjectList {
   projects: Project[];
@@ -469,6 +492,12 @@ export const api = {
     request<Project>(`/api/projects/${id}/resume`, { method: "POST" }),
   deleteProject: (id: string) =>
     request<void>(`/api/projects/${id}`, { method: "DELETE" }),
+
+  // The project's audit log: the requests its application made, newest first.
+  // The server keeps seven days and caps the page, so this is a recent window
+  // rather than the whole history.
+  listActivity: (id: string, limit = 100) =>
+    request<ActivityResponse>(`/api/projects/${id}/activity?limit=${limit}`),
 
   // Off-site database backups.
   //

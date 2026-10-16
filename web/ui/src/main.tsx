@@ -74,6 +74,9 @@ createRoot(document.getElementById("root")!).render(
           {/* The backups tab is a real URL like the others, so the sidebar link
               and the address bar stay in step with what is on screen. */}
           <Route path="/app/projects/:id/backups" element={<ProjectDetail />} />
+          {/* The activity log is a real URL too: it is a page worth linking to
+              when a request needs to be pointed at. */}
+          <Route path="/app/projects/:id/activity" element={<ProjectDetail />} />
           {/* The viewer is a page of its own, more specific than the backups
               tab above, so an opened backup gets a shareable URL rather than a
               panel that disappears on reload. */}

@@ -286,6 +286,77 @@ func TestAccessLogExcludesQueryString(t *testing.T) {
 	}
 }
 
+func TestActivityCapturesStatusAndDuration(t *testing.T) {
+	var (
+		gotStatus   int
+		gotDuration time.Duration
+		gotPath     string
+		calls       int
+	)
+
+	handler := Activity(func(r *http.Request, status int, duration time.Duration) {
+		calls++
+		gotStatus = status
+		gotDuration = duration
+		gotPath = r.URL.Path
+	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodPost, "/p/abc/query?token=secret", nil))
+
+	if calls != 1 {
+		t.Fatalf("expected one record call, got %d", calls)
+	}
+	if gotStatus != http.StatusCreated {
+		t.Errorf("expected 201, got %d", gotStatus)
+	}
+	if gotPath != "/p/abc/query" {
+		t.Errorf("expected the path without the query string, got %q", gotPath)
+	}
+	if gotDuration < 0 {
+		t.Errorf("expected a non-negative duration, got %s", gotDuration)
+	}
+}
+
+func TestActivityDefaultsAnUnwrittenStatusTo200(t *testing.T) {
+	var gotStatus int
+
+	handler := Activity(func(_ *http.Request, status int, _ time.Duration) {
+		gotStatus = status
+	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Writes a body without calling WriteHeader, which is how a handler
+		// relies on the implicit 200.
+		_, _ = w.Write([]byte("ok"))
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if gotStatus != http.StatusOK {
+		t.Errorf("expected 200 for an implicit status, got %d", gotStatus)
+	}
+}
+
+// A nil recorder is the "feature off" case, and it must not touch the chain.
+func TestActivityWithNilRecordPassesThrough(t *testing.T) {
+	ran := false
+	handler := Activity(nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ran = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if !ran {
+		t.Fatal("expected the next handler to run")
+	}
+	if recorder.Code != http.StatusNoContent {
+		t.Errorf("expected the response to pass through, got %d", recorder.Code)
+	}
+}
+
 // A JSON endpoint must refuse a body declared as anything else. An HTML form
 // cannot set this header, so the check is what keeps a page on another origin
 // from driving the endpoint; see RequireJSON.

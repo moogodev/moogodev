@@ -59,6 +59,10 @@ type fakeStore struct {
 	createBucketCalls int
 	setPasswordCalls  int
 
+	// activityEntries is what ListActivity answers, so a test can assert the
+	// handler's response shape without a database.
+	activityEntries []dbcontrol.ActivityEntry
+
 	// Failure injection.
 	createErr      error
 	rotateErr      error
@@ -284,7 +288,7 @@ func (store *fakeStore) ListActivity(
 	context.Context, uuid.UUID, int,
 ) ([]dbcontrol.ActivityEntry, error) {
 	store.activityCalls++
-	return nil, nil
+	return store.activityEntries, nil
 }
 
 func (store *fakeStore) ListBuckets(
@@ -1112,6 +1116,65 @@ func TestActivityIsScopedToOwnedProject(t *testing.T) {
 	}
 	if store.activityCalls != 1 {
 		t.Errorf("expected one activity read, got %d", store.activityCalls)
+	}
+}
+
+func TestActivityResponseIsSnakeCasedWithMilliseconds(t *testing.T) {
+	handler, store, _ := testControlPlane(testUserID)
+	created := createProject(t, handler, store, "audit shape")
+
+	store.activityEntries = []dbcontrol.ActivityEntry{{
+		ID:        uuid.New(),
+		ProjectID: &created.ID,
+		Method:    http.MethodPost,
+		Path:      "/p/" + created.ID.String() + "/query",
+		Status:    http.StatusCreated,
+		// Stored as 12 ms. The response must say 12, not 12_000_000: the column
+		// is duration_ms, and a bare "duration" in nanoseconds would be the kind
+		// of unit bug that only shows up as a wrong number nobody questions.
+		Duration:  12 * time.Millisecond,
+		Source:    "api",
+		CreatedAt: time.Now(),
+	}}
+
+	request := signedIn(t, testUserID, "/api/projects/"+created.ID.String()+"/activity")
+	recorder := httptest.NewRecorder()
+	handler.Activity(recorder, withProjectID(request, created.ID))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+
+	var body struct {
+		Activity []map[string]any `json:"activity"`
+		Limit    int              `json:"limit"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Activity) != 1 {
+		t.Fatalf("expected one entry, got %d", len(body.Activity))
+	}
+
+	entry := body.Activity[0]
+	if entry["duration_ms"] != float64(12) {
+		t.Errorf("expected duration_ms 12, got %v", entry["duration_ms"])
+	}
+	if entry["method"] != http.MethodPost {
+		t.Errorf("expected method POST, got %v", entry["method"])
+	}
+	if entry["status"] != float64(http.StatusCreated) {
+		t.Errorf("expected status 201, got %v", entry["status"])
+	}
+	if entry["source"] != "api" {
+		t.Errorf("expected source api, got %v", entry["source"])
+	}
+	if _, ok := entry["created_at"]; !ok {
+		t.Error("expected created_at in the response")
+	}
+	// Go field names must not reach the wire; the dashboard reads snake_case.
+	if _, ok := entry["Duration"]; ok {
+		t.Error("expected snake_case keys, found the Go field name Duration")
 	}
 }
 
