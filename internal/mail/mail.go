@@ -97,6 +97,13 @@ func (sender *Sender) SendEmailVerification(ctx context.Context, to, token strin
 // This includes the project credentials (shown only once), bucket information,
 // and a welcome message. The email is best-effort: a failure is logged but
 // does not fail the project creation request.
+//
+// Two origins go into the message and they are not interchangeable: the button
+// opens the dashboard, which the browser serves from PublicURL, while the API
+// rows describe the data plane, which lives at APIURL. Building both here keeps
+// a split deployment correct; pointing the button at the API base, as it once
+// did, sent the owner to an authenticated endpoint that answers
+// "authentication required" rather than to a page.
 func (sender *Sender) SendProjectCreated(
 	ctx context.Context,
 	to string,
@@ -105,10 +112,13 @@ func (sender *Sender) SendProjectCreated(
 	secretKey string,
 	apiURL string,
 ) error {
-	link := apiURL + "/p/" + projectID
+	dashboardLink := sender.publicURL + "/app/projects/" + projectID
+	// MOOGO_PROJECT_URL: the base a client appends "/query" or "/bucket/<key>"
+	// to. It is not a page and does not answer a bare GET.
+	apiBase := apiURL + "/p/" + projectID
 	logoURL := sender.publicURL + "/static/img/logo-light.png"
 	return sender.send(ctx, to, "Your Moogo project is ready",
-		projectCreatedHTML(projectName, projectID, secretKey, link, logoURL), projectID)
+		projectCreatedHTML(projectName, projectID, secretKey, dashboardLink, apiBase, logoURL), projectID)
 }
 
 // SendManualBackupCreated emails a notification when a manual backup completes.
@@ -347,7 +357,10 @@ func messageShell(title, intro, buttonText, link, logoURL string) string {
 }
 
 // projectCreatedHTML renders the project creation email with credentials and details.
-func projectCreatedHTML(projectName, projectID, secretKey, projectLink, logoURL string) string {
+//
+// dashboardLink is the page the button opens; apiBase is MOOGO_PROJECT_URL, the
+// data-plane base for the SQL and bucket rows.
+func projectCreatedHTML(projectName, projectID, secretKey, dashboardLink, apiBase, logoURL string) string {
 	return `<!doctype html>
 <html>
   <body style="margin:0;background:#f5f7fa;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
@@ -373,7 +386,7 @@ func projectCreatedHTML(projectName, projectID, secretKey, projectLink, logoURL 
                   <strong>Save the secret key now &mdash; it will not be shown again.</strong>
                 </p>
                 <p style="margin:0 0 8px;">
-                  <a href="`+projectLink+`"
+                  <a href="`+dashboardLink+`"
                      style="display:inline-block;background:#15803d;color:#ffffff;font-weight:600;
                             text-decoration:none;padding:14px 24px;border-radius:8px;">
                     Open project dashboard
@@ -381,7 +394,7 @@ func projectCreatedHTML(projectName, projectID, secretKey, projectLink, logoURL 
                 </p>
                 <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
                   Or paste this link into your browser:<br/>
-                  <a href="`+projectLink+`" style="color:#15803d;word-break:break-all;">`+projectLink+`</a>
+                  <a href="`+dashboardLink+`" style="color:#15803d;word-break:break-all;">`+dashboardLink+`</a>
                 </p>
                 <hr style="margin:32px 0 16px;border:none;border-top:1px solid #e5e7eb;" />
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#374151;">
@@ -399,11 +412,11 @@ func projectCreatedHTML(projectName, projectID, secretKey, projectLink, logoURL 
                   </tr>
                   <tr>
                     <td style="padding:8px 0;font-weight:600;color:#111827;">API Endpoint</td>
-                    <td style="padding:8px 0;font-family:monospace;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;">`+projectLink+`/db</td>
+                    <td style="padding:8px 0;font-family:monospace;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;">`+apiBase+`</td>
                   </tr>
                   <tr>
                     <td style="padding:8px 0;font-weight:600;color:#111827;">Bucket Storage</td>
-                    <td style="padding:8px 0;">Available at <code>`+projectLink+`/bucket</code> (requires secret key)</td>
+                    <td style="padding:8px 0;">Available at <code>`+apiBase+`/bucket</code> (requires a storage credential)</td>
                   </tr>
                 </table>
                 <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">

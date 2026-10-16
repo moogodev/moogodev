@@ -63,3 +63,56 @@ func TestLogOnlyShowsTheLinkInDevelopment(t *testing.T) {
 		t.Fatalf("recipient missing from log: %s", log)
 	}
 }
+
+// TestProjectCreatedEmailLinksToTheDashboard: the welcome email's button has to
+// open a dashboard page. It once pointed at the data-plane API base, which
+// answers a bare GET with "authentication required" instead of rendering
+// anything, so the owner who clicked it got a 401 rather than their project.
+func TestProjectCreatedEmailLinksToTheDashboard(t *testing.T) {
+	var output bytes.Buffer
+	sender := New("", "Moogo <onboarding@resend.dev>", "https://app.moogo.dev",
+		logger.NewWithWriter(&output, "development"), false)
+
+	const projectID = "27e6612a-51d8-4d2c-988c-79a06226fcc0"
+	if err := sender.SendProjectCreated(context.Background(),
+		"person@example.com", "demo", projectID, "moogo_secret",
+		"https://api.moogo.dev"); err != nil {
+		t.Fatalf("send in log-only mode: %v", err)
+	}
+
+	want := "https://app.moogo.dev/app/projects/" + projectID
+	log := output.String()
+	if !strings.Contains(log, want) {
+		t.Fatalf("dashboard link %q missing from log: %s", want, log)
+	}
+	if strings.Contains(log, "api.moogo.dev/p/"+projectID) {
+		t.Fatalf("link points at the API base, not the dashboard: %s", log)
+	}
+}
+
+// TestProjectCreatedEmailEndpointsAreTheDataPlane: the endpoint rows must name
+// real routes. MOOGO_PROJECT_URL is the base a client appends "/query" or
+// "/bucket/<key>" to: there is no "/db" under it, and the bucket takes a
+// storage credential rather than the project's SQL secret key.
+func TestProjectCreatedEmailEndpointsAreTheDataPlane(t *testing.T) {
+	const (
+		projectID = "27e6612a-51d8-4d2c-988c-79a06226fcc0"
+		apiBase   = "https://api.moogo.dev/p/" + projectID
+	)
+	html := projectCreatedHTML("demo", projectID, "moogo_secret",
+		"https://app.moogo.dev/app/projects/"+projectID, apiBase,
+		"https://app.moogo.dev/static/img/logo-light.png")
+
+	if !strings.Contains(html, apiBase) {
+		t.Errorf("email is missing the API base %q", apiBase)
+	}
+	if !strings.Contains(html, apiBase+"/bucket") {
+		t.Errorf("email is missing the bucket endpoint %q", apiBase+"/bucket")
+	}
+	if strings.Contains(html, apiBase+"/db") {
+		t.Errorf("email names %q, but there is no /db route under /p/{id}", apiBase+"/db")
+	}
+	if strings.Contains(html, "requires secret key") {
+		t.Errorf("email says the bucket takes the project secret key; it takes a storage credential")
+	}
+}
