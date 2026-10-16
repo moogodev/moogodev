@@ -44,9 +44,11 @@ MOOGO_SECRET_KEY=moogo_...
 | \`MOOGO_PROJECT_ID\` | The project's UUID. Also identifies it in the dashboard and in URLs. |
 | \`MOOGO_SECRET_KEY\` | The bearer token that authorises API calls. |
 
-**Copy them now.** The secret key is never shown again — not in the project list,
-not in settings, not by email. What Moogo keeps is a SHA-256 hash and an
-eight-character prefix, so it genuinely cannot show you the key again.
+**Copy them now.** The dashboard shows these once. When email notifications are
+on, Moogo also sends them in a **project created** email — but after creation the
+secret key is never shown again: not in the project list, not in settings. What
+Moogo keeps is a SHA-256 hash and an eight-character prefix, so it genuinely
+cannot show you the key again.
 
 If you lose it, [rotate it](/docs/credentials#rotating-a-key). Rotation is instant
 and invalidates the old key immediately, so update your deployment before you

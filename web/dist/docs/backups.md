@@ -40,6 +40,28 @@ different point in the list — is the way forward.
 Open the **Backups** tab on a project and press **Back up now**. The snapshot is
 taken and uploaded, and appears at the top of the list when it finishes.
 
+## Email notifications
+
+When your account has email notifications on, Moogo sends a message for the
+events worth knowing about without watching the dashboard:
+
+- **Project created** — the project's id, name, API endpoint, bucket URL, and its
+  secret key. The key is included once, so this email is as sensitive as the
+  dashboard screen it mirrors: keep it, and delete it once you have stored the
+  key somewhere safe.
+- **Backup finished** — when you press **Back up now**, Moogo confirms it with the
+  size, the time it completed, and a **Download backup** link.
+
+The **Download backup** link is meant to be used straight from your inbox, so it
+works without signing in. It is also **single-use** and **short-lived** (an hour
+by default): opening it downloads the snapshot and retires the link, so a second
+click — or anyone you forward it to — gets an error instead of another copy.
+Treat it like any private link. If it expires before you get to it, the backup is
+still listed in the **Backups** tab, where you can download it with your session.
+
+Notifications go to the address on your account. If a deployment has email turned
+off, they are skipped and everything else works as usual.
+
 ## Restore a backup
 
 Pick a backup in the list and press **Restore**. This is destructive — the
