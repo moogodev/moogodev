@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -194,9 +195,13 @@ func (handler *ControlPlane) CreateBackup(w http.ResponseWriter, r *http.Request
 						"error":      err.Error(),
 					})
 				} else {
-					// Direct, single-use download link (no session required).
-					// Path is /api/backup-download?token=... outside RequireSession.
-					downloadLink := handler.cfg.APIURL + "/api/backup-download?token=" + token
+					// The link lands on the site's confirmation page, not on
+					// the API. The page holds the token and downloads with a
+					// POST, so a mail scanner that prefetches an emailed link
+					// only fetches an inert HTML shell; the POST that actually
+					// redeems the token waits for a click, which a scanner does
+					// not make.
+					downloadLink := handler.cfg.PublicURL + "/backup-download?token=" + token
 					if err := handler.mailer.SendManualBackupCreated(ctx, user.Email, project.Name, result.SizeBytes, time.Now(), downloadLink); err != nil {
 						handler.log.Warn("send manual backup email", logger.Fields{
 							"project_id": project.ID.String(),
@@ -365,26 +370,42 @@ func (handler *ControlPlane) DownloadBackup(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// DownloadBackupPublic handles GET /api/backup-download?token=...
+// BackupDownloadRequest is the body of a public backup download. The token is
+// the opaque value carried by the email link, redeemed once by
+// ConsumeBackupDownloadToken.
+type BackupDownloadRequest struct {
+	Token string `json:"token"`
+}
+
+// DownloadBackupPublic handles POST /api/backup-download.
 //
-// It is the download target that goes into a notification email, and it is
+// It is the endpoint the site's /backup-download page posts to, and it is
 // deliberately registered outside the session-protected group: the whole point
 // is to let the owner pull a backup from their inbox without signing in first.
-// The token is single-use (redeemed by ConsumeBackupDownloadToken), so a leaked
-// link buys one download, and a second click fails with "invalid token".
+//
+// The token travels in the body rather than the URL. The email points at the
+// page, which stays inert until the owner clicks; a mail scanner that opens the
+// emailed link fetches that page and stops, so it cannot spend the single-use
+// token before the owner does. The token is then redeemed once
+// (ConsumeBackupDownloadToken), so a leaked link buys one download and a second
+// click fails with "invalid token".
 func (handler *ControlPlane) DownloadBackupPublic(w http.ResponseWriter, r *http.Request) {
 	if handler.backups == nil {
 		handler.writeBackupsDisabled(w)
 		return
 	}
 
-	token := r.URL.Query().Get("token")
-	if token == "" {
+	var request BackupDownloadRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		return
+	}
+
+	if strings.TrimSpace(request.Token) == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "missing_token", "download token is required")
 		return
 	}
 
-	projectID, backupID, err := handler.store.ConsumeBackupDownloadToken(r.Context(), hashOpaqueToken(token))
+	projectID, backupID, err := handler.store.ConsumeBackupDownloadToken(r.Context(), hashOpaqueToken(request.Token))
 	if err != nil {
 		if errors.Is(err, dbcontrol.ErrDownloadTokenInvalid) {
 			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token",

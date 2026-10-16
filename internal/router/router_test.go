@@ -787,7 +787,29 @@ func TestDashboardBackupRoutesAcceptOwnerSession(t *testing.T) {
 
 func TestPublicBackupDownloadNeedsNoSession(t *testing.T) {
 	// The link from a notification email must be reachable with no cookie: the
-	// route sits outside the session group, so a bare GET reaches the handler.
+	// route sits outside the session group, so a bare POST reaches the handler.
+	// POST, not GET: the site's /backup-download page posts the token so a mail
+	// scanner cannot spend it by following the emailed link.
+	built, _, controlStub, _ := testRouter(t, uuid.New())
+
+	controlStub.called = ""
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPost, "/api/backup-download", strings.NewReader(`{"token":"whatever"}`))
+	request.Header.Set("Content-Type", "application/json")
+	built.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 without a session, got %d", recorder.Code)
+	}
+	if controlStub.called != "DownloadBackupPublic" {
+		t.Errorf("handler = %q, want DownloadBackupPublic", controlStub.called)
+	}
+}
+
+func TestPublicBackupDownloadRouteIsNotAGet(t *testing.T) {
+	// A GET is how a mail scanner reads a link. The API must not answer one, so
+	// that following the link cannot be what redeems the token.
 	built, _, controlStub, _ := testRouter(t, uuid.New())
 
 	controlStub.called = ""
@@ -795,11 +817,11 @@ func TestPublicBackupDownloadNeedsNoSession(t *testing.T) {
 	built.ServeHTTP(recorder, httptest.NewRequest(
 		http.MethodGet, "/api/backup-download?token=whatever", nil))
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected 200 without a session, got %d", recorder.Code)
+	if recorder.Code == http.StatusOK {
+		t.Fatalf("expected a GET to be refused, got 200")
 	}
-	if controlStub.called != "DownloadBackupPublic" {
-		t.Errorf("handler = %q, want DownloadBackupPublic", controlStub.called)
+	if controlStub.called == "DownloadBackupPublic" {
+		t.Errorf("a GET reached the download handler")
 	}
 }
 
@@ -1317,6 +1339,7 @@ func TestEveryPageRouteServesTheApp(t *testing.T) {
 		"/forgot-password",
 		"/reset-password",
 		"/verify-email",
+		"/backup-download",
 		"/plan",
 		"/announcement",
 		"/about",

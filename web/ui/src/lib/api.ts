@@ -389,6 +389,34 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
+// DownloadedBackup is a backup fetched through its email token: the bytes, plus
+// the filename the server suggested for them.
+export interface DownloadedBackup {
+  blob: Blob;
+  filename: string;
+}
+
+// filenameFromDisposition reads the name out of a Content-Disposition header.
+// The server sends both the ASCII and the RFC 5987 form; the extended one wins
+// because it is the one that survived a name outside ASCII.
+function filenameFromDisposition(header: string | null): string {
+  if (header) {
+    const extended = /filename\*=UTF-8''([^;]+)/i.exec(header);
+    if (extended) {
+      try {
+        return decodeURIComponent(extended[1]);
+      } catch {
+        // A malformed escape is not worth refusing the download over.
+      }
+    }
+    const plain = /filename="?([^";]+)"?/i.exec(header);
+    if (plain) {
+      return plain[1];
+    }
+  }
+  return "moogo-backup.sqlite";
+}
+
 export const api = {
   session: () => request<SessionInfo>("/auth/session"),
   oauthSetup: () => request<SetupConfig>("/auth/setup"),
@@ -498,6 +526,56 @@ export const api = {
   // No project key: this is a dashboard action and the session cookie is the
   // credential, the same as every other call the console makes.
   databaseBackupUrl: (id: string) => `/api/projects/${id}/database-backup`,
+
+  // publicBackupDownload redeems the single-use token from a backup email and
+  // returns the file.
+  //
+  // The token travels in the POST body rather than in the query string of the
+  // emailed link: a mail scanner follows links on its own, so if the link
+  // downloaded on load it would spend the token before the owner ever saw it.
+  // The site's /backup-download page calls this only when the owner clicks.
+  //
+  // The response is a file, not JSON, so it bypasses request() and the caller
+  // is handed the blob.
+  publicBackupDownload: async (token: string): Promise<DownloadedBackup> => {
+    let response: Response;
+    try {
+      response = await fetch("/api/backup-download", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+    } catch (cause) {
+      throw new ApiError(
+        "Cannot reach the server. Check your connection, then try again.",
+        0,
+        "network_error",
+        cause instanceof Error ? cause.message : "",
+      );
+    }
+
+    if (!response.ok) {
+      let code = "http_error";
+      let message = `download failed with ${response.status}`;
+      let detail = "";
+      try {
+        const body = (await response.json()) as ErrorEnvelope;
+        code = body.error?.code ?? code;
+        message = body.error?.message ?? message;
+        detail = body.error?.detail ?? "";
+      } catch {
+        // A non-JSON error body is still an error; the status is enough.
+      }
+      throw new ApiError(message, response.status, code, detail);
+    }
+
+    return {
+      blob: await response.blob(),
+      filename: filenameFromDisposition(response.headers.get("Content-Disposition")),
+    };
+  },
+
   logout: () => request<void>("/auth/logout", { method: "POST" }),
 
   // deleteAccount removes the account and everything under it: projects,

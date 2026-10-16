@@ -481,9 +481,9 @@ func manualBackupHTML(projectName string, backupSizeBytes int64, backupTime time
                   </tr>
                 </table>
                 <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
-                  This backup is stored in your configured off-site storage (R2/S3-compatible). 
-                  The download link above is valid for 24 hours. After that, you can download the backup 
-                  from the project dashboard at any time.
+                  The link above opens a page with a download button. It can be used once and
+                  expires after a short time, so save the file somewhere safe. After that, you
+                  can download the backup from the project dashboard at any time.
                 </p>
                 <hr style="margin:32px 0 16px;border:none;border-top:1px solid #e5e7eb;" />
                 <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.5;">

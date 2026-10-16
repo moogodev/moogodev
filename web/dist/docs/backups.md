@@ -52,12 +52,15 @@ events worth knowing about without watching the dashboard:
 - **Backup finished** — when you press **Back up now**, Moogo confirms it with the
   size, the time it completed, and a **Download backup** link.
 
-The **Download backup** link is meant to be used straight from your inbox, so it
-works without signing in. It is also **single-use** and **short-lived** (an hour
-by default): opening it downloads the snapshot and retires the link, so a second
-click — or anyone you forward it to — gets an error instead of another copy.
-Treat it like any private link. If it expires before you get to it, the backup is
-still listed in the **Backups** tab, where you can download it with your session.
+The **Download backup** link works straight from your inbox, so no sign-in is
+needed. Opening it shows a page with a single **Download backup** button rather
+than starting a download, so opening the link by accident — or having a mail
+program preview it — does not use it up. The link is **single-use** and
+**short-lived** (an hour by default): pressing the button downloads the snapshot
+and retires the link, so a second press, or a forwarded or expired link, gets an
+error instead of another copy. Treat it like any private link. If it stops
+working, the backup is still listed in the **Backups** tab, where you can
+download it with your session.
 
 Notifications go to the address on your account. If a deployment has email turned
 off, they are skipped and everything else works as usual.

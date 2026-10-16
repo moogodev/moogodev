@@ -364,11 +364,16 @@ func New(deps Deps) http.Handler {
 	root.With(credentialWrite...).Post("/auth/resend-verification", deps.Credentials.ResendVerification)
 
 	// Public backup download. It sits outside the session group on purpose:
-	// the link is meant to be opened straight from a notification email,
-	// without signing in. Safety comes from the token itself — random, stored
-	// only as a hash, expired after a short window and redeemed once — plus the
-	// address-keyed ceiling above.
-	root.With(downloadLimited).Get("/api/backup-download", deps.Control.DownloadBackupPublic)
+	// the link goes into a notification email and is meant to be opened without
+	// signing in. The email points at the site's /backup-download page, which
+	// holds the token and posts it here — a POST that carries the token in the
+	// body rather than a GET that carries it in the URL, so a mail scanner that
+	// follows the link cannot spend the single-use token before the owner
+	// clicks. It stays safe even so: the token is random, stored only as a
+	// hash, expired after a short window and redeemed once, and the endpoint
+	// sits behind the address-keyed ceiling above.
+	root.With(downloadLimited, httpx.MaxBodyBytes(deps.MaxBodyBytes), httpx.Timeout(deps.RequestTimeout)).
+		Post("/api/backup-download", deps.Control.DownloadBackupPublic)
 
 	// --- Control plane: a signed-in person, session cookie ---
 
@@ -988,6 +993,10 @@ func registerPages(root chi.Router, deps Deps) {
 	root.Get("/forgot-password", index)
 	root.Get("/reset-password", index)
 	root.Get("/verify-email", index)
+	// The page an emailed backup link opens. It exists so the single-use token
+	// is spent by a click on the page rather than by the fetch that reads the
+	// link, which is what keeps a mail scanner from consuming it.
+	root.Get("/backup-download", index)
 	root.Get("/plan", index)
 	root.Get("/announcement", index)
 	// The typo is a real published URL: links to it exist, so it answers with

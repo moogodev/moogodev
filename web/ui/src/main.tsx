@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { AppShell } from "./components/AppShell";
 import About from "./routes/About";
 import Announcement from "./routes/Announcement";
+import BackupDownload from "./routes/BackupDownload";
 import BackupViewer from "./routes/BackupViewer";
 import Contact from "./routes/Contact";
 import Dashboard from "./routes/Dashboard";
@@ -39,6 +40,9 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
+        {/* The page an emailed backup link opens. Public, like verify-email:
+            the token is redeemed by a click here, not by loading the link. */}
+        <Route path="/backup-download" element={<BackupDownload />} />
         <Route path="/auth/setup" element={<OAuthSetup />} />
         <Route path="/plan" element={<Plan />} />
         <Route path="/announcement" element={<Announcement />} />
