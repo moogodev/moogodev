@@ -754,13 +754,18 @@ function Pillars() {
           the roadmap.
         </p>
 
-        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Two columns, not four. At four, a group was ~220px and a two-line
+            body wrapped to seven, which is what made the section feel cramped.
+            The boxes were also doing no work: their fill is transparent and
+            their border only repeated the grouping the rule under each label
+            already gives, so as plain lists the section breathes and the text
+            is the only thing on the page. */}
+        <div className="grid gap-x-12 gap-y-10 md:grid-cols-2">
           {pillars.map((pillar) => (
             <div key={pillar.label}>
-              {/* The column header carries the accent and sits directly on the
-                  card column's edge rule, so the group reads as one unit
-                  rather than a heading floating above three loose cards. */}
-              <div className="mb-4 flex items-center gap-2.5 border-b border-edge pb-3">
+              {/* With the boxes gone, the rule under the label is what gathers
+                  a list into a group, so it stays. */}
+              <div className="mb-5 flex items-center gap-2.5 border-b border-edge pb-3">
                 <span
                   aria-hidden="true"
                   className={`h-1.5 w-1.5 rounded-full ${
@@ -776,16 +781,13 @@ function Pillars() {
                 </h3>
               </div>
 
-              <ul className="flex flex-col gap-3">
+              <ul className="flex flex-col gap-5">
                 {pillar.items.map((item) => (
-                  <li
-                    key={item.title}
-                    className="surface card-hover p-5"
-                  >
-                    <h4 className="mb-1.5 text-[0.98rem] font-semibold tracking-tight">
+                  <li key={item.title}>
+                    <h4 className="mb-1 text-[0.98rem] font-semibold tracking-tight">
                       {item.title}
                     </h4>
-                    <p className="text-[0.91rem] leading-relaxed text-muted">
+                    <p className="max-w-[62ch] text-[0.91rem] leading-relaxed text-muted">
                       {item.body}
                     </p>
                   </li>
