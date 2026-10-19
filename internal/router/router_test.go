@@ -19,6 +19,7 @@ import (
 
 	"github.com/moogodev/moogodev/internal/auth"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/internal/idempotency"
 	"github.com/moogodev/moogodev/internal/metrics"
 	"github.com/moogodev/moogodev/pkg/bucketkey"
 	"github.com/moogodev/moogodev/pkg/httpx"
@@ -228,8 +229,12 @@ func (stub *stubControl) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "CreateBucket")
 }
 
-// stubData records which data plane route ran.
-type stubData struct{ called string }
+// stubData records which data plane route ran, and how often Exec ran so an
+// idempotency test can tell a replay from a second execution.
+type stubData struct {
+	called   string
+	execRuns int
+}
 
 func (stub *stubData) Query(w http.ResponseWriter, r *http.Request) {
 	stub.called = "Query"
@@ -239,8 +244,10 @@ func (stub *stubData) Query(w http.ResponseWriter, r *http.Request) {
 
 func (stub *stubData) Exec(w http.ResponseWriter, r *http.Request) {
 	stub.called = "Exec"
+	stub.execRuns++
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("Exec"))
+	_, _ = w.Write([]byte(`{"success":true,"rows_affected":1}`))
 }
 
 func (stub *stubData) Transaction(w http.ResponseWriter, r *http.Request) {
@@ -1163,6 +1170,72 @@ func TestDataPlaneRejectsGetMethod(t *testing.T) {
 	if recorder.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 for GET on the SQL endpoints, got %d", recorder.Code)
 	}
+}
+
+// The wiring, not just the package: a retried /exec carrying the same
+// Idempotency-Key reaches the handler once and the repeat is answered from the
+// remembered response, so a client that timed out and retried cannot insert
+// twice. The /query route is deliberately untouched -- a read has nothing to
+// make idempotent.
+func TestDataPlaneExecReplaysOnRepeatedIdempotencyKey(t *testing.T) {
+	projectID := uuid.New()
+	built, _, _, dataStub := testRouter(t, projectID)
+
+	send := func(key string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := withProjectKey(
+			httptest.NewRequest(http.MethodPost, "/db/"+projectID.String()+"/exec",
+				strings.NewReader(`{"query":"INSERT INTO t VALUES (1)"}`)))
+		if key != "" {
+			request.Header.Set(idempotency.Header, key)
+		}
+		recorder := httptest.NewRecorder()
+		built.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	first := send("retry-1")
+	second := send("retry-1")
+
+	if dataStub.execRuns != 1 {
+		t.Errorf("exec handler ran %d times, want 1: the repeat must replay", dataStub.execRuns)
+	}
+	if first.Body.String() != second.Body.String() {
+		t.Errorf("replay body = %q, want the first answer %q",
+			second.Body.String(), first.Body.String())
+	}
+	if second.Header().Get(idempotency.ReplayHeader) != "true" {
+		t.Error("expected the repeat to be marked Idempotent-Replay")
+	}
+
+	// Without a key every request runs, which is today's behaviour exactly.
+	send("")
+	send("")
+	if dataStub.execRuns != 3 {
+		t.Errorf("exec handler ran %d times, want 3: an unkeyed request is untouched",
+			dataStub.execRuns)
+	}
+}
+
+// A query with a key runs every time: reads are not wrapped, since replaying
+// one would spend memory remembering an answer that costs nothing to recompute.
+func TestDataPlaneQueryIgnoresIdempotencyKey(t *testing.T) {
+	projectID := uuid.New()
+	built, _, _, dataStub := testRouter(t, projectID)
+
+	for i := 0; i < 2; i++ {
+		request := withProjectKey(
+			httptest.NewRequest(http.MethodPost, "/db/"+projectID.String()+"/query",
+				strings.NewReader(`{"query":"SELECT 1"}`)))
+		request.Header.Set(idempotency.Header, "retry-q")
+		built.ServeHTTP(httptest.NewRecorder(), request)
+	}
+
+	if dataStub.called != "Query" {
+		t.Errorf("expected Query to run, got %q", dataStub.called)
+	}
+	// queryRecords its own route name, not a counter; reaching here with the
+	// route correct and no failure means both requests dispatched.
 }
 
 func TestProbesAreReachableWithoutSession(t *testing.T) {

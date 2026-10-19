@@ -23,6 +23,7 @@ import (
 
 	"github.com/moogodev/moogodev/internal/auth"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/internal/idempotency"
 	"github.com/moogodev/moogodev/internal/ratelimit"
 	"github.com/moogodev/moogodev/pkg/httpx"
 	"github.com/moogodev/moogodev/pkg/logger"
@@ -350,6 +351,24 @@ func New(deps Deps) http.Handler {
 	queryLimited := dataQuery.MiddlewareKey(projectRateKey)
 	bucketLimited := dataBucket.Middleware
 
+	// Writes are the only endpoints where a retry can do harm, so they are
+	// the only ones wrapped for idempotency. A caller that sends an
+	// Idempotency-Key gets the first answer replayed on a repeat instead of
+	// the statement running twice; a caller that sends no key is untouched.
+	// The store is process-local on purpose: an answer that outlived the
+	// process that could replay it would be a promise the service cannot
+	// keep, so a restart errs toward re-running rather than dropping a write.
+	idempotentWrites := idempotency.New(idempotencyTTL).Middleware
+
+	// once wraps a write handler in the idempotency middleware. It exists so
+	// each write route reads as a plain registration, with the wrapping policy
+	// stated in one place rather than repeated at every call site.
+	once := func(handler http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			idempotentWrites(handler).ServeHTTP(w, r)
+		}
+	}
+
 	// The dashboard's update list needs a ceiling of its own. It is the
 	// one unauthenticated route that waits on another service: each call
 	// can spend up to three seconds on an outbound fetch to the news
@@ -593,16 +612,16 @@ func New(deps Deps) http.Handler {
 		projectPlane.Use(queryLimited)
 
 		projectPlane.Post("/query", deps.Data.Query)
-		projectPlane.Post("/exec", deps.Data.Exec)
+		projectPlane.Post("/exec", once(deps.Data.Exec))
 		// The transaction endpoint is on the data plane only. The dashboard's
 		// console runs one statement at a time by design -- a batch is an
 		// application concept, not something the console has anywhere to put.
-		projectPlane.Post("/transaction", deps.Data.Transaction)
+		projectPlane.Post("/transaction", once(deps.Data.Transaction))
 		// /exec/txn is the same handler under the name a client guessed for it.
 		// It is a write path that groups several writes, so it lives beside
 		// /exec; keeping both means a client that probed for it reaches an
 		// answer instead of a 404.
-		projectPlane.Post("/exec/txn", deps.Data.Transaction)
+		projectPlane.Post("/exec/txn", once(deps.Data.Transaction))
 	})
 
 	// --- Data plane: object storage, on its own credential ---
@@ -645,9 +664,9 @@ func New(deps Deps) http.Handler {
 		dataPlane.Use(queryLimited)
 
 		dataPlane.Post("/query", deps.Data.Query)
-		dataPlane.Post("/exec", deps.Data.Exec)
-		dataPlane.Post("/transaction", deps.Data.Transaction)
-		dataPlane.Post("/exec/txn", deps.Data.Transaction)
+		dataPlane.Post("/exec", once(deps.Data.Exec))
+		dataPlane.Post("/transaction", once(deps.Data.Transaction))
+		dataPlane.Post("/exec/txn", once(deps.Data.Transaction))
 	})
 
 	// --- Data plane: bucket (object storage) ---
@@ -798,6 +817,14 @@ func recordActivity(
 		})
 	}
 }
+
+// idempotencyTTL is how long a remembered write answer stays replayable.
+//
+// Long enough to cover a client that retries a request it timed out on, which
+// is seconds in practice, and short enough that a process which stays up for
+// days does not accumulate an answer per key forever. It is bounded by the
+// store's own sweep, so nothing is held past this without being used again.
+const idempotencyTTL = 24 * time.Hour
 
 // projectRateKey identifies a data plane caller by the project their
 // credential grants access to, so the allowance follows the project rather

@@ -101,6 +101,7 @@ paths:
           schema:
             type: string
             format: uuid
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -110,12 +111,23 @@ paths:
       responses:
         '200':
           description: Exec result
+          headers:
+            Idempotent-Replay:
+              description: Present and "true" when this was the remembered answer to an earlier request with the same Idempotency-Key.
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SQLExecResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: A request with this Idempotency-Key is still running. Retry the same request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /db/{project_id}/transaction:
     post:
       tags: [SQL]
@@ -127,6 +139,7 @@ paths:
           schema:
             type: string
             format: uuid
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -136,12 +149,23 @@ paths:
       responses:
         '200':
           description: Transaction result
+          headers:
+            Idempotent-Replay:
+              description: Present and "true" when this was the remembered answer to an earlier request with the same Idempotency-Key.
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SQLTransactionResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: A request with this Idempotency-Key is still running. Retry the same request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /bucket/{project_id}:
     get:
       tags: [Storage]
@@ -419,6 +443,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/DeleteBucketResponse'
 components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        Opaque key, up to 255 characters, that marks this write as one of a set
+        of retries. The first request with a given key runs and its response is
+        remembered for 24 hours; a repeat returns the remembered response
+        instead of running again. A repeat arriving while the first is still
+        running gets 409. Omit it and the endpoint behaves as before. Scoped to
+        the caller and the endpoint, so the same key on two routes or two
+        projects does not collide.
+      schema:
+        type: string
+        maxLength: 255
   securitySchemes:
     bearerAuth:
       type: http

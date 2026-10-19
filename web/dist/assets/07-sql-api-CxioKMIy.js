@@ -191,6 +191,41 @@ rows returned, since each returned row is one the statement changed. The row cap
 and result byte budget that bound \`/query\` apply here too; a truncated result
 sets \`truncated\` to \`true\`.
 
+### \`Idempotency-Key\` — retry a write without risking it twice
+
+Send an opaque key with a write and a retry becomes safe. The first request
+with a given key runs normally; a repeat within 24 hours returns the first
+response instead of running the statement again — the response body is
+identical, with an \`Idempotent-Replay: true\` header added so you can tell the
+two apart when debugging.
+
+\`\`\`bash
+curl $MOOGO_PROJECT_URL/exec \\
+  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \\
+  -H "Idempotency-Key: order-8f2c-charge" \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"INSERT INTO charges (order_id, amount) VALUES (?, ?)","args":["8f2c",25000]}'
+\`\`\`
+
+Rules worth knowing:
+
+- **Omit it and nothing changes.** The header is opt-in; a client that does not
+  send one gets the exact behaviour it has today.
+- **A repeat that arrives while the first is still running gets \`409\`** with
+  code \`idempotency_conflict\`. Retry the same request — do not change the key
+  or the body.
+- **\`5xx\` responses are not remembered.** A retry after a server error gets a
+  real second attempt rather than the same failure handed back.
+- **\`4xx\` responses are remembered**, so a retry of the same bad request gets
+  the same answer without re-running the work.
+- **Scope is caller + endpoint.** The same key on \`/exec\` and \`/transaction\`,
+  or across two projects, are separate promises and never collide.
+- **Keys are held in memory for 24 hours.** After a restart, or after that
+  window, a repeat runs again — so pick a key that is meaningful to your
+  application, like \`order-8f2c-charge\`, not a random UUID you throw away.
+
+The same header works on \`POST /transaction\` and \`POST /exec/txn\`.
+
 > **DDL goes here too.** \`CREATE TABLE\`, \`ALTER TABLE\`, \`CREATE INDEX\` are all
 > writes. They run through the same sanitizer, so check
 > [what is rejected](#what-is-rejected) before you are surprised.

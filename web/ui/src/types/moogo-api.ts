@@ -171,7 +171,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Opaque key, up to 255 characters, that marks this write as one of a set of retries. The first request with a given key runs and its response is remembered for 24 hours; a repeat returns the remembered response instead of running again. A repeat arriving while the first is still running gets 409. Omit it and the endpoint behaves as before. Scoped to the caller and the endpoint, so the same key on two routes or two projects does not collide. */
+                    "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     project_id: string;
                 };
@@ -186,6 +189,8 @@ export interface paths {
                 /** @description Exec result */
                 200: {
                     headers: {
+                        /** @description Present and "true" when this was the remembered answer to an earlier request with the same Idempotency-Key. */
+                        "Idempotent-Replay"?: string;
                         [name: string]: unknown;
                     };
                     content: {
@@ -193,6 +198,15 @@ export interface paths {
                     };
                 };
                 401: components["responses"]["Unauthorized"];
+                /** @description A request with this Idempotency-Key is still running. Retry the same request. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -214,7 +228,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Opaque key, up to 255 characters, that marks this write as one of a set of retries. The first request with a given key runs and its response is remembered for 24 hours; a repeat returns the remembered response instead of running again. A repeat arriving while the first is still running gets 409. Omit it and the endpoint behaves as before. Scoped to the caller and the endpoint, so the same key on two routes or two projects does not collide. */
+                    "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     project_id: string;
                 };
@@ -229,6 +246,8 @@ export interface paths {
                 /** @description Transaction result */
                 200: {
                     headers: {
+                        /** @description Present and "true" when this was the remembered answer to an earlier request with the same Idempotency-Key. */
+                        "Idempotent-Replay"?: string;
                         [name: string]: unknown;
                     };
                     content: {
@@ -236,6 +255,15 @@ export interface paths {
                     };
                 };
                 401: components["responses"]["Unauthorized"];
+                /** @description A request with this Idempotency-Key is still running. Retry the same request. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -781,7 +809,10 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /** @description Opaque key, up to 255 characters, that marks this write as one of a set of retries. The first request with a given key runs and its response is remembered for 24 hours; a repeat returns the remembered response instead of running again. A repeat arriving while the first is still running gets 409. Omit it and the endpoint behaves as before. Scoped to the caller and the endpoint, so the same key on two routes or two projects does not collide. */
+        IdempotencyKey: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
