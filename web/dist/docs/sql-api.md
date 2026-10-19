@@ -21,6 +21,23 @@ and `/db/{project_id}/transaction`. It behaves identically and exists so
 integrations built against it keep working. New code should use the
 project-scoped URL.
 
+## Machine-readable spec
+
+The whole API — every route, every request and response shape, every error
+code — is described by an [OpenAPI 3.0 document](/openapi.yaml), served
+unauthenticated as YAML. It is the same document the dashboard's TypeScript
+types are generated from, so what a code generator reads matches what the
+server actually returns:
+
+```bash
+curl https://api.moogo.dev/openapi.yaml
+```
+
+Point `openapi-generator`, `oapi-codegen` or a similar tool at that URL to
+generate a typed client instead of hand-writing `fetch` wrappers. This prose
+page and that document are maintained together; when they disagree, the YAML is
+the one the server is built against.
+
 ## Authentication
 
 Every request needs the project key:

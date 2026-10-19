@@ -23,3 +23,9 @@ file per project, SQL over HTTP, no connection string and no driver.
 | `/exec` | Writes — `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP` | Reads, with `not_a_write` |
 
 Start at the [quickstart](/docs/quickstart).
+
+## Machine-readable
+
+- [OpenAPI 3.0 document](/openapi.yaml) — every route, request shape, response
+  shape and error code, as YAML. Unauthenticated, and the same document the
+  dashboard's TypeScript types are generated from.

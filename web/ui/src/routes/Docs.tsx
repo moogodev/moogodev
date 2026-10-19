@@ -596,6 +596,13 @@ function handleBodyClick(
   if (/^https?:/i.test(href) || link.target === "_blank") return;
   if (href.startsWith("#")) return;
 
+  // A same-origin link that ends in a file extension is a served file, not a
+  // route -- /openapi.yaml is the OpenAPI document. The router has no page for
+  // it, so navigating there would render the SPA's not-found view instead of
+  // the document, which is the opposite of what the link promises. Leave the
+  // click to the browser: the server answers it with the file itself.
+  if (/\.[a-z0-9]+(?:[?#].*)?$/i.test(href)) return;
+
   // "/app" is the dashboard, which lives on its own host. Router navigation
   // changes the path, never the origin, so from the apex navigate("/app") would
   // render the dashboard on moogo.dev — the same SPA shell on the wrong domain.
