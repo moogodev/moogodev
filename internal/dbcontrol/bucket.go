@@ -620,7 +620,13 @@ func (store *Store) ListObjects(
 	conditions = append(conditions, "bucket_id = $1")
 
 	if query.Prefix != "" {
-		arguments = append(arguments, query.Prefix)
+		// A prefix is a prefix, not an equality test. The stored keys are
+		// "avatars/kit.png" while the caller asks for "avatars/", so the pattern
+		// needs a trailing % or it only matches a key spelled exactly like the
+		// prefix -- which no object ever is, so the listing came back empty and
+		// looked like an empty folder. Wildcards inside the prefix are escaped
+		// so "50%/" matches that literal path rather than any key at all.
+		arguments = append(arguments, escapeLike(query.Prefix)+"%")
 		conditions = append(conditions, fmt.Sprintf("key LIKE $%d ESCAPE '\\'", len(arguments)))
 	}
 	if query.Search != "" {
@@ -802,4 +808,31 @@ func (store *Store) BucketStorageUsedBytes(
 		return 0, fmt.Errorf("compute bucket storage usage: %w", err)
 	}
 	return usedBytes, nil
+}
+
+// BucketStats returns one bucket's object count and total size.
+//
+// ListBucketsWithStats computes the same aggregates for every bucket in a single
+// query and is the right call for the catalog. This is the one-bucket form, for
+// a response that describes the bucket it is listing objects from: the count and
+// size are the bucket's own totals, not the filtered page, so a folder listing
+// still reports the whole bucket beside it.
+func (store *Store) BucketStats(
+	ctx context.Context,
+	projectID uuid.UUID,
+	bucketID uuid.UUID,
+) (int64, int64, error) {
+	const query = `
+		SELECT COALESCE(COUNT(*), 0)::bigint, COALESCE(SUM(size_bytes), 0)::bigint
+		FROM bucket_objects
+		WHERE project_id = $1 AND bucket_id = $2`
+
+	var (
+		objectCount int64
+		usedBytes   int64
+	)
+	if err := store.pool.QueryRow(ctx, query, projectID, bucketID).Scan(&objectCount, &usedBytes); err != nil {
+		return 0, 0, fmt.Errorf("compute bucket stats: %w", err)
+	}
+	return objectCount, usedBytes, nil
 }

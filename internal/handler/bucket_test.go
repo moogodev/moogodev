@@ -472,6 +472,24 @@ func (store *fakeBucketStore) BucketStorageUsedBytes(
 	return used, nil
 }
 
+func (store *fakeBucketStore) BucketStats(
+	_ context.Context, _ uuid.UUID, bucketID uuid.UUID,
+) (int64, int64, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	var (
+		count int64
+		used  int64
+	)
+	for _, object := range store.objects {
+		if object.BucketID == bucketID {
+			count++
+			used += object.SizeBytes
+		}
+	}
+	return count, used, nil
+}
+
 // fakeObjectFS is an in-memory FileSystem.
 type fakeObjectFS struct {
 	mu       sync.Mutex
@@ -1418,7 +1436,9 @@ func TestListReturnsTheSelectedBucketOnly(t *testing.T) {
 
 	var response struct {
 		Bucket struct {
-			Name string `json:"name"`
+			Name        string `json:"name"`
+			ObjectCount int64  `json:"object_count"`
+			SizeBytes   int64  `json:"size_bytes"`
 		} `json:"bucket"`
 		Objects []struct {
 			Key string `json:"key"`
@@ -1435,6 +1455,52 @@ func TestListReturnsTheSelectedBucketOnly(t *testing.T) {
 	}
 	if response.Total != 1 {
 		t.Fatalf("total = %d, want 1", response.Total)
+	}
+	// The bucket description is filled from the same table as the listing. It
+	// used to come back as zero because resolveBucket does not load aggregates,
+	// so a bucket with objects reported object_count 0 and size_bytes 0.
+	if response.Bucket.ObjectCount != 1 || response.Bucket.SizeBytes != 4 {
+		t.Fatalf("bucket summary = %d objects / %d bytes, want 1 / 4",
+			response.Bucket.ObjectCount, response.Bucket.SizeBytes)
+	}
+}
+
+// A folder listing must not make the bucket summary look empty. The summary
+// describes the whole bucket; total describes the page after the prefix filter.
+// They disagree on purpose and both have to be right, which is what broke when
+// the prefix filter matched nothing and the summary was hard-coded to zero.
+func TestListReportsBucketTotalsBesideAFilteredPage(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	bucket := store.addBucket("default")
+	store.addObject(bucket, "avatars/a.png", 10, "image/png")
+	store.addObject(bucket, "avatars/b.png", 20, "image/png")
+	store.addObject(bucket, "photos/c.png", 30, "image/png")
+
+	request := httptest.NewRequest(
+		http.MethodGet, "/bucket/x?prefix=avatars/", nil,
+	).WithContext(requestContext(store.projectID, ""))
+	recorder := httptest.NewRecorder()
+	plane.List(recorder, request)
+
+	var response struct {
+		Bucket struct {
+			ObjectCount int64 `json:"object_count"`
+			SizeBytes   int64 `json:"size_bytes"`
+		} `json:"bucket"`
+		Objects []struct {
+			Key string `json:"key"`
+		} `json:"objects"`
+		Total int64 `json:"total"`
+	}
+	decodeBody(t, recorder, &response)
+
+	if response.Total != 2 || len(response.Objects) != 2 {
+		t.Fatalf("filtered page = %d objects (total %d), want 2",
+			len(response.Objects), response.Total)
+	}
+	if response.Bucket.ObjectCount != 3 || response.Bucket.SizeBytes != 60 {
+		t.Fatalf("bucket summary = %d objects / %d bytes, want 3 / 60",
+			response.Bucket.ObjectCount, response.Bucket.SizeBytes)
 	}
 }
 

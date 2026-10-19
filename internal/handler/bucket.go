@@ -64,6 +64,7 @@ type BucketStore interface {
 	DeletePrefix(ctx context.Context, projectID uuid.UUID, prefix string) ([]string, int64, error)
 	StorageUsedBytes(ctx context.Context, projectID uuid.UUID) (int64, error)
 	BucketStorageUsedBytes(ctx context.Context, projectID uuid.UUID, bucketID uuid.UUID) (int64, error)
+	BucketStats(ctx context.Context, projectID uuid.UUID, bucketID uuid.UUID) (int64, int64, error)
 }
 
 // FileSystem is the disk operations for bucket storage.
@@ -955,6 +956,18 @@ func (handler *BucketPlane) List(w http.ResponseWriter, r *http.Request) {
 		handler.writeStoreError(w, r, projectID, err, "resolve bucket")
 		return
 	}
+
+	// resolveBucket returns the row without its aggregates, so the bucket
+	// description below would report object_count and size_bytes as zero beside
+	// a non-empty listing. Fill them from the same table the objects came from,
+	// so the summary and the page it sits above cannot disagree.
+	objectCount, sizeBytes, err := handler.store.BucketStats(r.Context(), projectID, bucket.ID)
+	if err != nil {
+		handler.writeStoreError(w, r, projectID, err, "bucket stats")
+		return
+	}
+	bucket.ObjectCount = objectCount
+	bucket.SizeBytes = sizeBytes
 
 	objects, total, err := handler.store.ListObjects(r.Context(), dbcontrol.ObjectQuery{
 		BucketID: bucket.ID,
