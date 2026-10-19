@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/moogodev/moogodev/internal/docs"
+	"github.com/moogodev/moogodev/internal/openapi"
 	"github.com/moogodev/moogodev/pkg/httpx"
 	"github.com/moogodev/moogodev/pkg/logger"
 )
@@ -125,6 +126,32 @@ func (handler *DocsHandler) DocList(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"documents": docs,
 	})
+}
+
+// Spec serves GET /openapi.yaml, the API's OpenAPI document.
+//
+// It is the same document the dashboard's TypeScript types are generated from,
+// so a client reading it sees the shapes the server actually returns. It is
+// unauthenticated because the routes it describes are already documented
+// publicly: withholding the schema buys no security and costs every developer
+// who would otherwise have to guess a response shape.
+func (handler *DocsHandler) Spec(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	contents := openapi.Spec()
+	if len(contents) == 0 {
+		handler.log.Error("openapi spec missing", logger.Fields{"error": "embedded document empty"})
+		httpx.WriteError(w, http.StatusInternalServerError, "spec_error", "could not load specification")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(contents)
 }
 
 // isNotFound checks if an error is a "file not found" error.

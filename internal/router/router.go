@@ -130,6 +130,7 @@ type BucketHandlers interface {
 type DocsHandlers interface {
 	Doc(http.ResponseWriter, *http.Request)
 	DocList(http.ResponseWriter, *http.Request)
+	Spec(http.ResponseWriter, *http.Request)
 }
 
 // UpdatesHandlers is the dashboard's "What's new" list.
@@ -678,6 +679,10 @@ func New(deps Deps) http.Handler {
 		root.Head("/api/docs", deps.Docs.DocList)
 		root.Get("/api/docs/*", deps.Docs.Doc)
 		root.Head("/api/docs/*", deps.Docs.Doc)
+		// The OpenAPI document, served from the embedded spec so a client can
+		// read the exact shapes the server returns instead of guessing.
+		root.Get("/openapi.yaml", deps.Docs.Spec)
+		root.Head("/openapi.yaml", deps.Docs.Spec)
 	}
 
 	// --- Changelog updates (public) ---

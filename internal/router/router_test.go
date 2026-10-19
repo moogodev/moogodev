@@ -317,6 +317,7 @@ func (stub *stubDocs) mark(w http.ResponseWriter, name string) {
 
 func (stub *stubDocs) Doc(w http.ResponseWriter, r *http.Request)     { stub.mark(w, "Doc") }
 func (stub *stubDocs) DocList(w http.ResponseWriter, r *http.Request) { stub.mark(w, "DocList") }
+func (stub *stubDocs) Spec(w http.ResponseWriter, r *http.Request)    { stub.mark(w, "Spec") }
 
 // stubResolver returns a fixed project for any id.
 type stubResolver struct {

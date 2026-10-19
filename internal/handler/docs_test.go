@@ -197,6 +197,33 @@ func serveDocs(t *testing.T, path string) *httptest.ResponseRecorder {
 	return recorder
 }
 
+// The OpenAPI document is served from the embedded spec, so a client can read
+// the exact response shapes rather than guessing. It has to be YAML and it has
+// to actually be the spec, not an empty body.
+func TestSpecServesTheEmbeddedOpenAPIDocument(t *testing.T) {
+	built := NewDocsHandler(testDocsFS(), logger.Nop())
+	recorder := httptest.NewRecorder()
+	built.Spec(recorder, httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/yaml") {
+		t.Errorf("content-type = %q, want application/yaml", got)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "openapi:") {
+		t.Error("the served document does not look like an OpenAPI spec")
+	}
+	// The paths the client actually calls have to be described, or the schema
+	// is decoration rather than documentation.
+	for _, path := range []string{"/db/{project_id}/query", "/bucket/{project_id}/{key}", "/buckets/{project_id}"} {
+		if !strings.Contains(body, path) {
+			t.Errorf("spec is missing path %q", path)
+		}
+	}
+}
+
 // The slug is the filename without .md, taken from either prefix, so the page
 // and the API return the same document for the same slug.
 func TestDocResolvesSlugFromEitherPrefix(t *testing.T) {
