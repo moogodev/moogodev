@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/moogodev/moogodev/internal/auth"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
 	"github.com/moogodev/moogodev/internal/dbplane"
+	"github.com/moogodev/moogodev/internal/signedurl"
 	"github.com/moogodev/moogodev/pkg/logger"
 )
 
@@ -572,7 +574,7 @@ func testBucketPlane(t *testing.T, quota int64) (*BucketPlane, *fakeBucketStore,
 	projectID := uuid.New()
 	store := newFakeBucketStore(projectID)
 	fs := newFakeObjectFS()
-	return NewBucketPlane(store, fs, quota, "", "", logger.Nop()), store, fs
+	return NewBucketPlane(store, fs, quota, "", "", signedurl.New("test-secret"), logger.Nop()), store, fs
 }
 
 // requestContext builds a context carrying a project id and an object key, which
@@ -888,6 +890,211 @@ func TestPublicDownloadMissesForAnUnknownKey(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", recorder.Code)
+	}
+}
+
+// --- signed URLs ---
+
+// signRequest calls SignURL for one key and returns the decoded response.
+func signRequest(t *testing.T, plane *BucketPlane, projectID uuid.UUID, key string, expiresIn int64) SignURLResponse {
+	t.Helper()
+
+	body, err := json.Marshal(SignURLRequest{Key: key, ExpiresIn: expiresIn})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/buckets/x/sign", strings.NewReader(string(body))).WithContext(
+		context.WithValue(context.Background(), auth.ContextKeyProjectID, projectID.String()),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	plane.SignURL(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("sign status = %d (body %q)", recorder.Code, recorder.Body.String())
+	}
+	var response SignURLResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode sign response: %v", err)
+	}
+	return response
+}
+
+func TestSignURLMintsALinkThatServesAPrivateObject(t *testing.T) {
+	// The whole point: a private object becomes readable with nothing but the
+	// minted URL. No credential is present on the public route.
+	plane, store, fs := testBucketPlane(t, 1<<20)
+	bucket := store.addBucket("default")
+	store.addObject(bucket, "secret.png", 4, "image/png")
+	fs.contents["secret.png"] = []byte("PNG!")
+
+	signed := signRequest(t, plane, store.projectID, "secret.png", 900)
+	if signed.Method != "GET" {
+		t.Fatalf("method = %q, want GET", signed.Method)
+	}
+	if signed.ExpiresIn != 900 {
+		t.Fatalf("expires_in = %d, want 900", signed.ExpiresIn)
+	}
+	if !strings.Contains(signed.URL, "/pub/"+store.projectID.String()+"/secret.png?exp=") ||
+		!strings.Contains(signed.URL, "&sig=") {
+		t.Fatalf("url = %q, want a signed /pub/ URL", signed.URL)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, signed.URL, nil).WithContext(
+		requestContext(store.projectID, "secret.png"),
+	)
+	recorder := httptest.NewRecorder()
+	plane.PublicDownload(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.String() != "PNG!" {
+		t.Fatalf("body = %q", recorder.Body.String())
+	}
+	// A signed link is meant to be embedded elsewhere, like a published one.
+	if got := recorder.Header().Get("Cross-Origin-Resource-Policy"); got != "cross-origin" {
+		t.Fatalf("Cross-Origin-Resource-Policy = %q, want cross-origin", got)
+	}
+	// But it must not outlive its expiry in a shared cache.
+	if got := recorder.Header().Get("Cache-Control"); !strings.Contains(got, "private") {
+		t.Fatalf("Cache-Control = %q, want private", got)
+	}
+	if got := recorder.Header().Get("Cache-Control"); strings.Contains(got, "public") {
+		t.Fatalf("Cache-Control = %q, must not allow shared caching", got)
+	}
+}
+
+func TestSignedDownloadAcceptsHEADWithAGETSignature(t *testing.T) {
+	plane, store, fs := testBucketPlane(t, 1<<20)
+	bucket := store.addBucket("default")
+	store.addObject(bucket, "secret.png", 4, "image/png")
+	fs.contents["secret.png"] = []byte("PNG!")
+
+	signed := signRequest(t, plane, store.projectID, "secret.png", 900)
+	request := httptest.NewRequest(http.MethodHead, signed.URL, nil).WithContext(
+		requestContext(store.projectID, "secret.png"),
+	)
+	recorder := httptest.NewRecorder()
+	plane.PublicDownload(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	if recorder.Body.Len() != 0 {
+		t.Fatalf("HEAD returned a body: %q", recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Length"); got != "4" {
+		t.Fatalf("Content-Length = %q, want 4", got)
+	}
+}
+
+func TestSignedDownloadReportsAnExpiredGenuineLink(t *testing.T) {
+	// A signature this deployment really issued, with an expiry in the past.
+	// The holder learns the link expired rather than that the object vanished.
+	plane, store, fs := testBucketPlane(t, 1<<20)
+	bucket := store.addBucket("default")
+	store.addObject(bucket, "secret.png", 4, "image/png")
+	fs.contents["secret.png"] = []byte("PNG!")
+
+	expired := time.Now().Add(-time.Minute)
+	sig := plane.signer.Sign("GET", store.projectID.String(), "", "secret.png", expired)
+	target := "/pub/x/secret.png?exp=" + strconv.FormatInt(expired.Unix(), 10) + "&sig=" + sig
+
+	request := httptest.NewRequest(http.MethodGet, target, nil).WithContext(
+		requestContext(store.projectID, "secret.png"),
+	)
+	recorder := httptest.NewRecorder()
+	plane.PublicDownload(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "link_expired") {
+		t.Fatalf("body = %q, want link_expired", recorder.Body.String())
+	}
+}
+
+func TestSignedDownloadTreatsATamperedSignatureAsNotFound(t *testing.T) {
+	// A forged claim must be indistinguishable from a missing object, or the
+	// route would confirm which keys exist to anyone who asks.
+	plane, store, fs := testBucketPlane(t, 1<<20)
+	bucket := store.addBucket("default")
+	store.addObject(bucket, "secret.png", 4, "image/png")
+	fs.contents["secret.png"] = []byte("PNG!")
+
+	signed := signRequest(t, plane, store.projectID, "secret.png", 900)
+	tampered := strings.Replace(signed.URL, "/secret.png?", "/other.png?", 1)
+	request := httptest.NewRequest(http.MethodGet, tampered, nil).WithContext(
+		requestContext(store.projectID, "other.png"),
+	)
+	recorder := httptest.NewRecorder()
+	plane.PublicDownload(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "other.png") {
+		t.Fatalf("body leaked the key: %q", recorder.Body.String())
+	}
+}
+
+func TestSignURLRejectsOutOfRangeExpiry(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+
+	for _, expiresIn := range []int64{-1, 59, 604801} {
+		body := `{"key":"secret.png","expires_in":` + strconv.FormatInt(expiresIn, 10) + `}`
+		request := httptest.NewRequest(http.MethodPost, "/buckets/x/sign", strings.NewReader(body)).WithContext(
+			context.WithValue(context.Background(), auth.ContextKeyProjectID, store.projectID.String()),
+		)
+		request.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		plane.SignURL(recorder, request)
+
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("expires_in %d: status = %d, want 400", expiresIn, recorder.Code)
+		}
+		if !strings.Contains(recorder.Body.String(), "invalid_expires_in") {
+			t.Fatalf("expires_in %d: body = %q", expiresIn, recorder.Body.String())
+		}
+	}
+}
+
+func TestSignURLRejectsAnInvalidKey(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+
+	body := `{"key":"../escape"}`
+	request := httptest.NewRequest(http.MethodPost, "/buckets/x/sign", strings.NewReader(body)).WithContext(
+		context.WithValue(context.Background(), auth.ContextKeyProjectID, store.projectID.String()),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	plane.SignURL(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "invalid_key") {
+		t.Fatalf("body = %q, want invalid_key", recorder.Body.String())
+	}
+}
+
+func TestSignURLFailsClosedWithoutASigner(t *testing.T) {
+	// A deployment with no signer must not mint links that verification would
+	// always reject later; it says the feature is unavailable.
+	store := newFakeBucketStore(uuid.New())
+	plane := NewBucketPlane(store, newFakeObjectFS(), 1<<20, "", "", nil, logger.Nop())
+
+	body := `{"key":"secret.png"}`
+	request := httptest.NewRequest(http.MethodPost, "/buckets/x/sign", strings.NewReader(body)).WithContext(
+		context.WithValue(context.Background(), auth.ContextKeyProjectID, store.projectID.String()),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	plane.SignURL(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 (body %q)", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -2448,7 +2655,7 @@ func TestPublicURLUsesTheConfiguredOriginNotTheRequestHost(t *testing.T) {
 	// that will still work when they paste it into their own site.
 	store := newFakeBucketStore(uuid.New())
 	fs := newFakeObjectFS()
-	plane := NewBucketPlane(store, fs, 1<<20, "https://moogo.dev", "", logger.Nop())
+	plane := NewBucketPlane(store, fs, 1<<20, "https://moogo.dev", "", signedurl.New("test-secret"), logger.Nop())
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "logo.png", 4, "image/png")
 	if _, err := store.SetObjectPublic(
@@ -2484,7 +2691,7 @@ func TestPublicURLUsesTheCDNOriginWhileTheURLUsesTheAPIOrigin(t *testing.T) {
 	fs := newFakeObjectFS()
 	plane := NewBucketPlane(
 		store, fs, 1<<20,
-		"https://api.moogo.dev", "https://cdn.moogo.dev", logger.Nop(),
+		"https://api.moogo.dev", "https://cdn.moogo.dev", signedurl.New("test-secret"), logger.Nop(),
 	)
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "logo.png", 4, "image/png")

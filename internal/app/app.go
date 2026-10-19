@@ -21,6 +21,7 @@ import (
 	"github.com/moogodev/moogodev/internal/mail"
 	"github.com/moogodev/moogodev/internal/metrics"
 	"github.com/moogodev/moogodev/internal/router"
+	"github.com/moogodev/moogodev/internal/signedurl"
 	"github.com/moogodev/moogodev/internal/storage"
 	"github.com/moogodev/moogodev/pkg/logger"
 	"github.com/moogodev/moogodev/pkg/session"
@@ -157,7 +158,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 	// single-host deployment building the same URLs it always did. Using the
 	// dashboard origin is what handed the dashboard app.moogo.dev public links
 	// while the /pub/ route was live on api.moogo.dev.
-	bucketHandler := handler.NewBucketPlane(store, databases, cfg.MaxStorageBytes, cfg.APIURL, cfg.CDNURL, options.Log)
+	bucketHandler := handler.NewBucketPlane(store, databases, cfg.MaxStorageBytes, cfg.APIURL, cfg.CDNURL, signedurl.New(cfg.SessionSecret), options.Log)
 	docsHandler := handler.NewDocsHandler(handler.GetDocsFS(), options.Log)
 	updatesHandler := handler.NewUpdatesHandler(cfg.NewsURL, options.Log)
 	metaHandler := handler.NewMeta(cfg.PublicURL, docsHandler, options.Log)

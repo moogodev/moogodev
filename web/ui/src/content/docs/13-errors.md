@@ -256,10 +256,12 @@ something about.
 | `missing_key` | 400 | No object key in the path. |
 | `invalid_key` | 400 | The key breaks the [naming rules](/docs/create-bucket#keys-are-strict). |
 | `key_too_long` | 400 | The object key is longer than the maximum. |
+| `invalid_expires_in` | 400 | A signed URL was requested with a lifetime outside 60–604800 seconds. |
 | `invalid_prefix` | 400 | The prefix for a folder delete is not valid. |
 | `key_taken` | 409 | An object with that key already exists. |
 | `quota_below_usage` | 409 | A PATCH tried to set `quota_bytes` below what the bucket already holds. |
 | `bucket_exists` | 409 | A bucket with that name already exists in this project. |
+| `link_expired` | 403 | A signed URL was genuine but past its expiry. |
 | `not_found` | 404 | No such object or bucket. |
 | `object_too_large` | 413 | Over the bucket's per-object cap. |
 | `type_not_allowed` | 415 | The `Content-Type` is not in the bucket's `allowed_types`. |
@@ -269,6 +271,7 @@ something about.
 | `invalid_allowed_types` | 400 | The upload policy names an unknown type, or combines `any` with a specific one. |
 | `invalid_max_object_size` | 400 | `max_object_size_bytes` is negative. `0` means no limit. |
 | `invalid_quota_bytes` | 400 | `quota_bytes` is negative or over the project's 250 MB. |
+| `signing_unavailable` | 503 | The deployment has no signer configured, so it cannot mint signed URLs. |
 | `storage_error` | 500 | The request could not be completed. |
 
 ### `key_taken`

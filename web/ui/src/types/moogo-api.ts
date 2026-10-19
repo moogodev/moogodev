@@ -448,7 +448,12 @@ export interface paths {
         /** Public download */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Unix timestamp after which the signature stops working. */
+                    exp?: string;
+                    /** @description Base64url signature minted by POST /buckets/{project_id}/sign. */
+                    sig?: string;
+                };
                 header?: never;
                 path: {
                     project_id: string;
@@ -465,6 +470,24 @@ export interface paths {
                     };
                     content: {
                         "*/*": string;
+                    };
+                };
+                /** @description The signed link is genuine but expired. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such object, or no valid signature for it. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
             };
@@ -533,6 +556,57 @@ export interface paths {
                         "application/json": components["schemas"]["BucketResponse"];
                     };
                 };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{project_id}/sign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a time-limited signed URL
+         * @description Returns a URL that serves one object without a credential until it
+         *     expires. The signature covers the project, the key and the expiry, so
+         *     the URL cannot be edited into a grant for another object or a longer
+         *     lifetime. HEAD is authorized by a GET signature.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SignURLRequest"];
+                };
+            };
+            responses: {
+                /** @description Signed URL granted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SignURLResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
             };
         };
         delete?: never;
@@ -756,6 +830,29 @@ export interface components {
         };
         CreateBucketRequest: {
             name: string;
+        };
+        SignURLRequest: {
+            /** @description Object key to sign, including any folder segments. */
+            key: string;
+            /**
+             * Format: int64
+             * @description Seconds until the link stops working. Defaults to 900, minimum 60, maximum 604800.
+             * @default 900
+             */
+            expires_in: number;
+        };
+        SignURLResponse: {
+            /** @description Absolute URL that serves the object until it expires. */
+            url: string;
+            /** @enum {string} */
+            method: "GET";
+            /** Format: date-time */
+            expires_at: string;
+            /**
+             * Format: int64
+             * @description Seconds from the mint to the expiry, as granted.
+             */
+            expires_in: number;
         };
         DeleteBucketResponse: {
             success: boolean;

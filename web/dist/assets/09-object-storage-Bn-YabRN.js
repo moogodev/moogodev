@@ -158,6 +158,57 @@ indistinguishable from a missing one. Responses carry
 \`Cross-Origin-Resource-Policy: cross-origin\`, so a page on any other domain can
 embed them in an \`<img>\`, a \`<video>\`, or CSS.
 
+## Signed URLs
+
+A signed URL serves one object for a limited time without a credential. Use it
+when the reader cannot hold a secret: a private image embedded in someone
+else's page, a download handed to a build step, a file shared with a partner
+for an hour.
+
+Mint one with the storage credential:
+
+\`\`\`bash
+curl -X POST "https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/sign" \\
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"key": "avatars/kit.png", "expires_in": 900}'
+\`\`\`
+
+\`\`\`json
+{
+  "url": "https://api.moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.png?exp=1800000900&sig=...",
+  "method": "GET",
+  "expires_at": "2026-10-19T15:00:00Z",
+  "expires_in": 900
+}
+\`\`\`
+
+\`GET\` that URL with no headers and the bytes come back, published or not. \`HEAD\`
+works with the same link.
+
+| Field | Notes |
+|---|---|
+| \`key\` | Required. Same naming rules as an upload; the signature covers it exactly. |
+| \`expires_in\` | Seconds. Defaults to \`900\`; must be between \`60\` and \`604800\` (seven days). |
+
+What the link cannot be edited into: the signature covers the method, the
+project, the key and the expiry, so changing the key, extending \`exp\` or
+replaying it against another project breaks it. What it can do: be forwarded
+to anyone. Treat one as a temporary password for a single file.
+
+Two failures are worth telling apart:
+
+- **\`403 link_expired\`** — the link was genuine and its time ran out. Mint a new
+  one.
+- **\`404 not_found\`** — the signature does not match, or the object is gone.
+  A wrong key and a missing object look the same on purpose.
+
+Signed downloads are not cacheable by shared caches (\`Cache-Control: private\`),
+so a CDN never serves one past its expiry. Rotating the deployment's session
+secret invalidates every outstanding signed URL at once — there is no per-link
+revocation, so rotate when a link leaks and the time limit is not enough.
+
 ## List objects
 
 \`\`\`bash
@@ -306,7 +357,10 @@ you can store.
 | \`missing_key\` | 400 | No object key in the path. |
 | \`invalid_key\` | 400 | The key breaks the naming rules. |
 | \`key_taken\` | 409 | An object with that key already exists in this project. |
-| \`not_found\` | 404 | No such object or bucket. |
+| \`invalid_expires_in\` | 400 | \`expires_in\` is outside the 60–604800 second range. |
+| \`link_expired\` | 403 | The signed URL was genuine and its time ran out. Mint a new one. |
+| \`signing_unavailable\` | 503 | This deployment has no signer configured and cannot mint URLs. |
+| \`not_found\` | 404 | No such object or bucket, or no valid signature for the object. |
 | \`object_too_large\` | 413 | Over the bucket's per-object cap. |
 | \`quota_exceeded\` | 507 | The project storage total is full. |
 | \`invalid_prefix\` | 400 | The prefix for a folder delete is not valid. |

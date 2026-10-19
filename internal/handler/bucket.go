@@ -20,6 +20,7 @@ import (
 	"github.com/moogodev/moogodev/internal/auth"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
 	"github.com/moogodev/moogodev/internal/dbplane"
+	"github.com/moogodev/moogodev/internal/signedurl"
 	"github.com/moogodev/moogodev/pkg/httpx"
 	"github.com/moogodev/moogodev/pkg/logger"
 )
@@ -83,6 +84,15 @@ type BucketPlane struct {
 	quota     int64
 	maxKeyLen int
 	log       *logger.Logger
+
+	// signer mints and checks the time-limited URLs on the public plane.
+	//
+	// It is derived from the session secret rather than configured on its own
+	// so no deployment can start without one — see the signedurl package for
+	// why the two secrets share an input. A nil signer is not expected in a
+	// running server, but both ends fail closed if it happens: minting
+	// answers 503 and verification answers as if no signature were present.
+	signer *signedurl.Signer
 
 	// publicBase is the origin used to build absolute object URLs.
 	//
@@ -203,13 +213,15 @@ const defaultBucketName = "default"
 // the configured API URL. cdnBase is the origin public object URLs are built
 // from, normally the configured CDN URL; an empty cdnBase falls back to
 // publicBase. Both are empty in tests, where the request host is the right
-// answer.
+// answer. signer issues the time-limited URLs and is always non-nil in a
+// running server: it comes from the session secret, not from configuration.
 func NewBucketPlane(
 	store BucketStore,
 	fs FileSystem,
 	quota int64,
 	publicBase string,
 	cdnBase string,
+	signer *signedurl.Signer,
 	log *logger.Logger,
 ) *BucketPlane {
 	return &BucketPlane{
@@ -219,6 +231,7 @@ func NewBucketPlane(
 		maxKeyLen:  1024,
 		publicBase: strings.TrimRight(publicBase, "/"),
 		cdnBase:    strings.TrimRight(cdnBase, "/"),
+		signer:     signer,
 		log:        log,
 	}
 }
@@ -503,27 +516,94 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// objectAccess is how a download was authorized, which decides both whether a
+// private object may be served and how the response may be cached.
+type objectAccess int
+
+const (
+	// accessPrivate is a download behind a storage credential: any object in
+	// the project, answered for one caller.
+	accessPrivate objectAccess = iota
+
+	// accessSigned is a download carrying a valid, unexpired signature minted
+	// by the owner: any object, but no credential ever appears in the request.
+	accessSigned
+
+	// accessPublished is a download with nothing but the URL: only objects the
+	// owner published, indistinguishable from missing ones when unpublished.
+	accessPublished
+)
+
 // Download handles GET /bucket/{project_id}/*.
 //
 // The route is behind a credential, so it serves private objects as well as
 // public ones. Response validators are set so a client that already holds the
 // bytes can revalidate instead of downloading them again.
 func (handler *BucketPlane) Download(w http.ResponseWriter, r *http.Request) {
-	handler.serveObject(w, r, false)
+	handler.serveObject(w, r, accessPrivate)
 }
 
 // PublicDownload handles GET /pub/{project_id}/*.
 //
 // This route has no credential middleware in front of it, so it serves only
-// objects the owner published. An unpublished object answers 404 rather than
-// 403: from outside, the difference between "private" and "does not exist" is
+// objects the owner published — unless the request carries a signature the
+// owner issued for exactly this object, which authorizes it the way a
+// credential would while living in the URL instead of a header. An
+// unpublished object with no valid signature answers 404 rather than 403:
+// from outside, the difference between "private" and "does not exist" is
 // not information anyone should get.
+//
+// The signature claim is checked before the object is loaded. It has to be:
+// an expired link is reported as expired whether or not the object still
+// exists, and a forged one is reported as not found, so neither answer is
+// derived from the catalog.
 func (handler *BucketPlane) PublicDownload(w http.ResponseWriter, r *http.Request) {
-	handler.serveObject(w, r, true)
+	access := accessPublished
+
+	query := r.URL.Query()
+	expRaw, sigRaw := query.Get("exp"), query.Get("sig")
+	// A request with neither parameter is the plain published-object URL that
+	// has always existed here, and keeps working unchanged. A request carrying
+	// either parameter is claiming a signature, and a claim has to hold: a
+	// signature that does not verify is answered 404 like any other miss, so a
+	// forged claim confirms nothing about which keys exist.
+	if expRaw != "" || sigRaw != "" {
+		projectID, ok := auth.ProjectIDFromContext(r.Context())
+		rawKey, found := auth.ObjectKeyFromContext(r.Context())
+		key, err := normalizeKey(rawKey)
+		if !ok || !found || err != nil {
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+			return
+		}
+
+		// HEAD verifies as GET: the signed grant is over the object, and a
+		// signature that only worked with one verb would force clients to mint
+		// two links for the same file.
+		switch err := handler.signer.Verify(
+			"GET", projectID.String(), "", key, expRaw, sigRaw, time.Now(),
+		); {
+		case errors.Is(err, signedurl.ErrExpired):
+			httpx.WriteError(w, http.StatusForbidden, "link_expired",
+				"the signed link has expired; request a new one")
+			return
+		case err != nil:
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+			return
+		default:
+			access = accessSigned
+		}
+	}
+
+	handler.serveObject(w, r, access)
 }
 
-// serveObject is the shared body of the authenticated and public downloads.
-func (handler *BucketPlane) serveObject(w http.ResponseWriter, r *http.Request, requirePublic bool) {
+// serveObject is the shared body of the authenticated, signed and public
+// downloads.
+func (handler *BucketPlane) serveObject(
+	w http.ResponseWriter,
+	r *http.Request,
+	access objectAccess,
+) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
@@ -555,8 +635,10 @@ func (handler *BucketPlane) serveObject(w http.ResponseWriter, r *http.Request, 
 	// On the public route this is the authorization check. It runs after the load
 	// rather than inside the query because ObjectByKey is shared with the
 	// authenticated route, and hiding the distinction between missing and private
-	// matters more here than saving one indexed lookup.
-	if requirePublic && !object.IsPublic {
+	// matters more here than saving one indexed lookup. A signed download has
+	// already proven the owner issued a link for this exact key, so it clears
+	// this bar the way a published object does.
+	if access == accessPublished && !object.IsPublic {
 		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
 		return
 	}
@@ -589,7 +671,7 @@ func (handler *BucketPlane) serveObject(w http.ResponseWriter, r *http.Request, 
 	}
 	defer reader.Close()
 
-	handler.writeObjectHeaders(w, object, size, requirePublic)
+	handler.writeObjectHeaders(w, object, size, access)
 
 	// HEAD carries the headers and no body. It is how a client checks a size or
 	// an ETag without transferring the file.
@@ -614,7 +696,7 @@ func (handler *BucketPlane) writeObjectHeaders(
 	w http.ResponseWriter,
 	object *dbcontrol.BucketObject,
 	size int64,
-	public bool,
+	access objectAccess,
 ) {
 	header := w.Header()
 
@@ -646,25 +728,34 @@ func (handler *BucketPlane) writeObjectHeaders(
 	header.Set("Content-Security-Policy", "sandbox; default-src 'none'")
 
 	// A published object exists to be embedded on other people's pages — the
-	// point of /pub/ is an <img> or <video> served into a different origin.
-	// CORP must let that embedding through, so the same-origin default the
-	// SecurityHeaders middleware applies elsewhere is relaxed here. Private
-	// object downloads keep the default: the request was authorized for one
-	// client, and its bytes must not become readable from another origin.
-	if public {
-		header.Set("Cross-Origin-Resource-Policy", "cross-origin")
-	} else {
+	// point of /pub/ is an <img> or <video> served into a different origin. A
+	// signed link exists for the same reason, so it gets the same relaxation:
+	// the signature in the URL is what authorizes the read, and forcing it
+	// back to same-origin would make a private share link useless to the page
+	// it was shared with. CORP must let that embedding through, so the
+	// same-origin default the SecurityHeaders middleware applies elsewhere is
+	// relaxed on both public paths. Credential downloads keep the default: the
+	// request was authorized for one client, and its bytes must not become
+	// readable from another origin.
+	if access == accessPrivate {
 		header.Set("Cross-Origin-Resource-Policy", "same-origin")
+	} else {
+		header.Set("Cross-Origin-Resource-Policy", "cross-origin")
 	}
 
 	// A public object is cacheable by the browser and by any CDN in front of the
 	// service. A private one must not be: the response was authorized for one
 	// caller, and storing it would let the next one read it.
 	//
-	// The public one is not marked immutable even though keys are stable, because
-	// a key can be overwritten in place and an immutable entry would then be
-	// wrong for a year. The ETag is what makes revalidation cheap instead.
-	if public {
+	// A signed response sits deliberately with the private one. It is
+	// shareable, but only until its expiry, and a cache key is just the URL —
+	// nothing in a shared cache would re-check the signature when the link
+	// stops working. Caching one for an hour would mean the grant outliving
+	// the grant's own clock. The public one is not marked immutable even
+	// though keys are stable, because a key can be overwritten in place and an
+	// immutable entry would then be wrong for a year. The ETag is what makes
+	// revalidation cheap instead.
+	if access == accessPublished {
 		header.Set("Cache-Control", "public, max-age=300, must-revalidate")
 	} else {
 		// Stored but always revalidated. no-store would make the dashboard
@@ -1032,6 +1123,96 @@ func (handler *BucketPlane) ListBuckets(w http.ResponseWriter, r *http.Request) 
 		"buckets":            responses,
 		"storage_used_bytes": used,
 		"quota_bytes":        handler.quota,
+	})
+}
+
+// SignURLRequest is the body of POST /buckets/{project_id}/sign.
+//
+// The method is not a field yet: every link minted here is a download, and a
+// request that tried to name an upload would be answered as unknown JSON rather
+// than half-honoured. expires_in defaults to the package default when omitted.
+type SignURLRequest struct {
+	Key       string `json:"key"`
+	ExpiresIn int64  `json:"expires_in,omitempty"`
+}
+
+// SignURLResponse is the successful answer to a sign request.
+type SignURLResponse struct {
+	URL       string    `json:"url"`
+	Method    string    `json:"method"`
+	ExpiresAt time.Time `json:"expires_at"`
+	ExpiresIn int64     `json:"expires_in"`
+}
+
+// SignURL handles POST /buckets/{project_id}/sign.
+//
+// The route sits behind a storage credential, so the caller is already allowed
+// to read the object. What this mints is the same read, expressed as a URL that
+// can be handed to something that will not hold a secret: a browser embedding a
+// private image, a build step downloading a file, a partner's page. The link
+// expires and can be revoked by rotating the session secret; there is nothing
+// server-side to list or delete, which is the trade a signed URL always makes.
+//
+// The object does not have to exist at mint time. Signing a key that is not
+// there produces a link that answers 404, which is the same answer a deleted
+// object gives later; checking existence here would only invite callers to
+// treat a successful mint as proof that the object is present.
+func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := auth.ProjectIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	if handler.signer == nil {
+		// A deployment that never constructed a signer cannot mint links that
+		// anything would accept, so it says so instead of returning one that
+		// always fails later.
+		httpx.WriteError(w, http.StatusServiceUnavailable, "signing_unavailable",
+			"signed URLs are not configured on this deployment")
+		return
+	}
+
+	var request SignURLRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		return
+	}
+
+	key, err := normalizeKey(request.Key)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_key", err.Error())
+		return
+	}
+	if len(key) > handler.maxKeyLen {
+		httpx.WriteError(w, http.StatusBadRequest, "key_too_long", "object key exceeds maximum length")
+		return
+	}
+
+	expiresIn := request.ExpiresIn
+	if expiresIn == 0 {
+		expiresIn = signedurl.DefaultTTL
+	}
+	if expiresIn < signedurl.MinTTL || expiresIn > signedurl.MaxTTL {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_expires_in",
+			"expires_in must be between 60 and 604800 seconds")
+		return
+	}
+
+	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
+	signature := handler.signer.Sign("GET", projectID.String(), "", key, expiresAt)
+
+	// The API origin, not the CDN origin: a signed response is private and
+	// non-cacheable, and the CDN host exists to serve the published, cacheable
+	// ones. A link that only works through a cache is a link whose lifetime
+	// depends on a cache configuration this code cannot see.
+	url := fmt.Sprintf("%s/pub/%s/%s?exp=%d&sig=%s",
+		handler.publicBaseURL(r), projectID, escapeKeyPath(key), expiresAt.Unix(), signature)
+
+	httpx.WriteJSON(w, http.StatusOK, SignURLResponse{
+		URL:       url,
+		Method:    "GET",
+		ExpiresAt: expiresAt.UTC(),
+		ExpiresIn: expiresIn,
 	})
 }
 

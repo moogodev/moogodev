@@ -125,6 +125,8 @@ type BucketHandlers interface {
 	UpdateBucketSettings(http.ResponseWriter, *http.Request)
 	DeleteBucket(http.ResponseWriter, *http.Request)
 	SetBucketPublic(http.ResponseWriter, *http.Request)
+	// SignURL mints a time-limited URL for one object on the public plane.
+	SignURL(http.ResponseWriter, *http.Request)
 }
 
 // DocsHandlers are the documentation endpoints.
@@ -580,6 +582,10 @@ func New(deps Deps) http.Handler {
 
 		catalog.Get("/", deps.Bucket.ListBuckets)
 		catalog.Post("/", deps.Bucket.CreateBucket)
+		// Static routes win over the {bucket_id} parameter below, and the
+		// catalog never had a wildcard for object keys, so "sign" cannot be a
+		// bucket id and needs no reservation.
+		catalog.Post("/sign", deps.Bucket.SignURL)
 
 		catalog.Route("/{bucket_id}", func(bucket chi.Router) {
 			bucket.Patch("/", deps.Bucket.UpdateBucketSettings)
