@@ -28,6 +28,17 @@ type ExecResult struct {
 	// caller has to decide whether the statement was an INSERT before
 	// reporting it. Zero means the driver had nothing to report.
 	LastInsertRowID int64 `json:"last_insert_rowid"`
+	// Columns and Rows carry the rows a RETURNING clause asked back.
+	//
+	// Both are nil for an ordinary write, which returns no rows, so a caller
+	// can tell "no RETURNING" from "RETURNING that matched nothing" by whether
+	// Columns was populated at all. They are positional, aligned with each
+	// other, for the same reason QueryResult's are.
+	Columns []string `json:"columns,omitempty"`
+	Rows    [][]any  `json:"rows,omitempty"`
+	// Truncated is set when a RETURNING clause produced more rows than the cap
+	// allows, so the caller knows the rows it got are partial.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // TransactionStatement is one statement inside a transaction.

@@ -226,6 +226,7 @@ func (manager *Manager) Exec(
 	// left to the queue-depth gauge and the wait for the lock to ErrBusy.
 	started := time.Now()
 	var rowsAffected int64
+	var insertID int64
 	defer func() {
 		took := time.Since(started)
 		metrics.ObserveQuery("exec", projectID.String(), took)
@@ -260,20 +261,34 @@ func (manager *Manager) Exec(
 		return nil, err
 	}
 
-	execResult, err := writeConn.ExecContext(statementCtx, statement, args...)
-	if err != nil {
-		return nil, classifyError(err, statementCtx)
-	}
+	// A RETURNING clause asks SQLite to hand back the rows the statement
+	// touched, which ExecContext would discard. The write runs through the
+	// query path instead so the caller gets those rows; rows_affected is the
+	// count of them, since every returned row is one row the statement changed.
+	var returned *QueryResult
+	if hasReturningClause(statement) {
+		returned, err = readStatement(statementCtx, writeConn, statement, args,
+			defaultMaxRows, manager.maxDBBytes)
+		if err != nil {
+			return nil, err
+		}
+		rowsAffected = int64(len(returned.Rows))
+	} else {
+		execResult, execErr := writeConn.ExecContext(statementCtx, statement, args...)
+		if execErr != nil {
+			return nil, classifyError(execErr, statementCtx)
+		}
 
-	rowsAffected, err = execResult.RowsAffected()
-	if err != nil {
-		// Not fatal: some statements simply do not report a count.
-		rowsAffected = 0
-	}
+		rowsAffected, err = execResult.RowsAffected()
+		if err != nil {
+			// Not fatal: some statements simply do not report a count.
+			rowsAffected = 0
+		}
 
-	insertID, err := execResult.LastInsertId()
-	if err != nil {
-		insertID = 0
+		insertID, err = execResult.LastInsertId()
+		if err != nil {
+			insertID = 0
+		}
 	}
 
 	// The size for the response is read from the files on disk instead of
@@ -295,11 +310,17 @@ func (manager *Manager) Exec(
 		// is told about.
 		size += sidecarSize(path)
 	}
-	return &ExecResult{
+	result := &ExecResult{
 		RowsAffected:    rowsAffected,
 		SizeBytes:       size,
 		LastInsertRowID: insertID,
-	}, nil
+	}
+	if returned != nil {
+		result.Columns = returned.Columns
+		result.Rows = returned.Rows
+		result.Truncated = returned.Truncated
+	}
+	return result, nil
 }
 
 // checkSize fails when a database is already at or over its limit.

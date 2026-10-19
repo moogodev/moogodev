@@ -1724,6 +1724,36 @@ created. Read the field only when it is present.
 
 `/exec` rejects reads with `not_a_write`.
 
+### `RETURNING` — write and read back in one call
+
+Add a `RETURNING` clause and `/exec` hands back the rows the statement touched,
+so you learn generated ids, defaults, and any expression the database computed
+without a follow-up `SELECT`:
+
+```bash
+curl $MOOGO_PROJECT_URL/exec \
+  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"INSERT INTO users (email) VALUES (?) RETURNING id, email, plan","args":["ketut@example.com"]}'
+```
+
+```json
+{
+  "success": true,
+  "rows_affected": 1,
+  "columns": ["id", "email", "plan"],
+  "rows": [[42, "ketut@example.com", "free"]],
+  "size_bytes": 24576,
+  "duration_ms": 1
+}
+```
+
+`columns` and `rows` are **absent** on an ordinary write, so you can tell a
+plain insert from one that asked data back. `rows_affected` equals the number of
+rows returned, since each returned row is one the statement changed. The row cap
+and result byte budget that bound `/query` apply here too; a truncated result
+sets `truncated` to `true`.
+
 > **DDL goes here too.** `CREATE TABLE`, `ALTER TABLE`, `CREATE INDEX` are all
 > writes. They run through the same sanitizer, so check
 > [what is rejected](#what-is-rejected) before you are surprised.

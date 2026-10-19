@@ -302,6 +302,43 @@ func TestExecReportsRowsAffected(t *testing.T) {
 	}
 }
 
+// TestExecReturnsReturningColumnsAndRows covers the handler carrying the rows a
+// RETURNING clause produced through to the response, so an insert can read back
+// the generated id and defaults without a second round trip. Before this the
+// rows never left the driver.
+func TestExecReturnsReturningColumnsAndRows(t *testing.T) {
+	handler, engine := testDataPlane(t)
+	engine.execResult = dbplane.ExecResult{
+		RowsAffected: 1,
+		SizeBytes:    4096,
+		Columns:      []string{"id", "body"},
+		Rows:         [][]any{{int64(7), "first"}},
+	}
+
+	body := `{"query":"INSERT INTO notes (body) VALUES ('first') RETURNING id, body"}`
+
+	recorder := httptest.NewRecorder()
+	handler.Exec(recorder, dataPlaneRequest(t, uuid.New(), "/db/x/exec", body))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response ExecResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(response.Columns) != 2 || response.Columns[0] != "id" {
+		t.Errorf("columns = %#v, want [id body]", response.Columns)
+	}
+	if len(response.Rows) != 1 || len(response.Rows[0]) != 2 {
+		t.Fatalf("rows = %#v, want one two-value row", response.Rows)
+	}
+	if response.RowsAffected != 1 {
+		t.Errorf("rows_affected = %d, want 1", response.RowsAffected)
+	}
+}
+
 func TestQueryRequiresProjectContext(t *testing.T) {
 	handler, _ := testDataPlane(t)
 

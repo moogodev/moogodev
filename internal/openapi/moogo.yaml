@@ -492,11 +492,19 @@ components:
         last_insert_rowid:
           type: integer
           format: int64
+        columns:
+          type: array
+          description: Column names for the rows a RETURNING clause returned; absent for an ordinary write.
+          items:
+            type: string
         rows:
           type: array
+          description: The rows a RETURNING clause returned, aligned with columns; absent for an ordinary write.
           items:
             type: array
             items: {}
+        truncated:
+          type: boolean
     SQLTransactionRequest:
       type: object
       required: [statements]

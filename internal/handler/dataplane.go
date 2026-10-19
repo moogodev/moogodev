@@ -124,6 +124,15 @@ type ExecResponse struct {
 	// the SELECT that would otherwise follow to learn an id.
 	LastInsertRowID int64 `json:"last_insert_rowid,omitempty"`
 	DurationMs      int64 `json:"duration_ms"`
+	// Columns and Rows carry the rows a RETURNING clause asked back, and are
+	// absent for an ordinary write. That lets a caller insert and read the new
+	// rows -- including generated columns and defaults the client did not know
+	// -- in one round trip instead of a write followed by a SELECT.
+	Columns []string `json:"columns,omitempty"`
+	Rows    [][]any  `json:"rows,omitempty"`
+	// Truncated is set when a RETURNING clause produced more rows than the cap
+	// allows, so the caller knows the rows it got are partial.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // TransactionRequest is the body accepted by the transaction endpoint.
@@ -370,6 +379,9 @@ func (runner sqlRunner) exec(w http.ResponseWriter, r *http.Request, projectID u
 		SizeBytes:       result.SizeBytes,
 		LastInsertRowID: insertedRowID(request.Query, result.LastInsertRowID),
 		DurationMs:      elapsedMs(started),
+		Columns:         result.Columns,
+		Rows:            result.Rows,
+		Truncated:       result.Truncated,
 	})
 }
 

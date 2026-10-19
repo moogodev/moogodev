@@ -612,7 +612,11 @@ export interface components {
             size_bytes?: number;
             /** Format: int64 */
             last_insert_rowid?: number;
+            /** @description Column names for the rows a RETURNING clause returned; absent for an ordinary write. */
+            columns?: string[];
+            /** @description The rows a RETURNING clause returned, aligned with columns; absent for an ordinary write. */
             rows?: unknown[][];
+            truncated?: boolean;
         };
         SQLTransactionRequest: {
             statements: components["schemas"]["SQLRequest"][];
