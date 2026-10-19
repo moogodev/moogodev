@@ -1,0 +1,761 @@
+openapi: 3.0.3
+info:
+  title: Moogo API
+  description: Moogo's API for database queries and object storage. Responses follow the documented shapes.
+  version: 0.1.0
+  contact:
+    name: Moogo
+    url: https://moogo.dev
+  license:
+    name: Proprietary
+servers:
+  - url: https://api.moogo.dev
+    description: Production
+tags:
+  - name: SQL
+    description: Project-scoped SQL API (data plane)
+  - name: Storage
+    description: Object storage
+  - name: Buckets
+    description: Bucket catalog
+  - name: Docs
+    description: Documentation API
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+  /api/docs:
+    get:
+      tags: [Docs]
+      summary: List documentation files
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocList'
+  /api/docs/{path}:
+    get:
+      tags: [Docs]
+      summary: Get documentation file
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            text/markdown:
+              schema:
+                type: string
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Doc'
+  /db/{project_id}/query:
+    post:
+      tags: [SQL]
+      summary: Run a read-only SQL query
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SQLRequest'
+      responses:
+        '200':
+          description: Query result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SQLQueryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /db/{project_id}/exec:
+    post:
+      tags: [SQL]
+      summary: Run a write SQL statement
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SQLRequest'
+      responses:
+        '200':
+          description: Exec result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SQLExecResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /db/{project_id}/transaction:
+    post:
+      tags: [SQL]
+      summary: Run multiple statements in a transaction
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SQLTransactionRequest'
+      responses:
+        '200':
+          description: Transaction result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SQLTransactionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /bucket/{project_id}:
+    get:
+      tags: [Storage]
+      summary: List objects
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: bucket
+          in: query
+          schema:
+            type: string
+        - name: prefix
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: dir
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Object page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectPage'
+  /bucket/{project_id}/{key}:
+    get:
+      tags: [Storage]
+      summary: Download object
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Binary data
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+    post:
+      tags: [Storage]
+      summary: Upload object
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: bucket
+          in: query
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          '*/*':
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Upload result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+    patch:
+      tags: [Storage]
+      summary: Update object
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateObjectRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    delete:
+      tags: [Storage]
+      summary: Delete object
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: prefix
+          in: query
+          schema:
+            type: string
+            enum: ['true']
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteObjectResponse'
+  /pub/{project_id}/{key}:
+    get:
+      tags: [Storage]
+      summary: Public download
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Binary data
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+  /buckets/{project_id}:
+    get:
+      tags: [Buckets]
+      summary: List buckets
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Bucket list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BucketListResponse'
+    post:
+      tags: [Buckets]
+      summary: Create bucket
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBucketRequest'
+      responses:
+        '201':
+          description: Bucket created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BucketResponse'
+  /buckets/{project_id}/{bucket_id}:
+    patch:
+      tags: [Buckets]
+      summary: Update bucket
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: bucket_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BucketSettings'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BucketResponse'
+    delete:
+      tags: [Buckets]
+      summary: Delete bucket
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: bucket_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteBucketResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Project key as Bearer token (data plane)
+    storageAuth:
+      type: apiKey
+      in: header
+      name: X-Moogo-Access-Key-Id
+      description: Storage credential access key ID. Also requires Authorization Bearer with secret.
+  schemas:
+    DocList:
+      type: object
+      properties:
+        docs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Doc'
+    Doc:
+      type: object
+      properties:
+        path:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+    SQLRequest:
+      type: object
+      required: [query, args]
+      properties:
+        query:
+          type: string
+        args:
+          type: array
+          items: {}
+    SQLQueryResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        columns:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            type: array
+            items: {}
+        row_count:
+          type: integer
+        truncated:
+          type: boolean
+        duration_ms:
+          type: integer
+          format: int64
+    SQLExecResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        rows_affected:
+          type: integer
+          format: int64
+        size_bytes:
+          type: integer
+          format: int64
+        last_insert_rowid:
+          type: integer
+          format: int64
+        rows:
+          type: array
+          items:
+            type: array
+            items: {}
+    SQLTransactionRequest:
+      type: object
+      required: [statements]
+      properties:
+        statements:
+          type: array
+          items:
+            $ref: '#/components/schemas/SQLRequest'
+    SQLTransactionResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        results:
+          type: array
+          items:
+            type: object
+        duration_ms:
+          type: integer
+          format: int64
+        aborted:
+          type: boolean
+    Bucket:
+      type: object
+      required: [id, name, object_count, size_bytes, created_at, is_public, allowed_types, max_object_size_bytes, quota_bytes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        object_count:
+          type: integer
+          format: int64
+        size_bytes:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        is_public:
+          type: boolean
+        allowed_types:
+          type: array
+          items:
+            type: string
+            enum: [any, image, video, audio, document, archive, file]
+        max_object_size_bytes:
+          type: integer
+          format: int64
+        quota_bytes:
+          type: integer
+          format: int64
+    BucketObject:
+      type: object
+      required: [id, bucket_id, bucket, key, size_bytes, content_type, is_public, etag, url, preview_url, public_url, created_at, updated_at, last_modified]
+      properties:
+        id:
+          type: string
+          format: uuid
+        bucket_id:
+          type: string
+          format: uuid
+        bucket:
+          type: string
+        key:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        content_type:
+          type: string
+        is_public:
+          type: boolean
+        etag:
+          type: string
+        url:
+          type: string
+        preview_url:
+          type: string
+        public_url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_modified:
+          type: string
+          format: date-time
+    ObjectPage:
+      type: object
+      required: [success, bucket, objects, total, limit, offset, storage_used_bytes, quota_bytes]
+      properties:
+        success:
+          type: boolean
+        bucket:
+          $ref: '#/components/schemas/Bucket'
+        objects:
+          type: array
+          items:
+            $ref: '#/components/schemas/BucketObject'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+        offset:
+          type: integer
+        storage_used_bytes:
+          type: integer
+          format: int64
+        quota_bytes:
+          type: integer
+          format: int64
+    UploadResponse:
+      type: object
+      required: [success, object, storage_used_bytes, quota_bytes]
+      properties:
+        success:
+          type: boolean
+        object:
+          $ref: '#/components/schemas/BucketObject'
+        storage_used_bytes:
+          type: integer
+          format: int64
+        quota_bytes:
+          type: integer
+          format: int64
+    ObjectResponse:
+      type: object
+      required: [success, object]
+      properties:
+        success:
+          type: boolean
+        object:
+          $ref: '#/components/schemas/BucketObject'
+    UpdateObjectRequest:
+      type: object
+      properties:
+        new_key:
+          type: string
+        is_public:
+          type: boolean
+    DeleteObjectResponse:
+      type: object
+      required: [success, deleted, freed_bytes, storage_used_bytes, quota_bytes]
+      properties:
+        success:
+          type: boolean
+        deleted:
+          type: integer
+        freed_bytes:
+          type: integer
+          format: int64
+        storage_used_bytes:
+          type: integer
+          format: int64
+        quota_bytes:
+          type: integer
+          format: int64
+    BucketListResponse:
+      type: object
+      required: [success, buckets, storage_used_bytes, quota_bytes]
+      properties:
+        success:
+          type: boolean
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bucket'
+        storage_used_bytes:
+          type: integer
+          format: int64
+        quota_bytes:
+          type: integer
+          format: int64
+    BucketResponse:
+      type: object
+      required: [success, bucket]
+      properties:
+        success:
+          type: boolean
+        bucket:
+          $ref: '#/components/schemas/Bucket'
+    BucketSettings:
+      type: object
+      properties:
+        allowed_types:
+          type: array
+          items:
+            type: string
+            enum: [any, image, video, audio, document, archive, file]
+        max_object_size_bytes:
+          type: integer
+          format: int64
+        is_public:
+          type: boolean
+        quota_bytes:
+          type: integer
+          format: int64
+    CreateBucketRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+    DeleteBucketResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        detail:
+          type: string
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+  responses:
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          headers:
+            Retry-After:
+              description: Seconds to wait
+              schema:
+                type: integer
+security: []
