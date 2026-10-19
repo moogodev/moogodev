@@ -182,6 +182,59 @@ func TestMiddlewareAnswers429WithRetryAfter(t *testing.T) {
 	}
 }
 
+// The budget is advertised on every throttled response, not only the refusals.
+// A client that can watch its allowance fall never has to discover the limit by
+// hitting it, and a 429 that carries the numbers is legible instead of
+// arbitrary. These are the standard draft-ietf-httpapi-ratelimit-headers names.
+func TestMiddlewareAdvertisesTheRemainingAllowance(t *testing.T) {
+	limiter := New(Config{Limit: 2, Window: time.Minute})
+
+	handler := limiter.Middleware(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+	newRequest := func() *http.Request {
+		request := httptest.NewRequest(http.MethodGet, "/p/x/query", nil)
+		request.RemoteAddr = "203.0.113.9:5555"
+		return request
+	}
+
+	// The first request spends one of two tokens, leaving one.
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, newRequest())
+	if got := first.Header().Get("X-RateLimit-Limit"); got != "2" {
+		t.Errorf("X-RateLimit-Limit = %q, want 2", got)
+	}
+	if got := first.Header().Get("X-RateLimit-Remaining"); got != "1" {
+		t.Errorf("X-RateLimit-Remaining = %q, want 1", got)
+	}
+
+	// The second spends the last token, leaving none.
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, newRequest())
+	if got := second.Header().Get("X-RateLimit-Remaining"); got != "0" {
+		t.Errorf("X-RateLimit-Remaining = %q, want 0", got)
+	}
+
+	// A refused request still reports the budget, alongside Retry-After, so the
+	// caller can see it is out of allowance rather than being told to guess.
+	third := httptest.NewRecorder()
+	handler.ServeHTTP(third, newRequest())
+	if third.Code != http.StatusTooManyRequests {
+		t.Fatalf("third request should be refused, got %d", third.Code)
+	}
+	if got := third.Header().Get("X-RateLimit-Limit"); got != "2" {
+		t.Errorf("X-RateLimit-Limit = %q on refusal, want 2", got)
+	}
+	if got := third.Header().Get("X-RateLimit-Remaining"); got != "0" {
+		t.Errorf("X-RateLimit-Remaining = %q on refusal, want 0", got)
+	}
+	if third.Header().Get("Retry-After") == "" {
+		t.Error("a refusal still needs Retry-After alongside the budget headers")
+	}
+}
+
 // The limiter must not be defeatable by a header the client controls. This is
 // the bypass that matters: without it, one extra argument per request gives an
 // attacker an unlimited supply of attempts. The header never changes the key

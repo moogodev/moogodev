@@ -106,9 +106,26 @@ func (limiter *Limiter) Plane(name string) *Limiter {
 // anyway, so keeping it costs memory and tells us nothing.
 const sweepInterval = time.Minute
 
+// decision is the outcome of one rate limit check.
+//
+// It carries the remaining allowance so the middleware can advertise it on
+// every response, not only on a refusal: a client that can see its budget
+// shrinking does not have to discover the limit by hitting it.
+type decision struct {
+	allowed   bool
+	wait      time.Duration
+	remaining int
+}
+
 // allow reports whether a caller identified by key may proceed, and how long
 // they should wait if not.
 func (limiter *Limiter) allow(key string) (bool, time.Duration) {
+	result := limiter.check(key)
+	return result.allowed, result.wait
+}
+
+// check runs one rate limit decision and reports the remaining allowance.
+func (limiter *Limiter) check(key string) decision {
 	limiter.mu.Lock()
 	defer limiter.mu.Unlock()
 
@@ -130,7 +147,7 @@ func (limiter *Limiter) allow(key string) (bool, time.Duration) {
 			tokens: float64(limiter.config.Limit) - 1,
 			last:   now,
 		}
-		return true, 0
+		return decision{allowed: true, remaining: limiter.config.Limit - 1}
 	}
 
 	// Refill proportionally to elapsed time.
@@ -157,11 +174,15 @@ func (limiter *Limiter) allow(key string) (bool, time.Duration) {
 		// half a second would do is how rate limits get ignored.
 		missing := 1 - bucket.tokens
 		wait := time.Duration(missing / float64(limiter.config.Limit) * float64(limiter.config.Window))
-		return false, wait
+		return decision{allowed: false, wait: wait, remaining: 0}
 	}
 
 	bucket.tokens--
-	return true, 0
+	remaining := int(bucket.tokens)
+	if remaining < 0 {
+		remaining = 0
+	}
+	return decision{allowed: true, remaining: remaining}
 }
 
 // sweepLocked drops buckets that have been full and idle for a full window.
@@ -203,10 +224,11 @@ func (limiter *Limiter) Middleware(next http.Handler) http.Handler {
 func (limiter *Limiter) MiddlewareKey(keyFn func(*http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			allowed, wait := limiter.allow(keyFn(r))
-			if !allowed {
+			result := limiter.check(keyFn(r))
+			limiter.writeHeaders(w, result)
+			if !result.allowed {
 				metrics.IncRateLimited(limiter.plane)
-				seconds := int(wait.Seconds())
+				seconds := int(result.wait.Seconds())
 				if seconds < 1 {
 					seconds = 1
 				}
@@ -219,6 +241,19 @@ func (limiter *Limiter) MiddlewareKey(keyFn func(*http.Request) string) func(htt
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// writeHeaders advertises the caller's budget on the response.
+//
+// These are the standard draft-ietf-httpapi-ratelimit-headers names, so a client
+// does not have to learn a house dialect to read its own allowance. They are
+// set on every throttled response, not only the refusals: a caller that can see
+// its budget shrinking never has to discover the limit by hitting it, and the
+// numbers make a 429 legible instead of arbitrary.
+func (limiter *Limiter) writeHeaders(w http.ResponseWriter, result decision) {
+	header := w.Header()
+	header.Set("X-RateLimit-Limit", strconv.Itoa(limiter.config.Limit))
+	header.Set("X-RateLimit-Remaining", strconv.Itoa(result.remaining))
 }
 
 // clientKey identifies the caller from RemoteAddr alone.
