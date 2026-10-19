@@ -230,6 +230,47 @@ func TestRequestIDReplacesOversizedValue(t *testing.T) {
 	}
 }
 
+// The correlation id reaches the error body, so a developer copying a failure
+// into a bug report carries it along without having to re-read the header. It
+// rides on the wrapped writer, since WriteError is reached from call sites that
+// hold only w and not the request.
+func TestWriteErrorCarriesTheRequestID(t *testing.T) {
+	handler := RequestID(logger.Nop())(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			WriteError(w, http.StatusBadRequest, "invalid_body", "bad input")
+		}))
+
+	request := httptest.NewRequest(http.MethodPost, "/db/x/query", nil)
+	request.Header.Set(RequestIDHeader, "trace-42")
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	var body ErrorBody
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error.RequestID != "trace-42" {
+		t.Errorf("error.request_id = %q, want %q", body.Error.RequestID, "trace-42")
+	}
+	// The header is still there too: the body field repeats it rather than
+	// replacing it.
+	if got := recorder.Header().Get(RequestIDHeader); got != "trace-42" {
+		t.Errorf("X-Request-ID = %q, want %q", got, "trace-42")
+	}
+}
+
+// Without the RequestID middleware there is no id to report, and the field is
+// absent rather than an empty string, so the shape stays clean.
+func TestWriteErrorOmitsRequestIDWhenUnknown(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	WriteError(recorder, http.StatusBadRequest, "invalid_body", "bad input")
+
+	if strings.Contains(recorder.Body.String(), "request_id") {
+		t.Errorf("expected no request_id field when the id is unknown: %s", recorder.Body.String())
+	}
+}
+
 func TestRequestIDGeneratedWhenAbsent(t *testing.T) {
 	var seen string
 

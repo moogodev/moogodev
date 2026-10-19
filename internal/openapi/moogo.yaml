@@ -730,6 +730,9 @@ components:
           type: string
         detail:
           type: string
+        request_id:
+          type: string
+          description: Repeats the X-Request-ID header so a copied error carries its correlation id.
     ErrorBody:
       type: object
       required: [error]

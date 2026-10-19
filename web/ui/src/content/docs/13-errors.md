@@ -10,7 +10,8 @@ Every error from the Moogo API has the same shape. Branch on `code`, not on
   "error": {
     "code": "sql_forbidden_keyword",
     "message": "this statement type is not allowed",
-    "detail": "ATTACH"
+    "detail": "ATTACH",
+    "request_id": "01HX8ZK9Q7YV2M4T6N0P3S5R8A"
   }
 }
 ```
@@ -20,10 +21,14 @@ Every error from the Moogo API has the same shape. Branch on `code`, not on
 | `code` | Stable and machine-readable. Safe to branch on. |
 | `message` | Human-readable. Safe to show a developer. |
 | `detail` | Optional. For SQL errors, the offending token or the driver's message. |
+| `request_id` | Optional. Repeats the `X-Request-ID` header, so an error copied into a bug report carries its correlation id with it. |
 
 There is exactly one shape across the whole API. You do not need to guess whether
 a failure is `{"error": "..."}` or `{"message": "..."}`, so you do not need a
 `try/catch` variant per endpoint.
+
+Every response also carries the same id in the `X-Request-ID` header. Include it
+when you report a problem: it lines the request up with the server's own logs.
 
 ## Handling errors
 
@@ -41,6 +46,7 @@ async function sql(query, args = []) {
     throw Object.assign(new Error(body.error.message), {
       code: body.error.code,
       detail: body.error.detail,
+      requestId: body.error.request_id,
       status: response.status,
     });
   }

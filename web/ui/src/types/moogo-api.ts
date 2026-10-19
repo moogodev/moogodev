@@ -736,6 +736,8 @@ export interface components {
             code: string;
             message: string;
             detail?: string;
+            /** @description Repeats the X-Request-ID header so a copied error carries its correlation id. */
+            request_id?: string;
         };
         ErrorBody: {
             error: components["schemas"]["ErrorDetail"];

@@ -27,6 +27,10 @@ type ErrorDetail struct {
 	// Detail is optional extra context. Never populated from an internal error
 	// string, since those can carry connection details or file paths.
 	Detail string `json:"detail,omitempty"`
+	// RequestID repeats the X-Request-ID header in the body, so a developer
+	// copying an error into a bug report carries the correlation id with it
+	// instead of having to re-read the header. Absent when the id is unknown.
+	RequestID string `json:"request_id,omitempty"`
 }
 
 // WriteJSON sends a JSON body with the given status.
@@ -47,14 +51,23 @@ func WriteJSON(w http.ResponseWriter, status int, payload any) {
 // WriteError sends a standard error body.
 func WriteError(w http.ResponseWriter, status int, code string, message string) {
 	WriteJSON(w, status, ErrorBody{
-		Error: ErrorDetail{Code: code, Message: message},
+		Error: ErrorDetail{
+			Code:      code,
+			Message:   message,
+			RequestID: requestIDFromWriter(w),
+		},
 	})
 }
 
 // WriteErrorWithDetail sends an error body with extra context.
 func WriteErrorWithDetail(w http.ResponseWriter, status int, code string, message string, detail string) {
 	WriteJSON(w, status, ErrorBody{
-		Error: ErrorDetail{Code: code, Message: message, Detail: detail},
+		Error: ErrorDetail{
+			Code:      code,
+			Message:   message,
+			Detail:    detail,
+			RequestID: requestIDFromWriter(w),
+		},
 	})
 }
 

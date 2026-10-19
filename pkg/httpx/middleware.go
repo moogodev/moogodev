@@ -36,6 +36,49 @@ func RequestIDFromContext(ctx context.Context) string {
 // RequestIDHeader carries the correlation id in and out.
 const RequestIDHeader = "X-Request-ID"
 
+// requestIDWriter carries the correlation id on the ResponseWriter, so a
+// handler that only holds w -- and not the request -- can still put the id in
+// an error body. The context already carries it, but WriteError is reached from
+// hundreds of call sites that pass only w, and threading the request through
+// all of them would be a wide, error-prone change for one field.
+//
+// It sits underneath whatever else wraps the writer (statusRecorder and the
+// like), so the id survives the wrapping those add.
+type requestIDWriter struct {
+	http.ResponseWriter
+	id string
+}
+
+// RequestID exposes the id this writer carries.
+func (writer *requestIDWriter) RequestID() string { return writer.id }
+
+// Unwrap exposes the wrapped writer, so http.ResponseController and the id
+// lookup below both reach through it.
+func (writer *requestIDWriter) Unwrap() http.ResponseWriter { return writer.ResponseWriter }
+
+// requestIDFromWriter returns the correlation id a writer carries, following
+// the Unwrap chain so an intermediate wrapper does not hide it. It returns ""
+// when no id is present, which callers treat as "unknown" rather than an error.
+func requestIDFromWriter(w http.ResponseWriter) string {
+	// Bounded so a cycle in the Unwrap chain, however it got there, cannot
+	// hang a response.
+	for depth := 0; depth < 16; depth++ {
+		switch writer := w.(type) {
+		case interface{ RequestID() string }:
+			return writer.RequestID()
+		case interface{ Unwrap() http.ResponseWriter }:
+			next := writer.Unwrap()
+			if next == nil {
+				return ""
+			}
+			w = next
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
 // statusRecorder captures the response status and size for logging.
 //
 // A wrapper is needed because http.ResponseWriter does not expose either, and
@@ -81,7 +124,9 @@ func RequestID(log *logger.Logger) func(http.Handler) http.Handler {
 
 			w.Header().Set(RequestIDHeader, requestID)
 			ctx := contextWithRequestID(r.Context(), requestID)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			// The id rides on the writer too, so WriteError can put it in an
+			// error body without every call site threading the request through.
+			next.ServeHTTP(&requestIDWriter{ResponseWriter: w, id: requestID}, r.WithContext(ctx))
 		})
 	}
 }
