@@ -52,6 +52,10 @@ update feed.
   Model Context Protocol tools over stdio, so a coding agent can call `query`,
   `exec` and `transaction` without hand-writing an HTTP client. It talks only to
   the data plane, never to the database directly.
+- **Command line client** — a separate binary (`cmd/moogo`) for applying a SQL
+  file, seeding once, resetting a database and listing or deleting objects. It
+  is an HTTP client and nothing else: same routes, same credentials, same rules
+  as curl, and no configuration that reaches past the API.
 
 The two planes share no tables. A client on the data plane never learns whether
 a project exists on the control plane; a signed-in user never holds a secret
@@ -67,6 +71,7 @@ fresh clone `web/dist` is committed, so this is only needed after changing
 cd web/ui && npm install && npm run build && cd ../..
 go build ./cmd/api
 go build ./cmd/mcp   # optional: the MCP server for coding agents
+go build ./cmd/moogo # optional: the command line client
 ```
 
 Frontend scripts (in `web/ui`):

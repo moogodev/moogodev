@@ -11,6 +11,10 @@ file per project, SQL over HTTP, no connection string and no driver.
 
 - [Schema & Migration Best Practices](/docs/schema-best-practices) — migration workflow, schema design, SQL style guide
 
+## Command line
+
+- [Command line client](/docs/cli) — `moogo`: apply, seed and reset a database, list and delete objects, from a terminal
+
 ## Backups
 
 - [Backups](/docs/backups) — scheduled off-site copies of a project's database, and how to restore one
