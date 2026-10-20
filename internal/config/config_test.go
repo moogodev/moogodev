@@ -410,3 +410,58 @@ func TestCookieDomainDefaultsToEmpty(t *testing.T) {
 		t.Errorf("CookieDomain = %q, want empty (host-only cookie)", cfg.CookieDomain)
 	}
 }
+
+// MOOGO_ENV is the switch the production rules hang on, so a value the code
+// does not branch on must not be accepted as if it meant something. The cost
+// of a silent typo here would be a deployment running with development rules:
+// an insecure cookie, a published session secret, no mail provider.
+func TestUnknownEnvironmentIsRejected(t *testing.T) {
+	for _, value := range []string{"prod", "staging", "Production", "dev"} {
+		t.Run(value, func(t *testing.T) {
+			_, err := loadWith(t, map[string]string{"MOOGO_ENV": value})
+			if err == nil {
+				t.Fatalf("%q should be rejected", value)
+			}
+			if !strings.Contains(err.Error(), "MOOGO_ENV") {
+				t.Errorf("error does not name the variable: %v", err)
+			}
+			if !strings.Contains(err.Error(), "production") {
+				t.Errorf("error should list the accepted values: %v", err)
+			}
+		})
+	}
+}
+
+// The three names the code branches on each start.
+func TestEveryEnvironmentTheCodeBranchesOnIsAccepted(t *testing.T) {
+	testCases := []struct {
+		name       string
+		env        string
+		overrides  map[string]string
+		production bool
+	}{
+		{"development", "development", nil, false},
+		{"test", "test", nil, false},
+		{"production", "production", map[string]string{
+			"MOOGO_COOKIE_SECURE":  "true",
+			"MOOGO_SESSION_SECRET": strings.Repeat("x", 45),
+			"RESEND_API_KEY":       "re_test",
+		}, true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			overrides := map[string]string{"MOOGO_ENV": testCase.env}
+			for key, value := range testCase.overrides {
+				overrides[key] = value
+			}
+			cfg, err := loadWith(t, overrides)
+			if err != nil {
+				t.Fatalf("%s should be accepted: %v", testCase.env, err)
+			}
+			if cfg.IsProduction() != testCase.production {
+				t.Errorf("IsProduction() = %v, want %v", cfg.IsProduction(), testCase.production)
+			}
+		})
+	}
+}

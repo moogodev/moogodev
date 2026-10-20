@@ -384,6 +384,20 @@ func (cfg Config) IsProduction() bool {
 func (cfg Config) validate() error {
 	var problems []string
 
+	// The environment name is a switch, not a label. "production" is the only
+	// value that turns the production rules on — secure cookies, a session
+	// secret nobody could guess, a mail or sign-in provider configured — and
+	// every other value runs with the development ones. A typo in MOOGO_ENV
+	// would therefore not shout: it would quietly start a real deployment
+	// without them. The name is checked against the values the code actually
+	// branches on, so the process fails at startup instead of degrading.
+	switch cfg.Environment {
+	case "development", "test", "production":
+	default:
+		problems = append(problems, fmt.Sprintf(
+			"MOOGO_ENV must be development, test, or production (got %q)", cfg.Environment))
+	}
+
 	// A cookie domain reaches the browser verbatim, and the browser silently
 	// drops a cookie whose Domain attribute it rejects — which would look like
 	// sessions randomly not working on a split deployment rather than like a

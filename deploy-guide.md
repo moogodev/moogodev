@@ -221,7 +221,7 @@ which one it wants.
 |---|---|
 | `MOOGO_DATABASE_URL` | `postgres://` or `postgresql://` |
 | `MOOGO_SESSION_SECRET` | ≥ 32 characters. Must **not** be the value `dev.sh` defaults to — that one is published in the repository and production refuses it. |
-| `MOOGO_ENV` | `production` |
+| `MOOGO_ENV` | `production`. Only `development`, `test`, and `production` are accepted — any other value stops the server at startup rather than running a deployment with development rules. |
 | `MOOGO_COOKIE_SECURE` | must be `true` in production |
 | `MOOGO_PUBLIC_URL` | the origin people type; email links are built from it |
 | `MOOGO_DATA_DIR` | must match the unit's `ReadWritePaths` |

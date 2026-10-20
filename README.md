@@ -89,9 +89,28 @@ export MOOGO_DATA_DIR=./data
 ```
 
 `dev.sh` exports the local defaults and starts the API if you would rather not
-do it by hand. It expects a local Postgres to already be running (it prints the
-command if not). It is development only — the session secret it defaults to is
-published in this repository, and production refuses to start with it.
+do it by hand, along with the Postgres it uses. It is development only — the
+session secret it defaults to is published in this repository, and production
+refuses to start with it.
+
+```bash
+./dev.sh              # the "dev" environment: localhost:8080
+./dev.sh staging      # a second one, running beside it
+```
+
+An environment is one self-contained set of state — its own Postgres cluster
+and database, its own directory of project files, its own ports — living under
+`~/.moogo-dev/` (`~/.moogo-dev/<name>/` for a named one). The first run creates
+it; later runs reuse it. That is what makes a scratch environment safe to
+create, reset or leave broken without touching the one you work in every day.
+Ports are derived from the name and printed at start, so the same environment
+lands on the same ports every time; `MOOGO_HTTP_PORT`, `MOOGO_PGPORT`,
+`MOOGO_DATA_DIR`, `MOOGO_DATABASE_URL` and the rest still override any of it.
+
+`MOOGO_ENV` accepts exactly `development`, `test` or `production`. It is the
+switch the production rules hang on, so a value the code does not branch on
+stops the server at startup instead of quietly running with the development
+ones.
 
 Every other setting has a default; `internal/config/config.go` is the list.
 
