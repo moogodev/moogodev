@@ -61,10 +61,23 @@ type execResponse struct {
 	SizeBytes    int64 `json:"size_bytes"`
 }
 
+// maintainResponse is the body the maintenance endpoint returns.
+type maintainResponse struct {
+	Success      bool  `json:"success"`
+	Vacuumed     bool  `json:"vacuumed"`
+	Reindexed    bool  `json:"reindexed"`
+	Optimized    bool  `json:"optimized"`
+	Checkpointed bool  `json:"checkpointed"`
+	SizeBefore   int64 `json:"size_before_bytes"`
+	SizeAfter    int64 `json:"size_after_bytes"`
+	FreedBytes   int64 `json:"freed_bytes"`
+	DurationMs   int64 `json:"duration_ms"`
+}
+
 // runDB dispatches the db subcommands.
 func runDB(ctx context.Context, streams Streams, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(streams.Err, "moogo db needs a subcommand: push, seed or reset")
+		fmt.Fprintln(streams.Err, "moogo db needs a subcommand: push, seed, reset or vacuum")
 		dbUsage(streams.Err)
 		return ExitUsage
 	}
@@ -76,6 +89,8 @@ func runDB(ctx context.Context, streams Streams, args []string) int {
 		return dbSeed(ctx, streams, args[1:])
 	case "reset":
 		return dbReset(ctx, streams, args[1:])
+	case "vacuum":
+		return dbVacuum(ctx, streams, args[1:])
 	case "help", "-h", "--help":
 		dbUsage(streams.Out)
 		return ExitOK
@@ -122,6 +137,50 @@ func dbPush(ctx context.Context, streams Streams, args []string) int {
 	}
 
 	fmt.Fprintf(streams.Out, "applied %s\n", applySummary(result))
+	return ExitOK
+}
+
+// dbVacuum compacts the database and reports how much space it freed.
+func dbVacuum(ctx context.Context, streams Streams, args []string) int {
+	takesValue, isBool := sharedFlags()
+	flags, err := parseFlags(args, takesValue, isBool)
+	if err != nil {
+		return fail(streams, err)
+	}
+	if flags.wantsHelp() {
+		dbVacuumUsage(streams.Out)
+		return ExitOK
+	}
+	if len(flags.positional) != 0 {
+		return fail(streams, &commandError{errors.New("usage: moogo db vacuum")})
+	}
+
+	config, err := resolve(flags)
+	if err != nil {
+		return fail(streams, err)
+	}
+	if err := config.requireSecret(); err != nil {
+		return fail(streams, err)
+	}
+
+	var response maintainResponse
+	client := newClient(config)
+	if err := client.do(ctx, http.MethodPost, config.sqlEndpoint("/maintenance"), config.projectCredential(), nil, &response); err != nil {
+		return fail(streams, err)
+	}
+
+	if !response.Success {
+		return fail(streams, errors.New("maintenance did not succeed"))
+	}
+
+	fmt.Fprintf(streams.Out, "vacuumed: %s freed (%s before → %s after), reindexed: %v, analyzed: %v, checkpointed: %v (%dms)\n",
+		humanBytes(response.FreedBytes),
+		humanBytes(response.SizeBefore),
+		humanBytes(response.SizeAfter),
+		response.Reindexed,
+		response.Optimized,
+		response.Checkpointed,
+		response.DurationMs)
 	return ExitOK
 }
 
@@ -603,6 +662,7 @@ Usage:
   moogo db push <file>    apply a SQL file to the project's database
   moogo db seed [file]    apply a seed file once (default seed.sql)
   moogo db reset --yes    drop every table and view in the project
+  moogo db vacuum         reclaim free space after deleting rows
 
 The file is applied as a transaction, so it either lands whole or not at all.
 A file of more than 100 statements -- the API's cap on one transaction -- is
@@ -610,6 +670,11 @@ applied in several transactions, in order.
 
 Only write statements belong here. Reads go to /query, and the API answers a
 SELECT sent to /transaction with not_a_write.
+
+Deleting rows frees pages but does not shrink the database file on disk. Run
+vacuum to rewrite the file and return those pages to the filesystem. Vacuum
+is its own endpoint because it rewrites the whole file; it cannot be sent to
+the SQL console.
 
 `)
 }
@@ -650,5 +715,20 @@ Foreign keys are honoured: tables are dropped in dependency order, so a schema
 with references between its tables resets cleanly.
 
 Flags: --yes, --url, --key, --help
+`)
+}
+
+func dbVacuumUsage(writer io.Writer) {
+	fmt.Fprint(writer, `moogo db vacuum — reclaim free space after deleting rows
+
+  moogo db vacuum
+
+Deleting rows frees pages but does not shrink the database file on disk.
+vacuum rewrites the file, reindexes tables, rebuilds query planner statistics
+and folds the write-ahead log back in, returning freed pages to the
+filesystem. It is its own operation because rewriting the whole file is exactly
+what the SQL API refuses.
+
+Flags: --url, --key, --help
 `)
 }

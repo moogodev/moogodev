@@ -407,9 +407,9 @@ back as \`400\` with a specific \`code\`.
 |---|---|
 | \`ATTACH\` | Opens an arbitrary path as a database. This would turn \`/exec\` into a file reader for the whole host. |
 | \`DETACH\` | The other half of the same escape. |
-| \`VACUUM\` | Rewrites the whole file, bypassing the per-project size limit. |
-| \`REINDEX\` | Same — it rebuilds and can grow the file unchecked. |
-| \`ANALYZE\` | Same. |
+| \`REINDEX\` | Rebuilds indexes; use \`POST /maintenance\` instead. |
+| \`ANALYZE\` | Updates planner statistics; use \`POST /maintenance\` instead. |
+| \`VACUUM\` | Rewrites the whole file; use \`POST /maintenance\` instead. |
 | \`BEGIN\`, \`COMMIT\`, \`ROLLBACK\`, \`SAVEPOINT\`, \`RELEASE\` | You get one statement per request, and transactions are managed per request. |
 
 ### Functions that read files or load native code
@@ -475,7 +475,65 @@ a substitute for the body limit, which is enforced while reading.
 A write that **would** cross the size ceiling is refused before it commits. You
 get an error, not a silently truncated database.
 
-## Migration Strategy
+## \`POST /maintenance\` — reclaim space after deletes
+
+Deleting rows frees pages inside the database file, but SQLite does not shrink
+the file on disk until it is rewritten. Run maintenance to reindex, rebuild
+query planner statistics, vacuum the file and fold the write-ahead log back in
+one operation.
+
+\`\`\`bash
+curl $MOOGO_PROJECT_URL/maintenance \\
+  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \\
+  -X POST
+\`\`\`
+
+\`/maintenance/vacuum\` is accepted as an alias for the same operation.
+
+### Response
+
+\`\`\`json
+{
+  "success": true,
+  "vacuumed": true,
+  "reindexed": true,
+  "optimized": true,
+  "checkpointed": true,
+  "size_before_bytes": 245760,
+  "size_after_bytes": 65536,
+  "freed_bytes": 180224,
+  "duration_ms": 42
+}
+\`\`\`
+
+| Field | Type | Notes |
+|---|---|---|
+| \`vacuumed\` | boolean | \`false\` when the file had no free pages, so the rewrite had no space to return. The other steps still ran. |
+| \`reindexed\` | boolean | Indexes were rebuilt. |
+| \`optimized\` | boolean | Query planner statistics were rebuilt. |
+| \`checkpointed\` | boolean | The write-ahead log was folded back into the main file. |
+| \`size_before_bytes\` | integer | Size on disk before the run, including the log sidecar. |
+| \`size_after_bytes\` | integer | Size on disk after the run, including the log sidecar. |
+| \`freed_bytes\` | integer | \`size_before_bytes - size_after_bytes\`. |
+| \`duration_ms\` | integer | Server-side execution time. |
+
+### Rules
+
+- **Its own route.** \`VACUUM\`, \`REINDEX\` and \`ANALYZE\` are rejected on \`/exec\`
+  and \`/transaction\` because rewriting the whole file would bypass the per-project
+  size limit. The maintenance endpoint runs them in a fixed order with the
+  project's write lock and the same size limit still in force.
+- **Idempotent in effect.** Running it on a tight database is cheap and reports
+  \`vacuumed: false\`.
+- **One at a time per project.** The endpoint shares the project's write lock and
+  statement slot budget with \`/exec\` and \`/transaction\`; a concurrent request
+  waits for its turn or returns \`503 database_busy\` with \`Retry-After: 1\`.
+- **Budgeted.** The run uses the same statement timeout and is subject to the same
+  concurrency limit as other writes.
+- **Project key required.** A storage credential cannot run maintenance.
+
+You can also run it with the official CLI: \`moogo db vacuum\`.
+
 
 Moogo does not include a built-in migration framework. Instead, you run DDL
 statements directly via the \`/exec\` endpoint. This gives you full control but

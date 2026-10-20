@@ -415,6 +415,11 @@ type fakeDatabases struct {
 	execResult    *dbplane.ExecResult
 	queryErr      error
 	execErr       error
+
+	// Maintenance behaviour.
+	maintainCalls  []uuid.UUID
+	maintainResult *dbplane.MaintainResult
+	maintainErr    error
 }
 
 // consoleStatement records one statement the dashboard console sent.
@@ -461,6 +466,21 @@ func (plane *fakeDatabases) Transaction(
 ) (*dbplane.TransactionResult, error) {
 	results := make([]dbplane.TransactionStatementResult, len(statements))
 	return &dbplane.TransactionResult{Statements: results}, nil
+}
+
+// Maintain records a maintenance run. The console has no maintenance route, so
+// this exists to satisfy the Engine interface rather than to be exercised.
+func (plane *fakeDatabases) Maintain(
+	_ context.Context, projectID uuid.UUID,
+) (*dbplane.MaintainResult, error) {
+	plane.maintainCalls = append(plane.maintainCalls, projectID)
+	if plane.maintainErr != nil {
+		return nil, plane.maintainErr
+	}
+	if plane.maintainResult != nil {
+		return plane.maintainResult, nil
+	}
+	return &dbplane.MaintainResult{Reindexed: true, Optimized: true, Vacuumed: true}, nil
 }
 
 // QuerySnapshot records the viewer read. Like Query it reports the scripted

@@ -166,6 +166,122 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /db/{project_id}/maintenance:
+    post:
+      tags: [SQL]
+      summary: Compact the database and reclaim free space
+      description: Reindexes, rebuilds planner statistics, vacuums the file and checkpoints the WAL. VACUUM/REINDEX/ANALYZE are blocked on /query and /exec; use this endpoint. The size limit remains in force.
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Maintenance result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SQLMaintenanceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /db/{project_id}/maintenance/vacuum:
+    post:
+      tags: [SQL]
+      summary: Compact the database and reclaim free space
+      description: Alias for /maintenance.
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Maintenance result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SQLMaintenanceResponse'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /p/{project_id}/maintenance:
+    post:
+      tags: [SQL]
+      summary: Compact the database and reclaim free space
+      description: Project-scoped alias using MOOGO_PROJECT_URL. Reindexes, rebuilds planner statistics, vacuums the file and checkpoints the WAL.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Maintenance result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SQLMaintenanceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /p/{project_id}/maintenance/vacuum:
+    post:
+      tags: [SQL]
+      summary: Compact the database and reclaim free space
+      description: Alias for /p/{project_id}/maintenance.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Maintenance result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SQLMaintenanceResponse'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /bucket/{project_id}:
     get:
       tags: [Storage]
@@ -687,6 +803,33 @@ components:
           format: int64
         aborted:
           type: boolean
+    SQLMaintenanceResponse:
+      type: object
+      required: [success, vacuumed, reindexed, optimized, checkpointed, size_before_bytes, size_after_bytes, freed_bytes, duration_ms]
+      properties:
+        success:
+          type: boolean
+        vacuumed:
+          type: boolean
+          description: false when the file had no free pages so the rewrite had no space to return.
+        reindexed:
+          type: boolean
+        optimized:
+          type: boolean
+        checkpointed:
+          type: boolean
+        size_before_bytes:
+          type: integer
+          format: int64
+        size_after_bytes:
+          type: integer
+          format: int64
+        freed_bytes:
+          type: integer
+          format: int64
+        duration_ms:
+          type: integer
+          format: int64
     Bucket:
       type: object
       required: [id, name, object_count, size_bytes, created_at, is_public, allowed_types, max_object_size_bytes, quota_bytes]

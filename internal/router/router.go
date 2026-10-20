@@ -85,6 +85,7 @@ type DataPlaneHandlers interface {
 	Query(http.ResponseWriter, *http.Request)
 	Exec(http.ResponseWriter, *http.Request)
 	Transaction(http.ResponseWriter, *http.Request)
+	Maintain(http.ResponseWriter, *http.Request)
 }
 
 // ActivityRecorder appends one audit row per data plane request, so the
@@ -650,6 +651,16 @@ func New(deps Deps) http.Handler {
 		// /exec; keeping both means a client that probed for it reaches an
 		// answer instead of a 404.
 		projectPlane.Post("/exec/txn", once(deps.Data.Transaction))
+		// Maintenance is the statements the SQL API refuses. It is a route of
+		// its own rather than an /exec case so the refusal on /exec stays
+		// unconditional: VACUUM rewrites the file, and a caller who could send
+		// it could release every byte the size limit is measured against.
+		projectPlane.Post("/maintenance", once(deps.Data.Maintain))
+		// A name a client may guess for the same run, kept beside it so a
+		// probe reaches an answer rather than a 404 -- the same reason
+		// /exec/txn exists. Only the vacuum is named, because that is the part
+		// a caller comes looking for.
+		projectPlane.Post("/maintenance/vacuum", once(deps.Data.Maintain))
 	})
 
 	// --- Data plane: object storage, on its own credential ---
@@ -695,6 +706,8 @@ func New(deps Deps) http.Handler {
 		dataPlane.Post("/exec", once(deps.Data.Exec))
 		dataPlane.Post("/transaction", once(deps.Data.Transaction))
 		dataPlane.Post("/exec/txn", once(deps.Data.Transaction))
+		dataPlane.Post("/maintenance", once(deps.Data.Maintain))
+		dataPlane.Post("/maintenance/vacuum", once(deps.Data.Maintain))
 	})
 
 	// --- Data plane: bucket (object storage) ---

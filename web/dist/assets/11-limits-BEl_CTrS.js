@@ -36,7 +36,7 @@ The check runs **before** the write, and SQLite refuses the page growth that wou
 - Gunakan CTE untuk logika kompres kompleks, tetapi hindari CTE rekurif di transaksi yang sama dengan operasi tulis.
 - **Jangan gunakan \`SELECT *\`** dalam pengolahan produksi; selalu nama kolom yang dibutuhkan, karena perubahan schema akan memecah klien tanpa migrasi.
 
-Database does not auto-shrink when data is deleted. Physical space remains until VACUUM is executed (blocked on Moogo). To approach the 250 MB limit, delete rows progressively and monitor daily usage, then migrate to a new project before reaching 230 MB.
+Database does not auto-shrink when data is deleted. Physical space remains until you run \`moogo db vacuum\` or \`POST /maintenance\` (see [SQL API](./07-sql-api#post-maintenance--reclaim-space-after-deletes)). Reclaim space regularly after large deletes.
 
 ### Result size
 

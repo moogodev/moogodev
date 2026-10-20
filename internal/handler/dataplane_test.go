@@ -25,10 +25,11 @@ func testDataPlane(t *testing.T) (*DataPlane, *fakeEngine) {
 // fakeEngine stands in for the SQLite engine so the handler can be tested
 // without touching disk.
 type fakeEngine struct {
-	queryResult dbplane.QueryResult
-	execResult  dbplane.ExecResult
-	txResult    dbplane.TransactionResult
-	err         error
+	queryResult    dbplane.QueryResult
+	execResult     dbplane.ExecResult
+	txResult       dbplane.TransactionResult
+	maintainResult *dbplane.MaintainResult
+	err            error
 
 	queryCalls  int
 	execCalls   int
@@ -86,6 +87,19 @@ func (engine *fakeEngine) Transaction(
 		results[index] = dbplane.TransactionStatementResult{RowsAffected: 1}
 	}
 	return &dbplane.TransactionResult{Statements: results, RowsAffected: int64(len(results))}, nil
+}
+
+func (engine *fakeEngine) Maintain(
+	_ context.Context, projectID uuid.UUID,
+) (*dbplane.MaintainResult, error) {
+	engine.lastProject = projectID
+	if engine.err != nil {
+		return nil, engine.err
+	}
+	if engine.maintainResult != nil {
+		return engine.maintainResult, nil
+	}
+	return &dbplane.MaintainResult{Reindexed: true, Optimized: true, Vacuumed: true}, nil
 }
 
 // QuerySnapshot satisfies the Engine interface's backup-viewer read path. The

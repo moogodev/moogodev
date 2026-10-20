@@ -99,6 +99,7 @@ Usage:
   moogo db push <file>        apply a SQL file to the project's database
   moogo db seed [file]        apply a seed file once (default seed.sql)
   moogo db reset --yes        drop every table and view in the project
+  moogo db vacuum             reclaim free space after deleting rows
   moogo bucket ls [prefix]    list the objects in a bucket
   moogo bucket rm <key...>    delete objects, or with --prefix a whole folder
   moogo version               print the client version

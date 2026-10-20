@@ -47,6 +47,13 @@ type Engine interface {
 		statements []dbplane.TransactionStatement,
 	) (*dbplane.TransactionResult, error)
 
+	// Maintain compacts a project's database: the statements the SQL API
+	// blocks precisely because they rewrite the whole file. It is on the
+	// engine interface rather than reachable through Exec, because a route of
+	// its own is what lets it be authorized and budgeted differently from an
+	// ordinary statement.
+	Maintain(ctx context.Context, projectID uuid.UUID) (*dbplane.MaintainResult, error)
+
 	// QuerySnapshot runs a read-only statement against a standalone SQLite
 	// file, such as a downloaded backup. It is the backup viewer's read path
 	// and is deliberately separate from Query: the target is a file, not a
@@ -252,6 +259,74 @@ func (runner sqlRunner) transaction(w http.ResponseWriter, r *http.Request, proj
 		Statements:   statements,
 		RowsAffected: result.RowsAffected,
 		SizeBytes:    result.SizeBytes,
+		DurationMs:   elapsedMs(started),
+	})
+}
+
+// MaintainResponse is the outcome of a maintenance run.
+type MaintainResponse struct {
+	Success bool `json:"success"`
+	// Vacuumed is false when the file carried no free pages, so the rewrite
+	// would have moved every page and returned nothing. The other steps still
+	// ran; this says the expensive one had no work to do.
+	Vacuumed bool `json:"vacuumed"`
+	// Reindexed and Optimized report the two statements that ran before the
+	// vacuum, so a caller can tell a no-op from a failure.
+	Reindexed bool `json:"reindexed"`
+	Optimized bool `json:"optimized"`
+	// Checkpointed is true when the write-ahead log held frames that were
+	// folded back into the main file.
+	Checkpointed bool `json:"checkpointed"`
+	// SizeBefore and SizeAfter are the database's size on disk, log sidecar
+	// included, on each side of the run. FreedBytes is the difference a caller
+	// cares about: the space a delete released but did not return until now.
+	SizeBefore int64 `json:"size_before_bytes"`
+	SizeAfter  int64 `json:"size_after_bytes"`
+	FreedBytes int64 `json:"freed_bytes"`
+	// DurationMs is server-side execution time for the whole run.
+	DurationMs int64 `json:"duration_ms"`
+}
+
+// Maintain handles POST /db/{project_id}/maintenance.
+//
+// The endpoint exists because VACUUM is exactly the statement the SQL API has
+// to refuse: it rewrites the whole file, which would let a project release
+// every byte the size limit is measured against. A route of its own gives it
+// its own rules -- the project key, the same write lock, the same slot budget,
+// and the connection's own max_page_count still in force -- while the ordinary
+// endpoints keep their refusal.
+func (handler *DataPlane) Maintain(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := auth.ProjectIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	handler.runner.maintain(w, r, projectID)
+}
+
+// maintain compacts a project's database for an already-authorized caller.
+//
+// There is no body to decode and no statement to sanitize: the work is a fixed
+// sequence of statements the engine owns, so accepting text here would be a
+// sanitation surface with nothing to sanitize.
+func (runner sqlRunner) maintain(w http.ResponseWriter, r *http.Request, projectID uuid.UUID) {
+	started := now()
+	result, err := runner.databases.Maintain(r.Context(), projectID)
+	if err != nil {
+		runner.writeDataPlaneError(w, r, projectID, err, "maintenance")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, MaintainResponse{
+		Success:      true,
+		Vacuumed:     result.Vacuumed,
+		Reindexed:    result.Reindexed,
+		Optimized:    result.Optimized,
+		Checkpointed: result.Checkpointed,
+		SizeBefore:   result.SizeBefore,
+		SizeAfter:    result.SizeAfter,
+		FreedBytes:   result.SizeBefore - result.SizeAfter,
 		DurationMs:   elapsedMs(started),
 	})
 }
