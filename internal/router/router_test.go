@@ -293,6 +293,9 @@ func (stub *stubBucket) Download(w http.ResponseWriter, r *http.Request) {
 func (stub *stubBucket) PublicDownload(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "PublicDownload")
 }
+func (stub *stubBucket) PresignedUpload(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "PresignedUpload")
+}
 func (stub *stubBucket) Update(w http.ResponseWriter, r *http.Request) { stub.mark(w, "Update") }
 func (stub *stubBucket) Delete(w http.ResponseWriter, r *http.Request) { stub.mark(w, "Delete") }
 func (stub *stubBucket) List(w http.ResponseWriter, r *http.Request)   { stub.mark(w, "List") }
@@ -1967,5 +1970,83 @@ func TestLegalAndCrawlerRoutesAreRegistered(t *testing.T) {
 			t.Errorf("%s: body = %q, want the stub handler's answer %q",
 				testCase.path, recorder.Body.String(), testCase.want)
 		}
+	}
+}
+
+func TestPublicPlaneAnswersPreflightFromAnotherOrigin(t *testing.T) {
+	// The presigned upload is used by a browser on the customer's own origin.
+	// The preflight has to be answered, or the upload never leaves the tab.
+	projectID := uuid.New()
+	built := New(testDeps(t, projectID))
+
+	request := httptest.NewRequest(http.MethodOptions,
+		"/pub/"+projectID.String()+"/file.png", nil)
+	request.Host = "api.moogo.dev"
+	request.Header.Set("Origin", "https://app.example")
+	request.Header.Set("Access-Control-Request-Method", "PUT")
+	request.Header.Set("Access-Control-Request-Headers", "content-type")
+
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want *", got)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, "PUT") {
+		t.Fatalf("Access-Control-Allow-Methods = %q, want PUT in it", got)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Content-Type") {
+		t.Fatalf("Access-Control-Allow-Headers = %q, want Content-Type in it", got)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("Access-Control-Allow-Credentials = %q, want it unset", got)
+	}
+}
+
+func TestPublicPlaneAcceptsCrossOriginPresignedPut(t *testing.T) {
+	// SameOrigin must not reject the one write the public plane exists to
+	// accept: the grant is in the URL, and the handler verifies it.
+	projectID := uuid.New()
+	deps := testDeps(t, projectID)
+	bucketStub := deps.Bucket.(*stubBucket)
+	built := New(deps)
+
+	request := httptest.NewRequest(http.MethodPut,
+		"/pub/"+projectID.String()+"/file.png?bucket=default&exp=1&sig=x",
+		strings.NewReader("hello"))
+	request.Host = "api.moogo.dev"
+	request.Header.Set("Origin", "https://app.example")
+
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, request)
+
+	if bucketStub.called != "PresignedUpload" {
+		t.Fatalf("handler = %q, want PresignedUpload (status %d)", bucketStub.called, recorder.Code)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want *", got)
+	}
+}
+
+func TestCrossOriginWriteOutsideThePublicPlaneIsStillRefused(t *testing.T) {
+	// The exemption is exactly the /pub/ prefix. A cross-origin write to the
+	// data plane is still a CSRF-shaped request and still gets 403.
+	projectID := uuid.New()
+	built := New(testDeps(t, projectID))
+
+	request := httptest.NewRequest(http.MethodPost,
+		"/db/"+projectID.String()+"/exec", strings.NewReader(`{"sql":"SELECT 1"}`))
+	request.Host = "api.moogo.dev"
+	request.Header.Set("Origin", "https://evil.example")
+	request.Header.Set("Content-Type", "application/json")
+
+	recorder := httptest.NewRecorder()
+	built.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body %q)", recorder.Code, recorder.Body.String())
 	}
 }

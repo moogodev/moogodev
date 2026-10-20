@@ -492,7 +492,64 @@ export interface paths {
                 };
             };
         };
-        put?: never;
+        /**
+         * Presigned upload
+         * @description Writes one object using a URL minted with method PUT. The signature
+         *     covers the project, bucket, key and expiry, so editing the bucket or
+         *     key in the URL makes the signature invalid.
+         */
+        put: {
+            parameters: {
+                query?: {
+                    /** @description Bucket the grant was issued for. Defaults to the default bucket. */
+                    bucket?: string;
+                    /** @description Unix timestamp after which the signature stops working. */
+                    exp?: string;
+                    /** @description Base64url signature minted by POST /buckets/{project_id}/sign. */
+                    sig?: string;
+                };
+                header?: never;
+                path: {
+                    project_id: string;
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "*/*": string;
+                };
+            };
+            responses: {
+                /** @description Upload result */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UploadResponse"];
+                    };
+                };
+                /** @description The link expired, or the project is paused. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No valid signature for this key and bucket. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
         post?: never;
         delete?: never;
         options?: never;
@@ -575,10 +632,11 @@ export interface paths {
         put?: never;
         /**
          * Mint a time-limited signed URL
-         * @description Returns a URL that serves one object without a credential until it
-         *     expires. The signature covers the project, the key and the expiry, so
-         *     the URL cannot be edited into a grant for another object or a longer
-         *     lifetime. HEAD is authorized by a GET signature.
+         * @description Returns a URL that reads or writes one object without a credential
+         *     until it expires. The signature covers the method, project, bucket,
+         *     key and expiry, so the URL cannot be edited into a grant for another
+         *     object, another bucket, another operation, or a longer lifetime. HEAD
+         *     is authorized by a GET signature.
          */
         post: {
             parameters: {
@@ -835,6 +893,14 @@ export interface components {
             /** @description Object key to sign, including any folder segments. */
             key: string;
             /**
+             * @description GET for a download link, PUT for an upload link.
+             * @default GET
+             * @enum {string}
+             */
+            method: "GET" | "PUT";
+            /** @description Bucket an upload lands in. Only valid with method PUT; defaults to the default bucket. */
+            bucket?: string;
+            /**
              * Format: int64
              * @description Seconds until the link stops working. Defaults to 900, minimum 60, maximum 604800.
              * @default 900
@@ -842,10 +908,10 @@ export interface components {
             expires_in: number;
         };
         SignURLResponse: {
-            /** @description Absolute URL that serves the object until it expires. */
+            /** @description Absolute URL that performs the signed operation until it expires. */
             url: string;
             /** @enum {string} */
-            method: "GET";
+            method: "GET" | "PUT";
             /** Format: date-time */
             expires_at: string;
             /**

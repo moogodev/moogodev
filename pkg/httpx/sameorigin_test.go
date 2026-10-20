@@ -34,7 +34,7 @@ func TestSameOriginRefusesCrossOriginWrites(t *testing.T) {
 			request.Header.Set("Origin", testCase.origin)
 
 			called := false
-			handler := SameOrigin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := SameOrigin()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				called = true
 				w.WriteHeader(http.StatusNoContent)
 			}))
@@ -80,7 +80,7 @@ func TestSameOriginPassesLegitimateTraffic(t *testing.T) {
 			}
 
 			called := false
-			handler := SameOrigin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := SameOrigin()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				called = true
 				w.WriteHeader(http.StatusNoContent)
 			}))
@@ -93,5 +93,54 @@ func TestSameOriginPassesLegitimateTraffic(t *testing.T) {
 				t.Errorf("expected 204, got %d", recorder.Code)
 			}
 		})
+	}
+}
+
+// TestSameOriginExemptPrefixPassesCrossOriginWrites: a path that authorizes a
+// write by a signature in the request rather than by an ambient credential is
+// reached even from another origin. The presigned upload on /pub/ is the one
+// such surface; without the exemption a browser could never use it.
+func TestSameOriginExemptPrefixPassesCrossOriginWrites(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "http://example.com/pub/x/file.png", nil)
+	request.Host = "example.com"
+	request.Header.Set("Origin", "https://app.example")
+
+	called := false
+	handler := SameOrigin("/pub/")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusCreated)
+	}))
+	handler.ServeHTTP(recorder, request)
+
+	if !called {
+		t.Fatalf("the exempt path was not reached: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d", recorder.Code)
+	}
+}
+
+// TestSameOriginExemptionIsByPathNotMethod: the exemption covers the prefix and
+// nothing else. A cross-origin write to a sibling path is still refused, which
+// is what keeps the exemption from being a hole in the layer.
+func TestSameOriginExemptionIsByPathNotMethod(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/db/x/exec", nil)
+	request.Host = "example.com"
+	request.Header.Set("Origin", "https://evil.example")
+
+	called := false
+	handler := SameOrigin("/pub/")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	handler.ServeHTTP(recorder, request)
+
+	if called {
+		t.Fatal("a cross-origin write outside the exempt prefix reached the handler")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", recorder.Code)
 	}
 }

@@ -153,8 +153,9 @@ curl https://cdn.moogo.dev/pub/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/avatars/kit.
 
 No headers. This host is the CDN origin (`MOOGO_CDN_URL`); a deployment without
 one serves the same route from the API host. It serves only objects that were
-published; anything else returns `404`, so a private object is
-indistinguishable from a missing one. Responses carry
+published, or a single object named by a valid signed URL (next section);
+anything else returns `404`, so a private object is indistinguishable from a
+missing one. Responses carry
 `Cross-Origin-Resource-Policy: cross-origin`, so a page on any other domain can
 embed them in an `<img>`, a `<video>`, or CSS.
 
@@ -190,12 +191,15 @@ works with the same link.
 | Field | Notes |
 |---|---|
 | `key` | Required. Same naming rules as an upload; the signature covers it exactly. |
+| `method` | `GET` (default) for a download link, `PUT` for an upload link. |
+| `bucket` | Only with `method: PUT`. Defaults to the default bucket; a bucket name on a `GET` is refused with `invalid_bucket`. |
 | `expires_in` | Seconds. Defaults to `900`; must be between `60` and `604800` (seven days). |
 
 What the link cannot be edited into: the signature covers the method, the
-project, the key and the expiry, so changing the key, extending `exp` or
-replaying it against another project breaks it. What it can do: be forwarded
-to anyone. Treat one as a temporary password for a single file.
+project, the bucket, the key and the expiry, so changing the key, moving an
+upload to another bucket, extending `exp` or replaying it against another
+project breaks it. What it can do: be forwarded to anyone. Treat one as a
+temporary password for a single file.
 
 Two failures are worth telling apart:
 
@@ -208,6 +212,47 @@ Signed downloads are not cacheable by shared caches (`Cache-Control: private`),
 so a CDN never serves one past its expiry. Rotating the deployment's session
 secret invalidates every outstanding signed URL at once — there is no per-link
 revocation, so rotate when a link leaks and the time limit is not enough.
+
+## Presigned uploads
+
+Ask for `method: PUT` and the link writes instead of reading:
+
+```bash
+curl -X POST "https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/sign" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key": "avatars/kit.png", "method": "PUT", "bucket": "avatars", "expires_in": 300}'
+```
+
+The response carries a `PUT` URL. Send the bytes to it with no credential
+header:
+
+```bash
+curl -X PUT "$SIGNED_UPLOAD_URL" \
+  -H "Content-Type: image/png" \
+  --data-binary @kit.png
+```
+
+This is what lets a browser upload straight from a form without ever holding a
+storage secret. It is also why the upload URL is narrower than the credential:
+
+- The link names one key in one bucket. Every naming rule, type policy and
+  quota still applies, and a second `PUT` to a key that already exists is
+  refused with `key_taken` exactly like a normal upload.
+- A paused project refuses the write, so pausing stops a link minted a minute
+  earlier as well.
+- The signature covers the method, so a download link cannot be turned into a
+  write, and an upload link cannot be turned into a read.
+
+Because the grant is the URL itself, the public plane answers browser CORS
+requests from any origin: `Access-Control-Allow-Origin: *` with no credentials
+allowed, `ETag`, `Content-Length` and `X-Request-ID` exposed. Nothing on that
+plane reads a cookie, so a wildcard origin grants only what the URL already
+grants to whoever holds it.
+
+Treat an upload link as public: anyone who receives it can write that one key
+until it expires.
 
 ## List objects
 
@@ -358,6 +403,9 @@ you can store.
 | `invalid_key` | 400 | The key breaks the naming rules. |
 | `key_taken` | 409 | An object with that key already exists in this project. |
 | `invalid_expires_in` | 400 | `expires_in` is outside the 60–604800 second range. |
+| `invalid_method` | 400 | A signed URL was requested with a method other than `GET` or `PUT`. |
+| `invalid_bucket` | 400 | A bucket was named on a download request. |
+| `bucket_not_found` | 404 | A signed upload named a bucket this project does not have. |
 | `link_expired` | 403 | The signed URL was genuine and its time ran out. Mint a new one. |
 | `signing_unavailable` | 503 | This deployment has no signer configured and cannot mint URLs. |
 | `not_found` | 404 | No such object or bucket, or no valid signature for the object. |

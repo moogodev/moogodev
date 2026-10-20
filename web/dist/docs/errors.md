@@ -257,12 +257,15 @@ something about.
 | `invalid_key` | 400 | The key breaks the [naming rules](/docs/create-bucket#keys-are-strict). |
 | `key_too_long` | 400 | The object key is longer than the maximum. |
 | `invalid_expires_in` | 400 | A signed URL was requested with a lifetime outside 60–604800 seconds. |
+| `invalid_method` | 400 | A signed URL was requested with a method other than `GET` or `PUT`. |
+| `invalid_bucket` | 400 | A bucket was named on a signed download. Buckets belong to uploads. |
 | `invalid_prefix` | 400 | The prefix for a folder delete is not valid. |
 | `key_taken` | 409 | An object with that key already exists. |
 | `quota_below_usage` | 409 | A PATCH tried to set `quota_bytes` below what the bucket already holds. |
 | `bucket_exists` | 409 | A bucket with that name already exists in this project. |
 | `link_expired` | 403 | A signed URL was genuine but past its expiry. |
 | `not_found` | 404 | No such object or bucket. |
+| `bucket_not_found` | 404 | A signed upload named a bucket this project does not have. |
 | `object_too_large` | 413 | Over the bucket's per-object cap. |
 | `type_not_allowed` | 415 | The `Content-Type` is not in the bucket's `allowed_types`. |
 | `quota_exceeded` | 507 | The project storage total is full. |

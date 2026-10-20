@@ -68,7 +68,7 @@ func NewServer(cfg Config, store *Store, static fs.FS) http.Handler {
 
 	mux.Route("/api", func(api chi.Router) {
 		api.Use(httpx.MaxBodyBytes(1 << 20))
-		api.Use(httpx.SameOrigin)
+		api.Use(httpx.SameOrigin())
 
 		api.Get("/posts", server.listPublished)
 		api.Get("/posts/{slug}", server.getPost)

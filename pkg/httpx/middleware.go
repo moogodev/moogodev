@@ -445,18 +445,71 @@ func Timeout(timeout time.Duration) func(http.Handler) http.Handler {
 // forwards to this backend on another loopback port. vite.config.ts rewrites
 // Origin to the forwarding target, so a proxied request still names the host
 // the backend was addressed as.
-func SameOrigin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
-			if origin := r.Header.Get("Origin"); origin != "" {
-				parsed, err := url.Parse(origin)
-				if err != nil || !strings.EqualFold(parsed.Host, r.Host) {
-					WriteError(w, http.StatusForbidden, "forbidden", "cross-origin request rejected")
+//
+// Exempt path prefixes are for surfaces that authorize a write by something in
+// the request itself rather than by an ambient credential -- the presigned
+// upload on /pub/, where the signature in the URL is the whole grant. CSRF has
+// nothing to abuse there: there is no cookie or session a cross-site page
+// could cause the browser to send, and a forged request has no signature. The
+// exemption is by path, so an exemption should never name a prefix that also
+// carries a cookie-authenticated route; the caller is responsible for that,
+// which is why the one in use (/pub/) is the public plane with nothing but
+// object delivery behind it.
+func SameOrigin(exempt ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, prefix := range exempt {
+				if prefix != "" && strings.HasPrefix(r.URL.Path, prefix) {
+					next.ServeHTTP(w, r)
 					return
 				}
 			}
+
+			switch r.Method {
+			case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+				if origin := r.Header.Get("Origin"); origin != "" {
+					parsed, err := url.Parse(origin)
+					if err != nil || !strings.EqualFold(parsed.Host, r.Host) {
+						WriteError(w, http.StatusForbidden, "forbidden", "cross-origin request rejected")
+						return
+					}
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// PublicPlaneCORS answers the browser's requirements for the public object
+// plane.
+//
+// The plane carries no ambient credential: a read is authorized by a
+// published flag or a signature, and a write by a signature. With nothing for
+// a cross-site page to borrow, a wildcard origin grants exactly what the URL
+// already grants to someone who has it, and it does the job a per-origin
+// allowlist could not: the URL is meant to be used from pages the deployment
+// does not know. Access-Control-Allow-Credentials is deliberately never set,
+// so a browser will not attach cookies even if a page asks it to.
+//
+// Preflight is answered here rather than in a handler. The route still has to
+// be registered so the router reaches this middleware for OPTIONS; the handler
+// behind it is never called because this writes the response and returns.
+func PublicPlaneCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := w.Header()
+		header.Set("Access-Control-Allow-Origin", "*")
+		header.Set("Access-Control-Expose-Headers",
+			"ETag, Content-Length, Content-Disposition, X-Request-ID")
+
+		if r.Method == http.MethodOptions {
+			header.Set("Access-Control-Allow-Methods", "GET, HEAD, PUT, OPTIONS")
+			header.Set("Access-Control-Allow-Headers",
+				"Content-Type, Range, If-None-Match, If-Modified-Since")
+			header.Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
+
 		next.ServeHTTP(w, r)
 	})
 }

@@ -117,6 +117,8 @@ type BucketHandlers interface {
 	Download(http.ResponseWriter, *http.Request)
 	// PublicDownload serves a published object with no credential in front of it.
 	PublicDownload(http.ResponseWriter, *http.Request)
+	// PresignedUpload accepts an upload authorized by a signed URL.
+	PresignedUpload(http.ResponseWriter, *http.Request)
 	Update(http.ResponseWriter, *http.Request)
 	Delete(http.ResponseWriter, *http.Request)
 	List(http.ResponseWriter, *http.Request)
@@ -260,7 +262,12 @@ func New(deps Deps) http.Handler {
 	// CSRF line three: the session cookie is SameSite=Lax and the mutating
 	// handlers demand application/json, and this refuses a write that names
 	// another origin outright so neither of those can be quietly relaxed.
-	root.Use(httpx.SameOrigin)
+	// The presigned upload on /pub/ authorizes by a signature in the URL, not
+	// by a cookie or session, so the cross-origin check has nothing to protect
+	// there and would only block the browser that is supposed to use it. The
+	// prefix is exactly the public object plane; no cookie-authenticated route
+	// lives under it.
+	root.Use(httpx.SameOrigin("/pub/"))
 
 	root.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such endpoint")
@@ -560,12 +567,27 @@ func New(deps Deps) http.Handler {
 	root.Route("/pub/{project_id}", func(publicPlane chi.Router) {
 		publicPlane.Use(ProjectContext)
 		publicPlane.Use(ObjectKeyContext)
+		// The public plane is the one place a browser is expected to call from
+		// another origin, because that is where a signed link lands. CORS is
+		// safe with no allowlist: nothing here reads a cookie.
+		publicPlane.Use(httpx.PublicPlaneCORS)
 		// Unauthenticated and cacheable, so it gets the address-keyed bucket
 		// limit: a page with fifty objects loads from one address without
 		// ceremony, and one address cannot pull the host down.
 		publicPlane.Use(bucketLimited)
 		publicPlane.Get("/*", deps.Bucket.PublicDownload)
 		publicPlane.Head("/*", deps.Bucket.PublicDownload)
+		// An upload has a body and a deadline, exactly like the credential
+		// plane, so it gets the same two limits rather than an unbounded stream.
+		// They are attached to the route instead of the whole plane so a large
+		// published download is not put behind the request timeout.
+		publicPlane.With(
+			httpx.MaxBodyBytes(deps.MaxObjectBytes),
+			httpx.Timeout(deps.RequestTimeout),
+		).Put("/*", deps.Bucket.PresignedUpload)
+		// OPTIONS has to match a route for the group middleware above to run;
+		// PublicPlaneCORS answers it and this handler is never reached.
+		publicPlane.Options("/*", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	})
 
 	// --- Data plane: bucket catalog, on its own credential ---

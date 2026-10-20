@@ -37,6 +37,10 @@ type fakeBucketStore struct {
 	buckets   map[string]*dbcontrol.Bucket
 	objects   map[string]*dbcontrol.BucketObject
 
+	// project is what ProjectByID returns. A zero value is a ready project,
+	// matching the fixture every other test assumes.
+	project *dbcontrol.Project
+
 	usedBytes int64
 
 	// errors injected per call, keyed by method name.
@@ -492,6 +496,23 @@ func (store *fakeBucketStore) BucketStats(
 	return count, used, nil
 }
 
+// ProjectByID mirrors the store lookup the presigned upload uses for the pause
+// check. The fixtures are ready projects unless a test says otherwise.
+func (store *fakeBucketStore) ProjectByID(
+	_ context.Context, projectID uuid.UUID,
+) (*dbcontrol.Project, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if err := store.failWith["ProjectByID"]; err != nil {
+		return nil, err
+	}
+	if store.project != nil {
+		project := *store.project
+		return &project, nil
+	}
+	return &dbcontrol.Project{ID: projectID, Status: dbcontrol.ProjectReady}, nil
+}
+
 // fakeObjectFS is an in-memory FileSystem.
 type fakeObjectFS struct {
 	mu       sync.Mutex
@@ -898,8 +919,15 @@ func TestPublicDownloadMissesForAnUnknownKey(t *testing.T) {
 // signRequest calls SignURL for one key and returns the decoded response.
 func signRequest(t *testing.T, plane *BucketPlane, projectID uuid.UUID, key string, expiresIn int64) SignURLResponse {
 	t.Helper()
+	return signWith(t, plane, projectID, SignURLRequest{Key: key, ExpiresIn: expiresIn})
+}
 
-	body, err := json.Marshal(SignURLRequest{Key: key, ExpiresIn: expiresIn})
+// signWith calls SignURL with a full request body, for tests that need to name
+// a method or a bucket.
+func signWith(t *testing.T, plane *BucketPlane, projectID uuid.UUID, sign SignURLRequest) SignURLResponse {
+	t.Helper()
+
+	body, err := json.Marshal(sign)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -1095,6 +1123,193 @@ func TestSignURLFailsClosedWithoutASigner(t *testing.T) {
 
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503 (body %q)", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSignURLRejectsAnUnknownMethod(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	body := `{"key":"secret.png","method":"DELETE"}`
+	request := httptest.NewRequest(http.MethodPost, "/buckets/x/sign", strings.NewReader(body)).WithContext(
+		context.WithValue(context.Background(), auth.ContextKeyProjectID, store.projectID.String()),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	plane.SignURL(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "invalid_method") {
+		t.Fatalf("body = %q, want invalid_method", recorder.Body.String())
+	}
+}
+
+func TestSignURLRejectsABucketOnADownload(t *testing.T) {
+	// A GET link names the object by key alone; accepting a bucket that the
+	// grant does not use would be a misleading success.
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	body := `{"key":"secret.png","bucket":"images"}`
+	request := httptest.NewRequest(http.MethodPost, "/buckets/x/sign", strings.NewReader(body)).WithContext(
+		context.WithValue(context.Background(), auth.ContextKeyProjectID, store.projectID.String()),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	plane.SignURL(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "invalid_bucket") {
+		t.Fatalf("body = %q, want invalid_bucket", recorder.Body.String())
+	}
+}
+
+func TestSignURLRejectsAnUnknownUploadBucket(t *testing.T) {
+	// Minting an upload the target bucket would refuse wastes a transfer that
+	// has already started by the time anyone finds out.
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	body := `{"key":"new.png","method":"PUT","bucket":"missing"}`
+	request := httptest.NewRequest(http.MethodPost, "/buckets/x/sign", strings.NewReader(body)).WithContext(
+		context.WithValue(context.Background(), auth.ContextKeyProjectID, store.projectID.String()),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	plane.SignURL(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "bucket_not_found") {
+		t.Fatalf("body = %q, want bucket_not_found", recorder.Body.String())
+	}
+}
+
+// --- presigned uploads ---
+
+func TestPresignedUploadWritesWithNothingButTheURL(t *testing.T) {
+	plane, store, fs := testBucketPlane(t, 1<<20)
+	store.addBucket("default")
+
+	signed := signWith(t, plane, store.projectID, SignURLRequest{
+		Key: "new.png", Method: "PUT",
+	})
+	if signed.Method != "PUT" {
+		t.Fatalf("method = %q, want PUT", signed.Method)
+	}
+	if !strings.Contains(signed.URL, "bucket=default") {
+		t.Fatalf("url = %q, want the bucket pinned in the query", signed.URL)
+	}
+
+	request := httptest.NewRequest(http.MethodPut, signed.URL, strings.NewReader("hello")).WithContext(
+		requestContext(store.projectID, "new.png"),
+	)
+	request.Header.Set("Content-Type", "text/plain")
+	recorder := httptest.NewRecorder()
+	plane.PresignedUpload(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	object, err := store.ObjectByKey(context.Background(), store.projectID, "new.png")
+	if err != nil {
+		t.Fatalf("object was not recorded: %v", err)
+	}
+	if object.SizeBytes != 5 {
+		t.Fatalf("size = %d, want 5", object.SizeBytes)
+	}
+	if got := string(fs.contents["new.png"]); got != "hello" {
+		t.Fatalf("contents = %q", got)
+	}
+}
+
+func TestPresignedUploadRejectsADownloadSignature(t *testing.T) {
+	// A GET grant must not become a write. The method is part of what the
+	// signature covers.
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	store.addBucket("default")
+
+	signed := signRequest(t, plane, store.projectID, "new.png", 900)
+	request := httptest.NewRequest(http.MethodPut, signed.URL, strings.NewReader("hello")).WithContext(
+		requestContext(store.projectID, "new.png"),
+	)
+	recorder := httptest.NewRecorder()
+	plane.PresignedUpload(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (body %q)", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPresignedUploadRejectsAnotherBucket(t *testing.T) {
+	// The bucket is inside the signature, so editing the query moves the write
+	// out of its grant and the link stops working.
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	store.addBucket("default")
+	store.addBucket("images")
+
+	signed := signWith(t, plane, store.projectID, SignURLRequest{
+		Key: "new.png", Method: "PUT", Bucket: "images",
+	})
+	tampered := strings.Replace(signed.URL, "bucket=images", "bucket=default", 1)
+	request := httptest.NewRequest(http.MethodPut, tampered, strings.NewReader("hello")).WithContext(
+		requestContext(store.projectID, "new.png"),
+	)
+	recorder := httptest.NewRecorder()
+	plane.PresignedUpload(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (body %q)", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPresignedUploadReportsAnExpiredLink(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	store.addBucket("default")
+
+	expired := time.Now().Add(-time.Minute)
+	sig := plane.signer.Sign("PUT", store.projectID.String(), "default", "new.png", expired)
+	target := "/pub/x/new.png?bucket=default&exp=" +
+		strconv.FormatInt(expired.Unix(), 10) + "&sig=" + sig
+
+	request := httptest.NewRequest(http.MethodPut, target, strings.NewReader("hello")).WithContext(
+		requestContext(store.projectID, "new.png"),
+	)
+	recorder := httptest.NewRecorder()
+	plane.PresignedUpload(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "link_expired") {
+		t.Fatalf("body = %q, want link_expired", recorder.Body.String())
+	}
+}
+
+func TestPresignedUploadRefusesAPausedProject(t *testing.T) {
+	// A link minted a minute before a pause must not keep writing. The
+	// credential middleware enforces this for an ordinary upload; a presigned
+	// write has to say it for itself.
+	plane, store, fs := testBucketPlane(t, 1<<20)
+	store.addBucket("default")
+	store.project = &dbcontrol.Project{ID: store.projectID, Status: dbcontrol.ProjectPaused}
+
+	signed := signWith(t, plane, store.projectID, SignURLRequest{
+		Key: "new.png", Method: "PUT",
+	})
+	request := httptest.NewRequest(http.MethodPut, signed.URL, strings.NewReader("hello")).WithContext(
+		requestContext(store.projectID, "new.png"),
+	)
+	recorder := httptest.NewRecorder()
+	plane.PresignedUpload(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "project_paused") {
+		t.Fatalf("body = %q, want project_paused", recorder.Body.String())
+	}
+	if _, found := fs.contents["new.png"]; found {
+		t.Fatal("a paused project's upload reached the disk")
 	}
 }
 

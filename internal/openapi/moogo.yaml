@@ -370,6 +370,66 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+    put:
+      tags: [Storage]
+      summary: Presigned upload
+      description: |
+        Writes one object using a URL minted with method PUT. The signature
+        covers the project, bucket, key and expiry, so editing the bucket or
+        key in the URL makes the signature invalid.
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: bucket
+          in: query
+          description: Bucket the grant was issued for. Defaults to the default bucket.
+          schema:
+            type: string
+        - name: exp
+          in: query
+          description: Unix timestamp after which the signature stops working.
+          schema:
+            type: string
+        - name: sig
+          in: query
+          description: Base64url signature minted by POST /buckets/{project_id}/sign.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          '*/*':
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Upload result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '403':
+          description: The link expired, or the project is paused.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '404':
+          description: No valid signature for this key and bucket.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /buckets/{project_id}:
     get:
       tags: [Buckets]
@@ -416,10 +476,11 @@ paths:
       tags: [Buckets]
       summary: Mint a time-limited signed URL
       description: |
-        Returns a URL that serves one object without a credential until it
-        expires. The signature covers the project, the key and the expiry, so
-        the URL cannot be edited into a grant for another object or a longer
-        lifetime. HEAD is authorized by a GET signature.
+        Returns a URL that reads or writes one object without a credential
+        until it expires. The signature covers the method, project, bucket,
+        key and expiry, so the URL cannot be edited into a grant for another
+        object, another bucket, another operation, or a longer lifetime. HEAD
+        is authorized by a GET signature.
       parameters:
         - name: project_id
           in: path
@@ -818,6 +879,14 @@ components:
         key:
           type: string
           description: Object key to sign, including any folder segments.
+        method:
+          type: string
+          enum: [GET, PUT]
+          default: GET
+          description: GET for a download link, PUT for an upload link.
+        bucket:
+          type: string
+          description: Bucket an upload lands in. Only valid with method PUT; defaults to the default bucket.
         expires_in:
           type: integer
           format: int64
@@ -831,10 +900,10 @@ components:
       properties:
         url:
           type: string
-          description: Absolute URL that serves the object until it expires.
+          description: Absolute URL that performs the signed operation until it expires.
         method:
           type: string
-          enum: [GET]
+          enum: [GET, PUT]
         expires_at:
           type: string
           format: date-time

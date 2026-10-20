@@ -66,6 +66,9 @@ type BucketStore interface {
 	StorageUsedBytes(ctx context.Context, projectID uuid.UUID) (int64, error)
 	BucketStorageUsedBytes(ctx context.Context, projectID uuid.UUID, bucketID uuid.UUID) (int64, error)
 	BucketStats(ctx context.Context, projectID uuid.UUID, bucketID uuid.UUID) (int64, int64, error)
+	// ProjectByID is how a presigned upload sees the pause state the
+	// credential middleware would have checked for a normal upload.
+	ProjectByID(ctx context.Context, projectID uuid.UUID) (*dbcontrol.Project, error)
 }
 
 // FileSystem is the disk operations for bucket storage.
@@ -595,6 +598,70 @@ func (handler *BucketPlane) PublicDownload(w http.ResponseWriter, r *http.Reques
 	}
 
 	handler.serveObject(w, r, access)
+}
+
+// PresignedUpload handles PUT /pub/{project_id}/* with a signature from the
+// sign endpoint.
+//
+// This is the write side of the same capability: a browser that was told to
+// upload one file can do it without ever holding the storage credential. The
+// signature covers the method, project, bucket, key and expiry, so the URL
+// cannot be turned into a read, an upload of another key, or an upload into
+// another bucket.
+//
+// The request then runs through the ordinary upload path unchanged. That path
+// never reads a credential from the context, which is what makes the reuse
+// safe: the signature is the authorization, and every quota, type and naming
+// rule still applies.
+func (handler *BucketPlane) PresignedUpload(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := auth.ProjectIDFromContext(r.Context())
+	rawKey, found := auth.ObjectKeyFromContext(r.Context())
+	key, err := normalizeKey(rawKey)
+	if !ok || !found || err != nil {
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+		return
+	}
+
+	// The bucket is part of the signed grant. An empty query means the grant
+	// was issued for the default bucket; the signer folds that name in too.
+	bucketName := r.URL.Query().Get("bucket")
+	if bucketName == "" {
+		bucketName = defaultBucketName
+	}
+
+	query := r.URL.Query()
+	switch err := handler.signer.Verify(
+		http.MethodPut, projectID.String(), bucketName, key,
+		query.Get("exp"), query.Get("sig"), time.Now(),
+	); {
+	case errors.Is(err, signedurl.ErrExpired):
+		httpx.WriteError(w, http.StatusForbidden, "link_expired",
+			"the signed link has expired; request a new one")
+		return
+	case err != nil:
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+		return
+	}
+
+	// The credential middleware that guards an ordinary upload also refuses a
+	// paused or not-ready project. A presigned write never passes through it,
+	// so the same check has to happen here, or pausing a project would stop
+	// SQL and the dashboard while a link minted a minute earlier kept writing.
+	project, err := handler.store.ProjectByID(r.Context(), projectID)
+	if err != nil || project == nil {
+		httpx.WriteError(w, http.StatusNotFound, "project_not_found", "no such project")
+		return
+	}
+	if project.Paused() {
+		httpx.WriteError(w, http.StatusForbidden, "project_paused", "project is paused")
+		return
+	}
+	if !project.Ready() {
+		httpx.WriteError(w, http.StatusForbidden, "project_not_ready", "project is not ready yet")
+		return
+	}
+
+	handler.Upload(w, r)
 }
 
 // serveObject is the shared body of the authenticated, signed and public
@@ -1128,11 +1195,14 @@ func (handler *BucketPlane) ListBuckets(w http.ResponseWriter, r *http.Request) 
 
 // SignURLRequest is the body of POST /buckets/{project_id}/sign.
 //
-// The method is not a field yet: every link minted here is a download, and a
-// request that tried to name an upload would be answered as unknown JSON rather
-// than half-honoured. expires_in defaults to the package default when omitted.
+// method is GET by default and PUT for an upload; the two produce different
+// URLs on the same public plane. bucket is only meaningful for PUT, where it
+// names the bucket the upload lands in, and is folded into the signature so an
+// upload grant cannot be redirected to another bucket by editing the URL.
 type SignURLRequest struct {
 	Key       string `json:"key"`
+	Method    string `json:"method,omitempty"`
+	Bucket    string `json:"bucket,omitempty"`
 	ExpiresIn int64  `json:"expires_in,omitempty"`
 }
 
@@ -1147,10 +1217,11 @@ type SignURLResponse struct {
 // SignURL handles POST /buckets/{project_id}/sign.
 //
 // The route sits behind a storage credential, so the caller is already allowed
-// to read the object. What this mints is the same read, expressed as a URL that
-// can be handed to something that will not hold a secret: a browser embedding a
-// private image, a build step downloading a file, a partner's page. The link
-// expires and can be revoked by rotating the session secret; there is nothing
+// to read or write the object. What this mints is the same operation expressed
+// as a URL that can be handed to something that will not hold a secret: a
+// browser embedding a private image, a build step downloading a file, a
+// partner's page, a client uploading one file from a form. The link expires
+// and can be revoked by rotating the session secret; there is nothing
 // server-side to list or delete, which is the trade a signed URL always makes.
 //
 // The object does not have to exist at mint time. Signing a key that is not
@@ -1188,6 +1259,53 @@ func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	method := strings.ToUpper(strings.TrimSpace(request.Method))
+	if method == "" {
+		method = http.MethodGet
+	}
+	if method != http.MethodGet && method != http.MethodPut {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_method",
+			"method must be GET or PUT")
+		return
+	}
+
+	// A download is identified by the key alone, so a bucket on a GET request
+	// is a sign the caller expected it to mean something. Refusing it is
+	// clearer than ignoring it and answering a link that does not pin the
+	// bucket the caller thought they had chosen. The empty bucket in the
+	// signature is what the download side verifies.
+	bucketName := ""
+	if method == http.MethodGet {
+		if request.Bucket != "" {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket",
+				"bucket is only meaningful for method PUT")
+			return
+		}
+	} else {
+		bucketName = defaultBucketName
+		if request.Bucket != "" {
+			bucketName, err = normalizeBucketName(request.Bucket)
+			if err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket_name", err.Error())
+				return
+			}
+		}
+		// Signing an upload into a bucket that does not exist would only fail
+		// later, in the middle of a transfer the caller has already started.
+		// The default bucket is the exception: resolveBucket creates it on
+		// demand, so it is allowed to be absent here.
+		if bucketName != defaultBucketName {
+			if _, err := handler.store.BucketByName(r.Context(), projectID, bucketName); err != nil {
+				if errors.Is(err, dbcontrol.ErrNotFound) {
+					httpx.WriteError(w, http.StatusNotFound, "bucket_not_found", "no such bucket")
+					return
+				}
+				handler.writeStoreError(w, r, projectID, err, "resolve bucket for signing")
+				return
+			}
+		}
+	}
+
 	expiresIn := request.ExpiresIn
 	if expiresIn == 0 {
 		expiresIn = signedurl.DefaultTTL
@@ -1199,18 +1317,26 @@ func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
-	signature := handler.signer.Sign("GET", projectID.String(), "", key, expiresAt)
+	signature := handler.signer.Sign(method, projectID.String(), bucketName, key, expiresAt)
 
 	// The API origin, not the CDN origin: a signed response is private and
 	// non-cacheable, and the CDN host exists to serve the published, cacheable
 	// ones. A link that only works through a cache is a link whose lifetime
 	// depends on a cache configuration this code cannot see.
-	url := fmt.Sprintf("%s/pub/%s/%s?exp=%d&sig=%s",
+	//
+	// An upload URL pins the bucket in the query string as well as in the
+	// signature, so the handler verifies exactly the grant that was issued.
+	target := fmt.Sprintf("%s/pub/%s/%s?exp=%d&sig=%s",
 		handler.publicBaseURL(r), projectID, escapeKeyPath(key), expiresAt.Unix(), signature)
+	if method == http.MethodPut {
+		target = fmt.Sprintf("%s/pub/%s/%s?bucket=%s&exp=%d&sig=%s",
+			handler.publicBaseURL(r), projectID, escapeKeyPath(key),
+			bucketName, expiresAt.Unix(), signature)
+	}
 
 	httpx.WriteJSON(w, http.StatusOK, SignURLResponse{
-		URL:       url,
-		Method:    "GET",
+		URL:       target,
+		Method:    method,
 		ExpiresAt: expiresAt.UTC(),
 		ExpiresIn: expiresIn,
 	})
