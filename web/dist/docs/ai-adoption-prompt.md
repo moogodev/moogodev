@@ -308,7 +308,9 @@ Reads report `truncated` and `duration_ms`; storage reports
 - [Quickstart](/docs/quickstart) — account to first query in two minutes
 - [Credentials](/docs/credentials) — the two credential types and rotation
 - [SQL API](/docs/sql-api) — the full reference for `/query` and `/exec`
-- [Object storage](/docs/object-storage) — buckets, publishing, listing
+- [Object storage](/docs/object-storage) — buckets, publishing, listing, cursor pagination, range requests
+- [Command line client](/docs/cli) — `moogo db push/seed/reset/vacuum`, `bucket ls/rm`, install via `curl -fsSL https://get.moogo.dev | sh`
+- [Maintenance](/docs/sql-api#post-maintenance--reclaim-space-after-deletes) — reclaim database space with `POST /maintenance` or `moogo db vacuum`
 - [Limits](/docs/limits) — quotas and request caps in detail
 - [Errors](/docs/errors) — every error code and what to do about it
 - [Security](/docs/security) — the threat model, stated plainly
