@@ -53,9 +53,11 @@ update feed.
   `exec` and `transaction` without hand-writing an HTTP client. It talks only to
   the data plane, never to the database directly.
 - **Command line client** — a separate binary (`cmd/moogo`) for applying a SQL
-  file, seeding once, resetting a database and listing or deleting objects. It
-  is an HTTP client and nothing else: same routes, same credentials, same rules
-  as curl, and no configuration that reaches past the API.
+  file, seeding once, resetting a database, compacting with `db vacuum`,
+  and listing or deleting objects. It is an HTTP client and nothing else:
+  same routes, same credentials, same rules as curl, and no configuration
+  that reaches past the API. Install via `curl -fsSL https://get.moogo.dev | sh`
+  (no Go required) or `go install github.com/moogodev/moogodev/cmd/moogo@latest`.
 
 The two planes share no tables. A client on the data plane never learns whether
 a project exists on the control plane; a signed-in user never holds a secret
@@ -74,6 +76,15 @@ go build ./cmd/mcp   # optional: the MCP server for coding agents
 go build ./cmd/moogo # optional: the command line client
 ```
 
+### Install CLI (binary)
+
+The fastest way, no Go required:
+
+```bash
+curl -fsSL https://get.moogo.dev | sh
+```
+
+Or build from source (requires Go):
 Frontend scripts (in `web/ui`):
 
 | Script | What it does |
