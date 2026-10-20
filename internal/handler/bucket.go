@@ -738,6 +738,47 @@ func (handler *BucketPlane) serveObject(
 	}
 	defer reader.Close()
 
+	// Range requests: only bytes ranges are supported. If-Range is honored
+	// when present so a stale cached range is not satisfied against a new
+	// version of the object.
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		if ifRange := r.Header.Get("If-Range"); ifRange != "" && !ifRangeMatches(ifRange, etag, object.UpdatedAt) {
+			// If-Range doesn't match the current entity — ignore the range
+			// and serve the full response as if Range were absent.
+		} else if ranges, ok := parseByteRange(rangeHeader, size); ok && len(ranges) == 1 {
+			start, end := ranges[0].start, ranges[0].end
+			if start > end || start < 0 || end >= size {
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
+				httpx.WriteError(w, http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "the requested range cannot be satisfied")
+				return
+			}
+			if seeker, ok := reader.(io.Seeker); ok {
+				if _, err := seeker.Seek(start, io.SeekStart); err != nil {
+					handler.writeError(w, r, projectID, err, "seek object")
+					return
+				}
+			} else {
+				if _, err := io.CopyN(io.Discard, reader, start); err != nil {
+					handler.writeError(w, r, projectID, err, "skip object range")
+					return
+				}
+			}
+			handler.writeObjectHeaders(w, object, end-start+1, access)
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, size))
+			w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+			w.WriteHeader(http.StatusPartialContent)
+			if r.Method == http.MethodHead {
+				return
+			}
+			_, _ = io.CopyN(w, reader, end-start+1)
+			return
+		} else {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
+			httpx.WriteError(w, http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "the requested range cannot be satisfied")
+			return
+		}
+	}
+
 	handler.writeObjectHeaders(w, object, size, access)
 
 	// HEAD carries the headers and no body. It is how a client checks a size or
@@ -2526,4 +2567,81 @@ type BucketSettingsRequest struct {
 	MaxObjectSizeBytes *int64    `json:"max_object_size_bytes"`
 	IsPublic           *bool     `json:"is_public"`
 	QuotaBytes         *int64    `json:"quota_bytes"`
+}
+
+// ifRangeMatches checks the If-Range header against the current entity.
+func ifRangeMatches(ifRange string, etag string, mod time.Time) bool {
+	if ifRange == "" {
+		return false
+	}
+	if strings.HasPrefix(ifRange, "\"") || strings.HasPrefix(ifRange, "W/\"") {
+		clean := strings.TrimPrefix(ifRange, "W/")
+		clean = strings.Trim(clean, "\"")
+		current := strings.Trim(etag, "\"")
+		return clean == current
+	}
+	t, err := time.Parse(http.TimeFormat, ifRange)
+	if err != nil {
+		return false
+	}
+	return !mod.UTC().After(t.UTC().Add(time.Second))
+}
+
+type byteRange struct {
+	start int64
+	end   int64
+}
+
+func parseByteRange(header string, size int64) ([]byteRange, bool) {
+	if !strings.HasPrefix(header, "bytes=") {
+		return nil, false
+	}
+	spec := strings.TrimPrefix(header, "bytes=")
+	ranges := strings.Split(spec, ",")
+	if len(ranges) != 1 {
+		return nil, false
+	}
+	r := strings.TrimSpace(ranges[0])
+	if r == "" {
+		return nil, false
+	}
+	start, end, ok := strings.Cut(r, "-")
+	if !ok {
+		return nil, false
+	}
+	if start == "" {
+		suffix, err := strconv.ParseInt(strings.TrimSpace(end), 10, 64)
+		if err != nil || suffix <= 0 {
+			return nil, false
+		}
+		if suffix > size {
+			return []byteRange{{start: 0, end: size - 1}}, true
+		}
+		return []byteRange{{start: size - suffix, end: size - 1}}, true
+	}
+	if end == "" {
+		s, err := strconv.ParseInt(strings.TrimSpace(start), 10, 64)
+		if err != nil || s < 0 {
+			return nil, false
+		}
+		if s >= size {
+			return nil, false
+		}
+		return []byteRange{{start: s, end: size - 1}}, true
+	}
+	s, err := strconv.ParseInt(strings.TrimSpace(start), 10, 64)
+	if err != nil || s < 0 {
+		return nil, false
+	}
+	e, err := strconv.ParseInt(strings.TrimSpace(end), 10, 64)
+	if err != nil {
+		return nil, false
+	}
+	if s > e || s >= size {
+		return nil, false
+	}
+	if e >= size {
+		e = size - 1
+	}
+	return []byteRange{{start: s, end: e}}, true
 }
