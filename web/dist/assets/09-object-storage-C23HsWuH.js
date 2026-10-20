@@ -269,8 +269,8 @@ curl "$ENDPOINT/?bucket=avatars&limit=50&order=created&dir=desc" \\
 | \`search\` | Substring match on the key. |
 | \`order\` | \`key\`, \`size\`, \`created\`, \`updated\`, or \`contenttype\`. |
 | \`dir\` | \`asc\` or \`desc\`. |
-| \`limit\` | Page size. Defaults to 100. |
-| \`offset\` | Skip this many, for paging. |
+| \`limit\` | Page size. Defaults to 100, 1000 at most. |
+| \`cursor\` | Continue after the last object of the previous page. Omit it for the first page. |
 
 Response:
 
@@ -281,7 +281,7 @@ Response:
   "objects": [ /* … */ ],
   "total": 42,
   "limit": 50,
-  "offset": 0,
+  "next_cursor": "eyJzIjoiYWZiM2Yw...",
   "storage_used_bytes": 10485760,
   "quota_bytes": 262144000
 }
@@ -289,6 +289,18 @@ Response:
 
 \`total\` is the count of everything matching the filter, not the length of
 \`objects\`, so you can compute the page count without a second request.
+
+**Paging is by cursor.** The first request carries none; when \`next_cursor\`
+comes back non-empty, send it back as \`cursor\` and you get the page after it.
+Stop when it comes back empty. The token names a position in the sort order
+rather than a number of rows to skip, so objects arriving or leaving between
+two requests cannot make a page repeat an object or drop one — and it costs the
+same to fetch page twenty as page two.
+
+A cursor belongs to the listing that issued it: the same bucket, filters and
+order. Presented anywhere else it is refused with \`invalid_cursor\` rather than
+quietly applied to a different listing. Start again without one when the
+question changes.
 
 ## Update an object
 

@@ -289,7 +289,8 @@ export interface paths {
                     order?: string;
                     dir?: string;
                     limit?: number;
-                    offset?: number;
+                    /** @description Continue after the last object of the previous page. Omit for the first page. */
+                    cursor?: string;
                 };
                 header?: never;
                 path: {
@@ -834,7 +835,8 @@ export interface components {
             /** Format: int64 */
             total: number;
             limit: number;
-            offset: number;
+            /** @description Continues this listing; empty when the page was the last one. */
+            next_cursor: string;
             /** Format: int64 */
             storage_used_bytes: number;
             /** Format: int64 */

@@ -77,7 +77,7 @@ type listResponse struct {
 	Objects          []handler.ObjectResponse `json:"objects"`
 	Total            int64                    `json:"total"`
 	Limit            int                      `json:"limit"`
-	Offset           int                      `json:"offset"`
+	NextCursor       string                   `json:"next_cursor"`
 	StorageUsedBytes int64                    `json:"storage_used_bytes"`
 	QuotaBytes       int64                    `json:"quota_bytes"`
 }
@@ -98,7 +98,9 @@ type ObjectQuery struct {
 	Order  string
 	Dir    string
 	Limit  int
-	Offset int
+	// Cursor continues the listing from the previous answer's next_cursor.
+	// Empty starts at the first page.
+	Cursor string
 }
 
 // Upload stores one object under key.
@@ -163,8 +165,8 @@ func (client *StorageClient) List(ctx context.Context, query ObjectQuery) (*list
 	if query.Limit > 0 {
 		values.Set("limit", strconv.Itoa(query.Limit))
 	}
-	if query.Offset > 0 {
-		values.Set("offset", strconv.Itoa(query.Offset))
+	if query.Cursor != "" {
+		values.Set("cursor", query.Cursor)
 	}
 
 	response, err := client.do(ctx, http.MethodGet, "", "", values, nil)

@@ -38,11 +38,11 @@ type objectPage struct {
 		UpdatedAt    string `json:"updated_at"`
 		LastModified string `json:"last_modified"`
 	} `json:"objects"`
-	Total            int64 `json:"total"`
-	Limit            int   `json:"limit"`
-	Offset           int   `json:"offset"`
-	StorageUsedBytes int64 `json:"storage_used_bytes"`
-	QuotaBytes       int64 `json:"quota_bytes"`
+	Total            int64  `json:"total"`
+	Limit            int    `json:"limit"`
+	NextCursor       string `json:"next_cursor"`
+	StorageUsedBytes int64  `json:"storage_used_bytes"`
+	QuotaBytes       int64  `json:"quota_bytes"`
 }
 
 // deleteResponse is the answer to a delete, in both its shapes: one object
@@ -77,12 +77,23 @@ func runBucket(ctx context.Context, streams Streams, args []string) int {
 	}
 }
 
+// maxPageSize is the largest page the object API accepts, and therefore the
+// size every request of a listing that is being walked asks for. One number
+// for both keeps a large bucket to a handful of requests instead of one per
+// hundred objects.
+const maxPageSize = 1000
+
 // bucketList prints the objects in a bucket.
+//
+// It follows the listing's cursors to the end, so `ls` lists the bucket rather
+// than its first hundred objects, and --limit is how much of that to print --
+// not a page size. A listing stopped by --limit hands back the cursor to
+// continue with.
 func bucketList(ctx context.Context, streams Streams, args []string) int {
 	takesValue, isBool := sharedFlags()
 	takesValue["bucket"] = true
 	takesValue["limit"] = true
-	takesValue["offset"] = true
+	takesValue["cursor"] = true
 	isBool["json"] = true
 
 	flags, err := parseFlags(args, takesValue, isBool)
@@ -101,10 +112,6 @@ func bucketList(ctx context.Context, streams Streams, args []string) int {
 	if err != nil {
 		return fail(streams, err)
 	}
-	offset, err := flags.number("offset")
-	if err != nil {
-		return fail(streams, err)
-	}
 
 	config, err := resolve(flags)
 	if err != nil {
@@ -113,61 +120,136 @@ func bucketList(ctx context.Context, streams Streams, args []string) int {
 	if err := config.requireStorage(); err != nil {
 		return fail(streams, err)
 	}
+	client := newClient(config)
+	credential := config.storageCredential()
 
-	query := url.Values{}
-	if bucket := flags.value("bucket"); bucket != "" {
-		query.Set("bucket", bucket)
-	}
-	if len(flags.positional) == 1 && flags.positional[0] != "" {
-		query.Set("prefix", flags.positional[0])
-	}
-	if limit > 0 {
-		query.Set("limit", strconv.Itoa(limit))
-	}
-	if offset > 0 {
-		query.Set("offset", strconv.Itoa(offset))
-	}
-
-	target := config.bucketEndpoint("/")
-	if encoded := query.Encode(); encoded != "" {
-		target += "?" + encoded
-	}
-
-	// The raw answer is kept, not just the parsed one: --json exists so a
-	// script can read fields this client does not model, and re-encoding the
+	// The raw answers are kept beside the parsed pages: --json exists so a
+	// script can read fields this client does not model, and re-encoding a
 	// parsed struct would drop exactly those.
-	var raw json.RawMessage
-	if err := newClient(config).do(ctx, http.MethodGet, target, config.storageCredential(), nil, &raw); err != nil {
-		return fail(streams, err)
+	var (
+		raws    []json.RawMessage
+		pages   []objectPage
+		current = flags.value("cursor")
+		shown   int
+		last    objectPage
+	)
+	for {
+		pageSize := maxPageSize
+		if limit > 0 {
+			remaining := limit - shown
+			if remaining <= 0 {
+				break
+			}
+			if remaining < pageSize {
+				pageSize = remaining
+			}
+		}
+
+		query := url.Values{}
+		if bucket := flags.value("bucket"); bucket != "" {
+			query.Set("bucket", bucket)
+		}
+		if len(flags.positional) == 1 && flags.positional[0] != "" {
+			query.Set("prefix", flags.positional[0])
+		}
+		query.Set("limit", strconv.Itoa(pageSize))
+		if current != "" {
+			query.Set("cursor", current)
+		}
+
+		target := config.bucketEndpoint("/")
+		if encoded := query.Encode(); encoded != "" {
+			target += "?" + encoded
+		}
+
+		var raw json.RawMessage
+		if err := client.do(ctx, http.MethodGet, target, credential, nil, &raw); err != nil {
+			return fail(streams, err)
+		}
+		raws = append(raws, raw)
+
+		var page objectPage
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return fail(streams, fmt.Errorf("parse response: %w", err))
+		}
+		pages = append(pages, page)
+		last = page
+		shown += len(page.Objects)
+
+		if page.NextCursor == "" || (limit > 0 && shown >= limit) {
+			break
+		}
+		// A cursor that hands back itself would walk this loop for ever.
+		// No server does that; a proxy replaying a cached answer might.
+		if page.NextCursor == current {
+			return fail(streams, errors.New("the API kept returning the same cursor"))
+		}
+		current = page.NextCursor
 	}
 
 	if flags.bools["json"] {
-		printJSON(streams.Out, raw)
+		printJSON(streams.Out, mergePages(raws))
 		return ExitOK
 	}
 
-	var page objectPage
-	if err := json.Unmarshal(raw, &page); err != nil {
-		return fail(streams, fmt.Errorf("parse response: %w", err))
-	}
-
-	if len(page.Objects) == 0 {
-		fmt.Fprintf(streams.Out, "no objects in bucket %s\n", page.Bucket.Name)
+	if shown == 0 {
+		fmt.Fprintf(streams.Out, "no objects in bucket %s\n", last.Bucket.Name)
 		return ExitOK
 	}
 
 	table := tabwriter.NewWriter(streams.Out, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(table, "KEY\tSIZE\tTYPE\tUPDATED")
-	for _, object := range page.Objects {
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\n",
-			object.Key, humanBytes(object.SizeBytes), object.ContentType, shortTime(object.UpdatedAt))
+	for _, page := range pages {
+		for _, object := range page.Objects {
+			fmt.Fprintf(table, "%s\t%s\t%s\t%s\n",
+				object.Key, humanBytes(object.SizeBytes), object.ContentType, shortTime(object.UpdatedAt))
+		}
 	}
 	table.Flush()
 
 	fmt.Fprintf(streams.Out, "\n%d of %d objects in %s · %s of %s used\n",
-		len(page.Objects), page.Total, page.Bucket.Name,
-		humanBytes(page.StorageUsedBytes), humanBytes(page.QuotaBytes))
+		shown, last.Total, last.Bucket.Name,
+		humanBytes(last.StorageUsedBytes), humanBytes(last.QuotaBytes))
+	if last.NextCursor != "" {
+		// Only --limit stops a listing before its end, so this line is what
+		// the cap looks like from the user's side of it.
+		fmt.Fprintf(streams.Out, "next page: --cursor %s\n", last.NextCursor)
+	}
 	return ExitOK
+}
+
+// mergePages folds the pages of one listing back into the single document the
+// API answers with, so --json means the same thing whether the bucket took one
+// request or twenty.
+//
+// The pages are decoded as generic maps rather than into this client's own
+// structs: fields it does not model are the reason --json exists, and they
+// have to survive the fold.
+func mergePages(raws []json.RawMessage) json.RawMessage {
+	merged := map[string]any{"objects": []any{}}
+	for _, raw := range raws {
+		var page map[string]any
+		if err := json.Unmarshal(raw, &page); err != nil {
+			// The pages were parsed once already on the way in, so this cannot
+			// be a page the API sent. Hand back what was read rather than
+			// inventing an error path for a state that has none.
+			return raw
+		}
+		if rows, ok := page["objects"].([]any); ok {
+			merged["objects"] = append(merged["objects"].([]any), rows...)
+		}
+		for key, value := range page {
+			if key == "objects" {
+				continue
+			}
+			merged[key] = value
+		}
+	}
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 // bucketRemove deletes objects, or everything under a prefix.
@@ -270,12 +352,13 @@ Bucket commands use a storage credential, not the project key:
 func bucketListUsage(writer io.Writer) {
 	fmt.Fprint(writer, `moogo bucket ls [prefix] — list objects in a bucket
 
-  moogo bucket ls
-  moogo bucket ls avatars/            only the keys under a prefix
-  moogo bucket ls --bucket media      a bucket other than the default one
-  moogo bucket ls --limit 500 --json  one bigger page, as the API returned it
+  moogo bucket ls                    every object, following the pages
+  moogo bucket ls avatars/           only the keys under a prefix
+  moogo bucket ls --bucket media     a bucket other than the default one
+  moogo bucket ls --limit 50         stop after 50 and print the cursor to go on
+  moogo bucket ls --cursor <token>   continue where a listing stopped
 
-Flags: --bucket, --limit, --offset, --json, --url, --storage-key-id,
+Flags: --bucket, --limit, --cursor, --json, --url, --storage-key-id,
        --storage-key, --help
 `)
 }

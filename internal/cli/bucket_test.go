@@ -64,13 +64,13 @@ func TestBucketListJSONPrintsWhatTheAPISent(t *testing.T) {
 	}
 }
 
-func TestBucketListSendsThePagingFlags(t *testing.T) {
+func TestBucketListSendsTheCursorAndLimit(t *testing.T) {
 	api := newFakeAPI(t, func(call apiCall) (int, string) {
 		if got := call.Query.Get("limit"); got != "500" {
 			t.Errorf("limit = %q, want 500", got)
 		}
-		if got := call.Query.Get("offset"); got != "100" {
-			t.Errorf("offset = %q, want 100", got)
+		if got := call.Query.Get("cursor"); got != "tok_previous" {
+			t.Errorf("cursor = %q, want tok_previous", got)
 		}
 		if got := call.Query.Get("bucket"); got != "media" {
 			t.Errorf("bucket = %q, want media", got)
@@ -78,8 +78,119 @@ func TestBucketListSendsThePagingFlags(t *testing.T) {
 		return 200, objectPageJSON
 	})
 
-	if code, _, errOut := api.run("bucket", "ls", "--bucket", "media", "--limit", "500", "--offset", "100"); code != ExitOK {
+	if code, _, errOut := api.run("bucket", "ls", "--bucket", "media",
+		"--limit", "500", "--cursor", "tok_previous"); code != ExitOK {
 		t.Fatalf("exit = %d, err=%s", code, errOut)
+	}
+}
+
+// A listing is walked to its end, one cursor at a time, so a bucket of three
+// objects listed with no flags at all is three rows in one table -- and the
+// second request has to carry the token the first answer issued.
+func TestBucketListFollowsTheCursor(t *testing.T) {
+	var asked []string
+	var limits []string
+	api := newFakeAPI(t, func(call apiCall) (int, string) {
+		asked = append(asked, call.Query.Get("cursor"))
+		limits = append(limits, call.Query.Get("limit"))
+		if call.Query.Get("cursor") == "" {
+			return 200, `{"success":true,"bucket":{"name":"avatars"},"objects":[
+				{"key":"avatars/a.png","size_bytes":1,"content_type":"image/png","updated_at":"2026-10-18T09:12:44Z"},
+				{"key":"avatars/b.png","size_bytes":2,"content_type":"image/png","updated_at":"2026-10-18T09:12:45Z"}],
+				"total":3,"limit":2,"next_cursor":"tok_2","storage_used_bytes":6,"quota_bytes":262144000}`
+		}
+		return 200, `{"success":true,"bucket":{"name":"avatars"},"objects":[
+			{"key":"avatars/c.png","size_bytes":3,"content_type":"image/png","updated_at":"2026-10-18T09:12:46Z"}],
+			"total":3,"limit":2,"next_cursor":"","storage_used_bytes":6,"quota_bytes":262144000}`
+	})
+
+	code, out, errOut := api.run("bucket", "ls")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, out=%s err=%s", code, out, errOut)
+	}
+	if len(asked) != 2 {
+		t.Fatalf("the API was asked %d time(s), want 2 pages: %q", len(asked), asked)
+	}
+	if asked[1] != "tok_2" {
+		t.Errorf("the second page carried cursor %q, want tok_2", asked[1])
+	}
+	// The largest page the API accepts, so walking a bucket costs a handful of
+	// requests rather than one per hundred objects.
+	if limits[0] != "1000" {
+		t.Errorf("page size = %q, want 1000", limits[0])
+	}
+	for _, key := range []string{"avatars/a.png", "avatars/b.png", "avatars/c.png"} {
+		if !strings.Contains(out, key) {
+			t.Errorf("the table is missing %s:\n%s", key, out)
+		}
+	}
+	if !strings.Contains(out, "3 of 3 objects in avatars") {
+		t.Errorf("the summary should count every page:\n%s", out)
+	}
+	if strings.Contains(out, "next page:") {
+		t.Errorf("a finished listing should not offer another page:\n%s", out)
+	}
+}
+
+// --limit is how much to show, not how big to ask for. Stopping on it hands
+// back the cursor that continues where the listing stopped.
+func TestBucketListStopsAtTheLimitAndNamesTheCursor(t *testing.T) {
+	var requests int
+	api := newFakeAPI(t, func(call apiCall) (int, string) {
+		requests++
+		if got := call.Query.Get("limit"); got != "2" {
+			t.Errorf("page size = %q, want 2 -- the limit is the cap", got)
+		}
+		return 200, `{"success":true,"bucket":{"name":"avatars"},"objects":[
+			{"key":"avatars/a.png","size_bytes":1,"content_type":"image/png","updated_at":"2026-10-18T09:12:44Z"},
+			{"key":"avatars/b.png","size_bytes":2,"content_type":"image/png","updated_at":"2026-10-18T09:12:45Z"}],
+			"total":5,"limit":2,"next_cursor":"tok_more","storage_used_bytes":9,"quota_bytes":262144000}`
+	})
+
+	code, out, errOut := api.run("bucket", "ls", "--limit", "2")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, out=%s err=%s", code, out, errOut)
+	}
+	if requests != 1 {
+		t.Fatalf("the API was asked %d time(s), want 1", requests)
+	}
+	if !strings.Contains(out, "2 of 5 objects in avatars") {
+		t.Errorf("the summary should say how much of the bucket was shown:\n%s", out)
+	}
+	if !strings.Contains(out, "next page: --cursor tok_more") {
+		t.Errorf("the continuation should be a flag the user can paste back:\n%s", out)
+	}
+}
+
+// --json answers with one document whether the bucket took one request or
+// three, and the fields this client does not model are still in it.
+func TestBucketListJSONFoldsThePagesTogether(t *testing.T) {
+	api := newFakeAPI(t, func(call apiCall) (int, string) {
+		if call.Query.Get("cursor") == "" {
+			return 200, `{"success":true,"bucket":{"name":"avatars"},"objects":[
+				{"key":"avatars/a.png","size_bytes":1}],
+				"total":3,"limit":2,"next_cursor":"tok_2","storage_used_bytes":6,"quota_bytes":262144000}`
+		}
+		return 200, `{"success":true,"bucket":{"name":"avatars"},"objects":[
+			{"key":"avatars/b.png","size_bytes":2},{"key":"avatars/c.png","size_bytes":3}],
+			"total":3,"limit":2,"next_cursor":"","storage_used_bytes":6,"quota_bytes":262144000}`
+	})
+
+	code, out, errOut := api.run("bucket", "ls", "--json")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, out=%s err=%s", code, out, errOut)
+	}
+	if strings.Count(out, `"key"`) != 3 {
+		t.Errorf("--json should carry every page's objects once:\n%s", out)
+	}
+	if !strings.Contains(out, `"quota_bytes": 262144000`) {
+		t.Errorf("--json dropped a field the client does not model:\n%s", out)
+	}
+	if !strings.Contains(out, `"next_cursor": ""`) {
+		t.Errorf("the folded document should end the listing it folded:\n%s", out)
+	}
+	if !strings.Contains(out, "\n  \"success\"") {
+		t.Errorf("--json should be indented for a person reading it:\n%s", out)
 	}
 }
 
@@ -108,7 +219,7 @@ func TestBucketListNeedsAStorageCredential(t *testing.T) {
 func TestBucketListSaysSoWhenABucketIsEmpty(t *testing.T) {
 	api := newFakeAPI(t, func(call apiCall) (int, string) {
 		return 200, `{"success": true, "bucket": {"name": "avatars"}, "objects": [], "total": 0,
-			"limit": 100, "offset": 0, "storage_used_bytes": 0, "quota_bytes": 262144000}`
+			"limit": 100, "next_cursor": "", "storage_used_bytes": 0, "quota_bytes": 262144000}`
 	})
 
 	code, out, errOut := api.run("bucket", "ls")
@@ -212,7 +323,7 @@ const objectPageJSON = `{
 	],
 	"total": 42,
 	"limit": 100,
-	"offset": 0,
+	"next_cursor": "",
 	"storage_used_bytes": 10905190,
 	"quota_bytes": 262144000
 }`

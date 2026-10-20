@@ -22,7 +22,7 @@ func TestListObjectsTool(t *testing.T) {
 	t.Parallel()
 
 	handlers, requests := storageHandlers(t, http.StatusOK,
-		`{"success":true,"objects":[{"key":"a.txt","size_bytes":1,"content_type":"text/plain","is_public":false}],"total":7,"limit":1,"offset":0,"storage_used_bytes":1,"quota_bytes":250}`, "")
+		`{"success":true,"objects":[{"key":"a.txt","size_bytes":1,"content_type":"text/plain","is_public":false}],"total":7,"limit":1,"next_cursor":"cur_page_two","storage_used_bytes":1,"quota_bytes":250}`, "")
 
 	result, err := handlers.listObjects(context.Background(), toolRequest(t, "list_objects", map[string]any{
 		"prefix": "notes/", "limit": 1,
@@ -34,6 +34,15 @@ func TestListObjectsTool(t *testing.T) {
 	body := structuredBody(t, result)
 	if body["total"] != int64(7) {
 		t.Errorf("total = %v, want 7", body["total"])
+	}
+	// The cursor is the whole paging protocol of this tool: whatever the
+	// answer carries has to reach the caller intact, or the next page cannot
+	// be asked for.
+	if body["next_cursor"] != "cur_page_two" {
+		t.Errorf("next_cursor = %v, want the one the API sent", body["next_cursor"])
+	}
+	if !strings.Contains(resultText(t, result), "cursor") {
+		t.Errorf("the summary should point at the cursor:\n%s", resultText(t, result))
 	}
 	objects, ok := body["objects"].([]map[string]any)
 	if !ok || len(objects) != 1 {

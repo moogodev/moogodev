@@ -2,9 +2,15 @@ package dbcontrol
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -550,7 +556,165 @@ type ObjectQuery struct {
 	OrderBy  string
 	OrderDir string
 	Limit    int
-	Offset   int
+	// Cursor continues the listing after the last object of the previous page.
+	// It is empty for the first page, and it only ever continues the listing it
+	// was issued for: see ErrInvalidCursor.
+	Cursor string
+}
+
+// ObjectPage is one page of a listing and the way to ask for the one after it.
+type ObjectPage struct {
+	Objects []BucketObject
+	// Total counts everything matching the filter, not just this page, so a
+	// client can show how much there is without a second request.
+	Total int64
+	// NextCursor continues after the last object in Objects. It is empty when
+	// that page was the end of the listing.
+	NextCursor string
+}
+
+// ErrInvalidCursor is the refusal to continue a listing with a cursor that
+// does not belong to it.
+//
+// It is a client's own mistake -- a cursor pasted from another query, or one
+// carrying a sort that has since changed -- rather than a fault, so it answers
+// as a bad request and never as a storage error. The wrapped text says which
+// of the two it was, and the response carries it as the message beside the
+// invalid_cursor code.
+var ErrInvalidCursor = errors.New("that cursor cannot continue this listing")
+
+// objectCursor is a listing cursor as it travels: the ordering it was issued
+// for, a fingerprint of the listing it was issued against, and the boundary
+// row it points at.
+//
+// It is opaque to clients by convention rather than by secrecy: base64 of JSON
+// so a support question can be answered by decoding one, and nothing in it is
+// a secret, a credential, or a path into storage.
+type objectCursor struct {
+	Scope string `json:"s"`
+	// Order is the resolved column, not the caller's spelling of it, so the
+	// cursor names the thing the ORDER BY actually sorted by.
+	Order string `json:"o"`
+	Dir   string `json:"d"`
+	// Value is the boundary row's value in the sort column, in the form
+	// parseCursorValue reads back.
+	Value string `json:"v"`
+	// ID is the boundary row, which breaks ties in the sort column.
+	ID string `json:"i"`
+}
+
+// cursorScope fingerprints one listing: its bucket and the two filters that
+// decide which rows belong to it.
+//
+// Lengths are carried beside the values so no two triples can be read as the
+// same bytes. A cursor from a different scope is refused rather than applied,
+// because a keyset is a position and not a promise: it would silently return
+// rows that sort after some other listing's boundary and read as objects
+// skipped or repeated.
+func cursorScope(bucketID uuid.UUID, prefix, search string) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "%s\x00%d:%s\x00%d:%s", bucketID, len(prefix), prefix, len(search), search)
+	sum := sha256.Sum256([]byte(builder.String()))
+	return hex.EncodeToString(sum[:8])
+}
+
+// encodeCursor turns the last row of a page into the token that asks for the
+// page after it.
+func encodeCursor(query ObjectQuery, scope, column, direction string, object BucketObject) (string, error) {
+	value, err := cursorValue(column, object)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(objectCursor{
+		Scope: scope,
+		Order: column,
+		Dir:   direction,
+		Value: value,
+		ID:    object.ID.String(),
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode cursor: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded), nil
+}
+
+// decodeCursor reads a cursor and checks it still describes this listing.
+//
+// Everything it carries is verified before any of it reaches the query: the
+// scope, the column, the direction, then the value's own type and the id.
+func decodeCursor(raw, scope, column, direction string) (any, uuid.UUID, error) {
+	invalid := func(reason string) (any, uuid.UUID, error) {
+		return nil, uuid.Nil, fmt.Errorf("%w: %s", ErrInvalidCursor, reason)
+	}
+
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(raw))
+	if err != nil {
+		return invalid("it is not a token this server issued")
+	}
+	var cursor objectCursor
+	if err := json.Unmarshal(decoded, &cursor); err != nil {
+		return invalid("it is not a token this server issued")
+	}
+	if cursor.Scope != scope {
+		return invalid("it was issued for a different bucket or filter")
+	}
+	if cursor.Order != column || cursor.Dir != direction {
+		return invalid("the sort order changed since it was issued")
+	}
+
+	value, err := parseCursorValue(cursor.Order, cursor.Value)
+	if err != nil {
+		return invalid("its position does not fit this sort order")
+	}
+	id, err := uuid.Parse(cursor.ID)
+	if err != nil {
+		return invalid("it does not name a row")
+	}
+	return value, id, nil
+}
+
+// cursorValue formats a row's sort value for the cursor.
+//
+// The format is the one parseCursorValue reads back, which is why timestamps
+// are written in UTC: a cursor round trip must not move the boundary by a
+// timezone.
+func cursorValue(column string, object BucketObject) (string, error) {
+	switch column {
+	case "key":
+		return object.Key, nil
+	case "size_bytes":
+		return strconv.FormatInt(object.SizeBytes, 10), nil
+	case "content_type":
+		return object.ContentType, nil
+	case "created_at":
+		return object.CreatedAt.UTC().Format(time.RFC3339Nano), nil
+	case "updated_at":
+		return object.UpdatedAt.UTC().Format(time.RFC3339Nano), nil
+	}
+	return "", fmt.Errorf("column %q has no cursor value", column)
+}
+
+// parseCursorValue turns a cursor's stored value back into the type its column
+// compares as, so a page boundary binds as the bytes, timestamp or text it is
+// rather than as a string that each column would have to coerce.
+func parseCursorValue(column, raw string) (any, error) {
+	switch column {
+	case "key", "content_type":
+		return raw, nil
+	case "size_bytes":
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("read %q as a size: %w", raw, err)
+		}
+		return value, nil
+	case "created_at", "updated_at":
+		value, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			return nil, fmt.Errorf("read %q as a time: %w", raw, err)
+		}
+		return value, nil
+	}
+	return nil, fmt.Errorf("column %q has no cursor value", column)
 }
 
 // bucketObjectColumns is the shared projection, so every read of an object
@@ -583,30 +747,35 @@ var allowedObjectOrder = map[string]string{
 	"contenttype": "content_type",
 }
 
-// ListObjects returns a page of objects in a bucket and the total match count.
+// ListObjects returns one page of objects in a bucket and the total match
+// count.
 //
 // The total is counted in the same round trip so the UI's page count and its
 // rows can never disagree. It is computed with a window function over the full
 // filtered set rather than a second COUNT query, which would scan twice.
+//
+// Paging is by cursor rather than by offset: the page continues after the last
+// row of the previous one, so rows arriving or going away between two requests
+// cannot shift a page and make an object appear twice or not at all, and page
+// two costs the same as page one however deep it is.
 func (store *Store) ListObjects(
 	ctx context.Context,
 	query ObjectQuery,
-) ([]BucketObject, int64, error) {
+) (ObjectPage, error) {
+	empty := ObjectPage{Objects: []BucketObject{}}
 	if query.Limit <= 0 || query.Limit > maxObjectLimit {
 		query.Limit = defaultObjectLimit
-	}
-	if query.Offset < 0 {
-		query.Offset = 0
 	}
 
 	column, ok := allowedObjectOrder[query.OrderBy]
 	if !ok {
 		column = "created_at"
 	}
-	direction := "DESC"
+	direction := "desc"
 	if strings.EqualFold(query.OrderDir, "asc") {
-		direction = "ASC"
+		direction = "asc"
 	}
+	sortDirection := strings.ToUpper(direction)
 
 	// The filters are optional, so they are assembled as fixed fragments chosen
 	// by parameter rather than by string concatenation. Both the bucket id and
@@ -636,25 +805,61 @@ func (store *Store) ListObjects(
 		conditions = append(conditions,
 			fmt.Sprintf("key ILIKE $%d ESCAPE '\\'", len(arguments)))
 	}
+
+	// The page begins after the cursor's row, compared in exactly the two
+	// columns the ORDER BY sorts by. The row comparison reads the whole sort
+	// key at once, so the tiebreak in the id is part of the position rather
+	// than a second condition that could disagree with it.
+	//
+	// The predicate travels as a column rather than folded into WHERE: the
+	// window function that counts `total` only ever sees the rows its own
+	// WHERE passed, so a cursor inside it would count what has not been walked
+	// yet and every page after the first would report a listing that had
+	// shrunk. Carried out here, the count stays the count of everything the
+	// filter matches on every page of the walk, which is what the pager's
+	// page arithmetic runs on.
+	afterCursor := "TRUE"
+	scope := cursorScope(query.BucketID, query.Prefix, query.Search)
+	if query.Cursor != "" {
+		value, id, err := decodeCursor(query.Cursor, scope, column, direction)
+		if err != nil {
+			return empty, err
+		}
+		operator := ">"
+		if direction == "desc" {
+			operator = "<"
+		}
+		arguments = append(arguments, value, id)
+		afterCursor = fmt.Sprintf("(%s, id) %s ($%d, $%d)",
+			column, operator, len(arguments)-1, len(arguments))
+	}
 	where := strings.Join(conditions, " AND ")
 
-	statement := fmt.Sprintf(`
-		SELECT %s, COUNT(*) OVER () AS total_count
-		FROM bucket_objects
-		WHERE %s
-		ORDER BY %s %s, id ASC
-		LIMIT $%d OFFSET $%d`,
-		bucketObjectColumns, where, column, direction, len(arguments)+1, len(arguments)+2)
+	// One row more than asked for settles whether another page exists without
+	// a second round trip, which a caller reaching a full page would otherwise
+	// always pay for.
+	arguments = append(arguments, query.Limit+1)
 
-	arguments = append(arguments, query.Limit, query.Offset)
+	statement := fmt.Sprintf(`
+		SELECT %s, total_count
+		FROM (
+			SELECT %s, COUNT(*) OVER () AS total_count, %s AS after_cursor
+			FROM bucket_objects
+			WHERE %s
+		) AS matching
+		WHERE after_cursor
+		ORDER BY %s %s, id %s
+		LIMIT $%d`,
+		bucketObjectColumns, bucketObjectColumns, afterCursor, where,
+		column, sortDirection, sortDirection, len(arguments))
 
 	rows, err := store.pool.Query(ctx, statement, arguments...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list objects: %w", err)
+		return empty, fmt.Errorf("list objects: %w", err)
 	}
 	defer rows.Close()
 
-	objects := make([]BucketObject, 0, query.Limit)
+	objects := make([]BucketObject, 0, query.Limit+1)
 	var total int64
 	for rows.Next() {
 		object := BucketObject{}
@@ -673,7 +878,7 @@ func (store *Store) ListObjects(
 			&object.UpdatedAt,
 			&totalCount,
 		); err != nil {
-			return nil, 0, fmt.Errorf("scan object: %w", err)
+			return empty, fmt.Errorf("scan object: %w", err)
 		}
 		objects = append(objects, object)
 		// Every row carries the same count, so assigning it repeatedly is
@@ -682,9 +887,20 @@ func (store *Store) ListObjects(
 		total = totalCount
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("iterate objects: %w", err)
+		return empty, fmt.Errorf("iterate objects: %w", err)
 	}
-	return objects, total, nil
+
+	page := ObjectPage{Objects: objects, Total: total}
+	if len(objects) > query.Limit {
+		objects = objects[:query.Limit]
+		next, err := encodeCursor(query, scope, column, direction, objects[len(objects)-1])
+		if err != nil {
+			return empty, err
+		}
+		page.Objects = objects
+		page.NextCursor = next
+	}
+	return page, nil
 }
 
 // escapeLike neutralises the LIKE wildcards in user input.

@@ -108,9 +108,10 @@ moogo bucket ls --bucket media # another bucket
 moogo bucket ls avatars/       # only the keys under a prefix
 \`\`\`
 
-Columns are key, size, content type and when the object was last changed. Add
-\`--limit\` and \`--offset\` to page through a bucket that has more in it than one
-page, or \`--json\` to print the API's own answer for a script to read.
+Columns are key, size, content type and when the object was last changed. The
+command follows the listing to its end on its own; add \`--limit 50\` to stop
+after fifty (the last line then prints the cursor to continue with) or \`--json\`
+to print the API's own answer for a script to read.
 
 ## Delete objects
 

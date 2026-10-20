@@ -68,7 +68,9 @@ type listObjectsArgs struct {
 	Order  string `json:"order"`
 	Dir    string `json:"dir"`
 	Limit  int    `json:"limit"`
-	Offset int    `json:"offset"`
+	// Cursor is the previous answer's next_cursor, passed back to reach the
+	// page after it. Omitting it starts at the first page.
+	Cursor string `json:"cursor"`
 }
 
 // listObjects answers with one page of a bucket's objects.
@@ -90,10 +92,6 @@ func (handlers *Server) listObjects(ctx context.Context, request mcplib.CallTool
 	if limit > maxObjectLimit {
 		limit = maxObjectLimit
 	}
-	offset := input.Offset
-	if offset < 0 {
-		offset = 0
-	}
 
 	response, err := storage.List(ctx, ObjectQuery{
 		Bucket: input.Bucket,
@@ -102,7 +100,7 @@ func (handlers *Server) listObjects(ctx context.Context, request mcplib.CallTool
 		Order:  input.Order,
 		Dir:    input.Dir,
 		Limit:  limit,
-		Offset: offset,
+		Cursor: input.Cursor,
 	})
 	if err != nil {
 		return toolError(err), nil
@@ -114,15 +112,15 @@ func (handlers *Server) listObjects(ctx context.Context, request mcplib.CallTool
 	}
 
 	text := fmt.Sprintf("Returned %d object(s) of %d.", len(objects), response.Total)
-	if int64(offset+len(objects)) < response.Total {
-		text += fmt.Sprintf(" Page on with offset=%d.", offset+len(objects))
+	if response.NextCursor != "" {
+		text += " Page on with the cursor this answer carries."
 	}
 
 	return mcplib.NewToolResultStructured(map[string]any{
 		"objects":            objects,
 		"total":              response.Total,
 		"limit":              response.Limit,
-		"offset":             response.Offset,
+		"next_cursor":        response.NextCursor,
 		"storage_used_bytes": response.StorageUsedBytes,
 		"quota_bytes":        response.QuotaBytes,
 	}, text), nil

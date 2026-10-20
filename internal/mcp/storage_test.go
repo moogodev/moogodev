@@ -149,17 +149,21 @@ func TestStorageListSendsFilters(t *testing.T) {
 	t.Parallel()
 
 	base, requests := scriptedStoragePlane(t, http.StatusOK,
-		`{"success":true,"objects":[{"key":"a.txt","size_bytes":1}],"total":9,"limit":2,"offset":3,"storage_used_bytes":10,"quota_bytes":250}`, "")
+		`{"success":true,"objects":[{"key":"a.txt","size_bytes":1}],"total":9,"limit":2,"next_cursor":"cur_next","storage_used_bytes":10,"quota_bytes":250}`, "")
 	client := NewStorageClient(base, "moogo_ak_1", "moogo_sk_1", nil)
 
 	result, err := client.List(context.Background(), ObjectQuery{
-		Bucket: "images", Prefix: "avatars/", Search: "kit", Order: "size", Dir: "asc", Limit: 2, Offset: 3,
+		Bucket: "images", Prefix: "avatars/", Search: "kit", Order: "size", Dir: "asc",
+		Limit: 2, Cursor: "cur_prev",
 	})
 	if err != nil {
 		t.Fatalf("List() error = %v, want nil", err)
 	}
 	if result.Total != 9 {
 		t.Errorf("Total = %d, want 9", result.Total)
+	}
+	if result.NextCursor != "cur_next" {
+		t.Errorf("NextCursor = %q, want cur_next", result.NextCursor)
 	}
 	if len(result.Objects) != 1 {
 		t.Fatalf("Objects = %d, want 1", len(result.Objects))
@@ -177,7 +181,7 @@ func TestStorageListSendsFilters(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"bucket": "images", "prefix": "avatars/", "search": "kit",
-		"order": "size", "dir": "asc", "limit": "2", "offset": "3",
+		"order": "size", "dir": "asc", "limit": "2", "cursor": "cur_prev",
 	} {
 		if got := request.query.Get(name); got != want {
 			t.Errorf("query %s = %q, want %q", name, got, want)

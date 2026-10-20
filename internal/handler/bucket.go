@@ -60,7 +60,7 @@ type BucketStore interface {
 	ObjectByKey(ctx context.Context, projectID uuid.UUID, key string) (*dbcontrol.BucketObject, error)
 	SetObjectPublic(ctx context.Context, projectID uuid.UUID, key string, isPublic bool) (*dbcontrol.BucketObject, error)
 	RenameObject(ctx context.Context, projectID uuid.UUID, fromKey string, toKey string) (*dbcontrol.BucketObject, error)
-	ListObjects(ctx context.Context, query dbcontrol.ObjectQuery) ([]dbcontrol.BucketObject, int64, error)
+	ListObjects(ctx context.Context, query dbcontrol.ObjectQuery) (dbcontrol.ObjectPage, error)
 	DeleteObject(ctx context.Context, projectID uuid.UUID, key string) (int64, error)
 	DeletePrefix(ctx context.Context, projectID uuid.UUID, prefix string) ([]string, int64, error)
 	StorageUsedBytes(ctx context.Context, projectID uuid.UUID) (int64, error)
@@ -1107,7 +1107,6 @@ func (handler *BucketPlane) List(w http.ResponseWriter, r *http.Request) {
 
 	query := r.URL.Query()
 	limit := parseIntParam(query.Get("limit"), defaultObjectPageSize)
-	offset := parseIntParam(query.Get("offset"), 0)
 
 	bucket, err := handler.resolveBucket(r.Context(), projectID, query.Get("bucket"))
 	if err != nil {
@@ -1127,34 +1126,37 @@ func (handler *BucketPlane) List(w http.ResponseWriter, r *http.Request) {
 	bucket.ObjectCount = objectCount
 	bucket.SizeBytes = sizeBytes
 
-	objects, total, err := handler.store.ListObjects(r.Context(), dbcontrol.ObjectQuery{
+	page, err := handler.store.ListObjects(r.Context(), dbcontrol.ObjectQuery{
 		BucketID: bucket.ID,
 		Prefix:   query.Get("prefix"),
 		Search:   query.Get("search"),
 		OrderBy:  query.Get("order"),
 		OrderDir: query.Get("dir"),
 		Limit:    limit,
-		Offset:   offset,
+		Cursor:   query.Get("cursor"),
 	})
 	if err != nil {
 		handler.writeStoreError(w, r, projectID, err, "list objects")
 		return
 	}
 
-	responses := make([]ObjectResponse, 0, len(objects))
-	for i := range objects {
-		responses = append(responses, handler.objectResponse(r, projectID, bucket.Name, &objects[i]))
+	responses := make([]ObjectResponse, 0, len(page.Objects))
+	for i := range page.Objects {
+		responses = append(responses, handler.objectResponse(r, projectID, bucket.Name, &page.Objects[i]))
 	}
 
 	used, _ := handler.store.StorageUsedBytes(r.Context(), projectID)
 
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"success":            true,
-		"bucket":             handler.bucketResponse(bucket),
-		"objects":            responses,
-		"total":              total,
-		"limit":              limit,
-		"offset":             offset,
+		"success": true,
+		"bucket":  handler.bucketResponse(bucket),
+		"objects": responses,
+		"total":   page.Total,
+		"limit":   limit,
+		// Sent even when empty: an empty string is where the listing ended, and
+		// a client that reads it as "no more" is right in both states without
+		// having to test for a missing field.
+		"next_cursor":        page.NextCursor,
 		"storage_used_bytes": used,
 		"quota_bytes":        handler.quota,
 	})
@@ -1911,6 +1913,11 @@ func (handler *BucketPlane) writeStoreError(
 	case errors.Is(err, dbcontrol.ErrObjectKeyTaken):
 		httpx.WriteError(w, http.StatusConflict, "key_taken",
 			"an object with that key already exists in this project")
+	case errors.Is(err, dbcontrol.ErrInvalidCursor):
+		// The cursor, not the storage, is what refused: the listing is
+		// perfectly readable from the first page, and the message says which
+		// part of the cursor stopped matching.
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_cursor", err.Error())
 	default:
 		handler.writeError(w, r, projectID, err, action)
 	}

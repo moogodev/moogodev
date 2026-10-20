@@ -216,7 +216,7 @@ func listObjectsTool() mcplib.Tool {
 	return mcplib.NewTool("list_objects", toolOptions(
 		"List one page of objects in a bucket. Objects are addressed by key, a path such as \"avatars/kit.png\". "+
 			"Use bucket to choose one; without it the default bucket is listed. Narrow with prefix (a folder) or search (text in the key). "+
-			"The answer carries total, so page with offset until every object has been seen.",
+			"The answer carries total, and next_cursor when there is more: pass it back as cursor until it comes back empty and every object has been seen.",
 		toolAnnotations{readOnly: true, destructive: false, idempotent: true},
 		mcplib.WithString("bucket",
 			mcplib.Description("Bucket to list. The default bucket when omitted."),
@@ -233,9 +233,9 @@ func listObjectsTool() mcplib.Tool {
 			mcplib.Min(1),
 			mcplib.Max(1000),
 		),
-		mcplib.WithInteger("offset",
-			mcplib.Description("Objects to skip before this page."),
-			mcplib.Min(0),
+		mcplib.WithString("cursor",
+			mcplib.Description("Continue where the last answer stopped: its next_cursor, passed back unchanged. "+
+				"Omit it to start at the first page. A cursor only continues the listing it came from."),
 		),
 		mcplib.WithString("order",
 			mcplib.Enum("key", "size", "created", "updated", "contenttype"),

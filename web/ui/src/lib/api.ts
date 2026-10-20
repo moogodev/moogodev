@@ -204,13 +204,16 @@ export interface BucketObject {
 // ObjectPage is one page of a bucket listing. total is the count of everything
 // matching the filter, not the length of objects, so the pager can show how many
 // pages exist without a second request.
+//
+// next_cursor is how the next page is asked for: send it back as the cursor of
+// the next request, and stop when it comes back empty.
 export interface ObjectPage {
   success: boolean;
   bucket: Bucket;
   objects: BucketObject[];
   total: number;
   limit: number;
-  offset: number;
+  next_cursor: string;
   storage_used_bytes: number;
   quota_bytes: number;
 }
@@ -232,7 +235,9 @@ export interface ObjectQuery {
   order?: "key" | "size" | "created" | "updated" | "contenttype";
   dir?: "asc" | "desc";
   limit?: number;
-  offset?: number;
+  // cursor continues a listing from the previous page's next_cursor. Omitting
+  // it starts at the first page.
+  cursor?: string;
 }
 
 // uploadResponse is the body of a successful object upload.

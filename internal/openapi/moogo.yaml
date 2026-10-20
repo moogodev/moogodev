@@ -201,10 +201,11 @@ paths:
           in: query
           schema:
             type: integer
-        - name: offset
+        - name: cursor
           in: query
+          description: Continue after the last object of the previous page. Omit for the first page.
           schema:
-            type: integer
+            type: string
       responses:
         '200':
           description: Object page
@@ -757,7 +758,7 @@ components:
           format: date-time
     ObjectPage:
       type: object
-      required: [success, bucket, objects, total, limit, offset, storage_used_bytes, quota_bytes]
+      required: [success, bucket, objects, total, limit, next_cursor, storage_used_bytes, quota_bytes]
       properties:
         success:
           type: boolean
@@ -772,8 +773,9 @@ components:
           format: int64
         limit:
           type: integer
-        offset:
-          type: integer
+        next_cursor:
+          type: string
+          description: Continues this listing; empty when the page was the last one.
         storage_used_bytes:
           type: integer
           format: int64

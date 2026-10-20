@@ -38,9 +38,11 @@ interface Listing {
   total: number;
   used: number;
   quota: number;
+  // nextCursor continues this listing, or "" when this was its last page.
+  nextCursor: string;
 }
 
-const EMPTY: Listing = { objects: [], total: 0, used: 0, quota: 0 };
+const EMPTY: Listing = { objects: [], total: 0, used: 0, quota: 0, nextCursor: "" };
 
 function messageOf(cause: unknown): string {
   return cause instanceof ApiError ? cause.message : "Something went wrong.";
@@ -88,7 +90,12 @@ export default function BucketView({
   const [search, setSearch] = useState("");
   const [order, setOrder] = useState<NonNullable<ObjectQuery["order"]>>("key");
   const [dir, setDir] = useState<"asc" | "desc">("asc");
-  const [page, setPage] = useState(0);
+  // One cursor per page reached, with the empty string as the first page, so
+  // the page number is the length of the walk and Previous is the token that
+  // was spent to get here. A listing can only be paged forward from a token it
+  // issued; the stack is what makes Previous possible anyway.
+  const [cursors, setCursors] = useState<string[]>([""]);
+  const page = cursors.length - 1;
   const [listing, setListing] = useState<Listing>(EMPTY);
   const [listingError, setListingError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -150,9 +157,9 @@ export default function BucketView({
       order,
       dir,
       limit: PAGE_SIZE,
-      offset: page * PAGE_SIZE,
+      cursor: cursors[cursors.length - 1] || undefined,
     }),
-    [selected, search, order, dir, page],
+    [selected, search, order, dir, cursors],
   );
 
   const loadObjects = useCallback(async () => {
@@ -169,6 +176,7 @@ export default function BucketView({
         total: response.total,
         used: response.storage_used_bytes,
         quota: response.quota_bytes,
+        nextCursor: response.next_cursor,
       });
       setListingError(null);
     } catch (cause) {
@@ -183,13 +191,39 @@ export default function BucketView({
     void loadObjects();
   }, [loadObjects]);
 
-  // Any filter change invalidates the current page number, or a search from page
-  // three would land on an empty page and look like the search found nothing.
+  // Any filter change invalidates the current page, or a search from page three
+  // would land on a page the cursor does not describe. The first page is kept
+  // by identity when the walk has not left it, so a filter change does not
+  // fetch the same listing twice.
   useEffect(() => {
-    setPage(0);
+    setCursors((current) => (current.length === 1 && current[0] === "" ? current : [""]));
   }, [selected, search, order, dir]);
 
+  // A page that came back empty while the listing is not empty: the objects it
+  // held went away between two requests, and the cursor now points past the end
+  // of them. Going back to the first page is what a person would do, and doing
+  // it here keeps an empty table from reading as "this bucket has nothing in it".
+  useEffect(() => {
+    if (!loading && listing.objects.length === 0 && listing.total > 0 && cursors.length > 1) {
+      setCursors([""]);
+    }
+  }, [loading, listing, cursors.length]);
+
   // --- actions ---
+
+  const goNext = useCallback(() => {
+    const next = listing.nextCursor;
+    if (!next) {
+      return;
+    }
+    setCursors((current) =>
+      current[current.length - 1] === next ? current : [...current, next],
+    );
+  }, [listing.nextCursor]);
+
+  const goPrevious = useCallback(() => {
+    setCursors((current) => (current.length > 1 ? current.slice(0, -1) : current));
+  }, []);
 
   const announce = useCallback((text: string) => {
     setNotice(text);
@@ -619,7 +653,7 @@ export default function BucketView({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setPage((current) => Math.max(0, current - 1))}
+                onClick={goPrevious}
                 disabled={page === 0}
                 className="cursor-pointer rounded-md border border-edge px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -630,8 +664,8 @@ export default function BucketView({
               </span>
               <button
                 type="button"
-                onClick={() => setPage((current) => current + 1)}
-                disabled={page + 1 >= pages}
+                onClick={goNext}
+                disabled={!listing.nextCursor}
                 className="cursor-pointer rounded-md border border-edge px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Next

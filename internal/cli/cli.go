@@ -116,8 +116,8 @@ Flags:
   --yes             db reset: confirm a destructive command
   --bucket <name>   which bucket (default: the default bucket)
   --prefix          bucket rm: treat each key as the start of a folder
-  --limit <n>       bucket ls: page size (default 100)
-  --offset <n>      bucket ls: skip this many objects
+  --limit <n>       bucket ls: show at most this many objects
+  --cursor <token>  bucket ls: continue where a listing stopped
   --json            bucket ls: print the API response instead of a table
 
 Every command is an ordinary HTTP request against your project's API — the

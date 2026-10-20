@@ -3,9 +3,11 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -403,7 +405,7 @@ func (store *fakeBucketStore) RenameObject(
 
 func (store *fakeBucketStore) ListObjects(
 	_ context.Context, query dbcontrol.ObjectQuery,
-) ([]dbcontrol.BucketObject, int64, error) {
+) (dbcontrol.ObjectPage, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	matched := []dbcontrol.BucketObject{}
@@ -421,8 +423,42 @@ func (store *fakeBucketStore) ListObjects(
 		}
 		matched = append(matched, *object)
 	}
+	// Key order, because a cursor only means something against a listing that
+	// has one. The real store sorts by whichever column was asked for; what
+	// this fake has to reproduce is the contract at the boundary: total counts
+	// the whole filter, the page continues after the token, and an unreadable
+	// token is refused rather than ignored.
+	slices.SortFunc(matched, func(a, b dbcontrol.BucketObject) int {
+		return strings.Compare(a.Key, b.Key)
+	})
 	total := int64(len(matched))
-	return matched, total, nil
+
+	if query.Cursor != "" {
+		after, readable := strings.CutPrefix(query.Cursor, "after:")
+		if !readable {
+			return dbcontrol.ObjectPage{Objects: []dbcontrol.BucketObject{}},
+				fmt.Errorf("%w: it is not a token this server issued", dbcontrol.ErrInvalidCursor)
+		}
+		kept := matched[:0]
+		for _, object := range matched {
+			if strings.Compare(object.Key, after) > 0 {
+				kept = append(kept, object)
+			}
+		}
+		matched = kept
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	page := dbcontrol.ObjectPage{Objects: matched, Total: total}
+	if len(matched) > limit {
+		matched = matched[:limit]
+		page.Objects = matched
+		page.NextCursor = "after:" + matched[len(matched)-1].Key
+	}
+	return page, nil
 }
 
 func (store *fakeBucketStore) DeleteObject(
@@ -1923,6 +1959,100 @@ func TestListReportsBucketTotalsBesideAFilteredPage(t *testing.T) {
 	if response.Bucket.ObjectCount != 3 || response.Bucket.SizeBytes != 60 {
 		t.Fatalf("bucket summary = %d objects / %d bytes, want 3 / 60",
 			response.Bucket.ObjectCount, response.Bucket.SizeBytes)
+	}
+}
+
+// A page is reached by the token the previous page issued, and the answer says
+// whether another one exists. Both halves are what every client pages by, so
+// they are asserted through the handler and not only against the store.
+func TestListPagesWithACursor(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	bucket := store.addBucket("default")
+	for _, key := range []string{"a.png", "b.png", "c.png"} {
+		store.addObject(bucket, key, 4, "image/png")
+	}
+
+	type objectPage struct {
+		Objects []struct {
+			Key string `json:"key"`
+		} `json:"objects"`
+		Total      int64  `json:"total"`
+		NextCursor string `json:"next_cursor"`
+	}
+
+	fetch := func(cursor string) objectPage {
+		t.Helper()
+		target := "/bucket/x?limit=2"
+		if cursor != "" {
+			target += "&cursor=" + url.QueryEscape(cursor)
+		}
+		request := httptest.NewRequest(http.MethodGet, target, nil).
+			WithContext(requestContext(store.projectID, ""))
+		recorder := httptest.NewRecorder()
+		plane.List(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body %s)", recorder.Code, recorder.Body.String())
+		}
+		var response objectPage
+		decodeBody(t, recorder, &response)
+		return response
+	}
+
+	first := fetch("")
+	if len(first.Objects) != 2 {
+		t.Fatalf("first page = %d objects, want 2", len(first.Objects))
+	}
+	if first.Total != 3 {
+		t.Errorf("total = %d, want 3 -- total counts the filter, not the page", first.Total)
+	}
+	if first.NextCursor == "" {
+		t.Fatal("a full page should carry the cursor for the page after it")
+	}
+
+	second := fetch(first.NextCursor)
+	if len(second.Objects) != 1 || second.Objects[0].Key != "c.png" {
+		t.Fatalf("second page = %+v, want only c.png", second.Objects)
+	}
+	if second.Total != 3 {
+		t.Errorf("total = %d on page two, want 3 -- the count belongs to the filter, not the page", second.Total)
+	}
+	if second.NextCursor != "" {
+		t.Errorf("next_cursor = %q, want empty once the listing ends", second.NextCursor)
+	}
+	if second.Objects[0].Key == first.Objects[0].Key {
+		t.Error("the second page repeated an object from the first")
+	}
+}
+
+// A cursor that is not one this listing issued is refused rather than ignored.
+// An ignored cursor starts the listing over, which reads as a page repeating
+// every object it already showed.
+func TestListRefusesAnUnreadableCursor(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	store.addBucket("default")
+
+	request := httptest.NewRequest(
+		http.MethodGet, "/bucket/x?cursor=nonsense", nil,
+	).WithContext(requestContext(store.projectID, ""))
+	recorder := httptest.NewRecorder()
+	plane.List(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %s)", recorder.Code, recorder.Body.String())
+	}
+
+	var envelope struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	decodeBody(t, recorder, &envelope)
+	if envelope.Error.Code != "invalid_cursor" {
+		t.Errorf("code = %q, want invalid_cursor", envelope.Error.Code)
+	}
+	if !strings.Contains(envelope.Error.Message, "cannot continue this listing") {
+		t.Errorf("message = %q, want it to say what is wrong with the cursor", envelope.Error.Message)
 	}
 }
 
