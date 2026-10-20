@@ -224,6 +224,57 @@ Rules the engine enforces, not conventions:
   enforced — an orphan insert fails. Declare it explicitly; a column without
   `REFERENCES` is a plain column.
 
+## Command line client (CLI)
+
+The official `moogo` CLI is a pure HTTP client — it makes the same requests to the API as `curl`, with no direct access to the database or object files.
+
+### Install
+
+**Recommended (no Go required):**
+
+```bash
+curl -fsSL https://get.moogo.dev | sh
+```
+
+**Alternative (if you have Go):**
+
+```bash
+go install github.com/moogodev/moogodev/cmd/moogo@latest
+```
+
+Verify:
+
+```bash
+moogo version
+moogo help
+```
+
+### Environment
+
+| Variable | Required | Notes |
+|---|---|---|
+| `MOOGO_PROJECT_URL` | yes | e.g. `https://api.moogo.dev/p/<project_id>` |
+| `MOOGO_SECRET_KEY` | yes | Project secret key for SQL commands |
+| `MOOGO_BUCKET_ACCESS_KEY_ID` | for `bucket` commands | Storage credential |
+| `MOOGO_BUCKET_SECRET_KEY` | for `bucket` commands | Storage credential |
+
+Flags `--url`, `--key`, `--storage-key-id`, `--storage-key` override environment variables.
+
+### Commands
+
+| Command | Does |
+|---|---|
+| `moogo db push <file>` | Apply a SQL file as one or more transactions |
+| `moogo db seed [file]` | Apply a seed file once (tracked by content hash) |
+| `moogo db reset --yes` | Drop every table and view in the project |
+| `moogo db vacuum` | Reindex, analyze, vacuum and checkpoint the WAL to reclaim free space |
+| `moogo bucket ls [prefix]` | List objects in a bucket (cursor-based, walks pages) |
+| `moogo bucket rm <key>...` | Delete objects, or with `--prefix` an entire folder |
+| `moogo version` | Print client version |
+| `moogo help` | Print usage |
+
+The CLI follows the same rules as the API: placeholders via args, one statement per request where applicable, and it will not do anything the API refuses to do.
+
 ## Object storage (buckets)
 
 Storage takes its own credential. The two credential types are **not**
