@@ -17,6 +17,7 @@ node_modules/
 /bin/
 *.exe
 /moogo-server
+/dist/
 
 # Local development services and data (Postgres cluster, SQLite files).
 .local/

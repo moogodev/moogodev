@@ -27,7 +27,8 @@ esac
 info "Detected: ${OS}/${ARCH}"
 
 info "Fetching latest release..."
-TAG="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep -m 1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+body="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")"
+TAG="$(printf '%s' "$body" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
 [ -z "$TAG" ] && err "Could not determine latest release. Make sure a release exists on GitHub."
 
 info "Latest version: ${TAG}"
