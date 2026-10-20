@@ -7,9 +7,30 @@ the client will not do it either.
 
 ## Install
 
+### Install script (recommended)
+
+The fastest way. Works on macOS and Linux. Detects your OS and architecture, downloads the correct prebuilt binary from GitHub Releases, and installs it to `/usr/local/bin` or `~/.local/bin`.
+
+```bash
+curl -fsSL https://get.moogo.dev | sh
+```
+
+After installation, verify it:
+
+```bash
+moogo version
+moogo help
+```
+
+### Install with Go
+
+If you already have [Go](https://go.dev) installed:
+
 ```bash
 go install github.com/moogodev/moogodev/cmd/moogo@latest
 ```
+
+> `go install` requires Go on your machine and builds from source. The install script above does **not** require Go.
 
 Or build it from a checkout:
 
