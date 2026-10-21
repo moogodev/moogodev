@@ -46,6 +46,36 @@ update feed.
   quickstart to error codes to an [AI adoption prompt](https://moogo.dev/docs/ai-adoption-prompt)
   you can paste into any coding agent.
 
+## What Moogo is for
+
+Moogo is built for applications that want **simplicity, isolation, and speed** over raw scale.
+
+| Use case | Why Moogo fits |
+|---|---|
+| **Serverless functions / Edge workers** | No connection pool, no driver, no cold start. Just `POST /query` with a key. |
+| **Small SaaS / Multi-tenant apps** | One SQLite file per project = structural isolation. No RLS policies to get wrong. |
+| **AI agents / LLM tools** | Native MCP server (`cmd/mcp`) exposes SQL + object storage as tools. No HTTP client to write. |
+| **Internal tools / Admin panels** | Dashboard included — table browser, SQL console, schema visualizer, bucket browser. |
+| **Prototypes → Production** | Same API from day one. No migration to "real" database needed. |
+| **Apps ≤ 250 MB data / project** | Honest ceiling, reported in every response. |
+
+**The pattern:** a few tables, a handful of queries, a few MB of files, and you want zero operational overhead.
+
+## What Moogo is not for
+
+| You need | Use instead |
+|---|---|
+| `PostGIS` / spatial queries | PostGIS on Postgres |
+| Cross-region read replicas | Managed Postgres (Supabase, Neon, RDS) |
+| Concurrent analytical scans (OLAP) | ClickHouse, DuckDB, BigQuery |
+| Database > 250 MB per project | Postgres, MySQL, or a larger SQLite host |
+| Row-level security across tenants | You get file isolation — RLS not needed |
+| `GRANT`/`REVOKE`, multiple DB roles | Moogo has one key per project |
+| Triggers, `ATTACH`, `load_extension` | Not supported (security design) |
+| Self-hosting (this version) | Planned for future release |
+
+**The trade-off is intentional:** Moogo optimizes for the 80% of apps that don't need Postgres features, giving them structural isolation, zero-driver integration, and honest limits.
+
 ## What is in here
 
 - **Control plane** — accounts, projects, quotas, credentials. Postgres, because
