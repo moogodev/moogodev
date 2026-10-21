@@ -250,8 +250,9 @@ application (it needs the credential), `preview_url` for the dashboard, and
 `public_url`, which stays empty until the object is published. A published
 object is readable by anyone holding its `public_url` —
 `https://cdn.moogo.dev/pub/{project_id}/{key}` on a deployment with a CDN host,
-otherwise the API origin; treat publishing as permanent, because anyone who
-recorded the URL keeps it.
+otherwise the API origin.
+
+**Important:** Publishing is **per-object**, not global. Setting a bucket to public does **not** automatically publish every existing object — it only affects how new uploads behave and the bucket's default. URLs for objects that were never published remain inaccessible via `/pub/`. If a URL was fetched while the object was not published, CDN negative caching may keep returning 404 for a time until it expires (see Troubleshooting). URLs are shareable once published, but publishing an object can be undone by setting `is_public` to false on that object. Treat published URLs as discoverable while they are public.
 
 ## Limits
 

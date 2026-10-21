@@ -333,6 +333,12 @@ record atomically from the caller's point of view; the object keeps its identity
 and `id`. A rename never changes visibility — if a body carries both `new_key` and
 `is_public`, the rename wins and the visibility is left as it was.
 
+## Publishing vs bucket visibility
+
+Publishing is **per-object**. An object is only accessible via `/pub/{project_id}/{key}` if **`is_public` is true on that specific object**. Setting a bucket to public in the dashboard or via `POST /buckets/{project_id}/{bucket_id}/public` affects the bucket's default behavior for future uploads and can apply visibility to existing objects in that bucket — but the canonical rule is: **public URLs work only for objects with `is_public: true`**. 
+
+If a public URL was requested while the object was not published (or didn't exist), CDNs and browsers may cache the **404 response** with a long TTL. After you publish the object (or make the bucket public), that previously-cached 404 may persist until the cache expires. See [Troubleshooting](#troubleshooting) for ways to work around this.
+
 ## Delete
 
 **One object:**
@@ -479,6 +485,17 @@ export const list = (prefix) =>
 const encodeKey = (key) =>
   key.split("/").map(encodeURIComponent).join("/");
 ```
+
+## Troubleshooting
+
+- **415 unsupported_media_type** — you're missing or wrong `Content-Type`. On JSON endpoints it must be `application/json`. On an object upload it must be the file's type (never JSON-wrapped).
+- **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need `Authorization: Bearer $MOOGO_SECRET_KEY`. The types are not interchangeable.
+- **404 on an object you just uploaded** — check the key case and the bucket (`?bucket=`). The path is `/bucket/{key}`, not `/buckets/`.
+- **Object 404s on `/pub/` right after making it public** — when an object is requested while it isn't published, the CDN can cache that 404 (negative caching). After publishing it, the cached 404 can persist until the cache TTL expires. To fix: wait for expiration, use a new key (versioning, e.g. `image-v2.png`), or request a cache purge if your deployment supports it. For mutable assets, consider versioning keys instead of relying on cache invalidation.
+- **object_too_large** — above the bucket's `max_object_size_bytes` (or 250 MB). Shrink the file, raise the cap, or split it.
+- **quota_exceeded** — project or bucket storage would go over its limit. Delete some objects or increase quota.
+- **truncated: true** — your listing is capped at `limit` rows. Send the `next_cursor` to fetch the next page, or increase `limit` up to 1000.
+- **invalid_cursor** — the cursor belongs to a different listing (different bucket/filters/order). Drop it and start from page 1.
 
 ## Next
 

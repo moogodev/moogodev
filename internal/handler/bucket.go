@@ -575,6 +575,8 @@ func (handler *BucketPlane) PublicDownload(w http.ResponseWriter, r *http.Reques
 		rawKey, found := auth.ObjectKeyFromContext(r.Context())
 		key, err := normalizeKey(rawKey)
 		if !ok || !found || err != nil {
+			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+			w.Header().Set("Pragma", "no-cache")
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
 			return
 		}
@@ -586,10 +588,14 @@ func (handler *BucketPlane) PublicDownload(w http.ResponseWriter, r *http.Reques
 			"GET", projectID.String(), "", key, expRaw, sigRaw, time.Now(),
 		); {
 		case errors.Is(err, signedurl.ErrExpired):
+			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+			w.Header().Set("Pragma", "no-cache")
 			httpx.WriteError(w, http.StatusForbidden, "link_expired",
 				"the signed link has expired; request a new one")
 			return
 		case err != nil:
+			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+			w.Header().Set("Pragma", "no-cache")
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
 			return
 		default:
@@ -673,18 +679,30 @@ func (handler *BucketPlane) serveObject(
 ) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
+		if access == accessPublished {
+			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+			w.Header().Set("Pragma", "no-cache")
+		}
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
 	rawKey, found := auth.ObjectKeyFromContext(r.Context())
 	if !found {
+		if access == accessPublished {
+			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+			w.Header().Set("Pragma", "no-cache")
+		}
 		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
 		return
 	}
 
 	key, err := normalizeKey(rawKey)
 	if err != nil {
+		if access == accessPublished {
+			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+			w.Header().Set("Pragma", "no-cache")
+		}
 		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
 		return
 	}
@@ -692,6 +710,10 @@ func (handler *BucketPlane) serveObject(
 	object, err := handler.store.ObjectByKey(r.Context(), projectID, key)
 	if err != nil {
 		if errors.Is(err, dbcontrol.ErrNotFound) {
+			if access == accessPublished {
+				w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+				w.Header().Set("Pragma", "no-cache")
+			}
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
 			return
 		}
@@ -706,6 +728,8 @@ func (handler *BucketPlane) serveObject(
 	// already proven the owner issued a link for this exact key, so it clears
 	// this bar the way a published object does.
 	if access == accessPublished && !object.IsPublic {
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+		w.Header().Set("Pragma", "no-cache")
 		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
 		return
 	}
@@ -730,6 +754,10 @@ func (handler *BucketPlane) serveObject(
 		// object. The two stores can disagree after a failed write, and reporting
 		// that as a server error would send the dashboard looking for a bug.
 		if errors.Is(err, dbplane.ErrNotFound) {
+			if access == accessPublished {
+				w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+				w.Header().Set("Pragma", "no-cache")
+			}
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
 			return
 		}
