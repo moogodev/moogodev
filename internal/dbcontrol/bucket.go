@@ -249,6 +249,7 @@ func (store *Store) PutObject(
 	sizeBytes int64,
 	contentType string,
 	isPublic bool,
+	cacheControl string,
 ) (*BucketObject, int64, error) {
 	object := &BucketObject{}
 	var previousSize int64
@@ -277,20 +278,22 @@ func (store *Store) PutObject(
 		), upserted AS (
 			INSERT INTO bucket_objects (
 				project_id, bucket_id, key, size_bytes, content_type,
-				is_public, public_token, version
+				is_public, public_token, version, cache_control
 			)
 			VALUES (
 				$1, $2, $3, $4, $5, $6,
 				CASE WHEN $6 THEN gen_random_uuid()::text ELSE NULL END,
-				gen_random_uuid()
+				gen_random_uuid(),
+				NULLIF($7, '')
 			)
 			ON CONFLICT (project_id, key) DO UPDATE
 			   SET size_bytes   = EXCLUDED.size_bytes,
 			       content_type = EXCLUDED.content_type,
 			       bucket_id    = EXCLUDED.bucket_id,
-			       version      = EXCLUDED.version
+			       version      = EXCLUDED.version,
+			       cache_control = NULLIF(EXCLUDED.cache_control, '')
 			RETURNING id, project_id, bucket_id, key, size_bytes, content_type,
-			          is_public, public_token, version, created_at, updated_at
+			          is_public, public_token, version, cache_control, created_at, updated_at
 		)
 		SELECT COALESCE((SELECT size_bytes FROM previous), 0),
 		       (SELECT id FROM upserted),
@@ -302,11 +305,12 @@ func (store *Store) PutObject(
 		       (SELECT is_public FROM upserted),
 		       (SELECT public_token FROM upserted),
 		       (SELECT version FROM upserted),
+		       (SELECT cache_control FROM upserted),
 		       (SELECT created_at FROM upserted),
 		       (SELECT updated_at FROM upserted)`
 
 	err := store.pool.QueryRow(ctx, upsertQuery,
-		projectID, bucketID, key, sizeBytes, contentType, isPublic,
+		projectID, bucketID, key, sizeBytes, contentType, isPublic, cacheControl,
 	).Scan(
 		&previousSize,
 		&object.ID,
@@ -318,6 +322,7 @@ func (store *Store) PutObject(
 		&object.IsPublic,
 		&object.PublicToken,
 		&object.Version,
+		&object.CacheControl,
 		&object.CreatedAt,
 		&object.UpdatedAt,
 	)
@@ -331,11 +336,12 @@ func (store *Store) PutObject(
 func (store *Store) ObjectByKey(ctx context.Context, projectID uuid.UUID, key string) (*BucketObject, error) {
 	const query = `
 		SELECT id, project_id, bucket_id, key, size_bytes, content_type,
-		       is_public, public_token, version, created_at, updated_at
+		       is_public, public_token, version, cache_control, created_at, updated_at
 		FROM bucket_objects
 		WHERE project_id = $1 AND key = $2`
 
 	object := &BucketObject{}
+	var cacheControl *string
 	err := store.pool.QueryRow(ctx, query, projectID, key).Scan(
 		&object.ID,
 		&object.ProjectID,
@@ -346,9 +352,13 @@ func (store *Store) ObjectByKey(ctx context.Context, projectID uuid.UUID, key st
 		&object.IsPublic,
 		&object.PublicToken,
 		&object.Version,
+		&cacheControl,
 		&object.CreatedAt,
 		&object.UpdatedAt,
 	)
+	if cacheControl != nil {
+		object.CacheControl = *cacheControl
+	}
 	if err != nil {
 		if isNoRows(err) {
 			return nil, ErrNotFound
@@ -721,7 +731,7 @@ func parseCursorValue(column, raw string) (any, error) {
 // scans the same fields in the same order.
 const bucketObjectColumns = `
 	id, project_id, bucket_id, key, size_bytes, content_type,
-	is_public, public_token, version, created_at, updated_at`
+	is_public, public_token, version, cache_control, created_at, updated_at`
 
 // Listing limits for the object browser.
 //
@@ -864,6 +874,7 @@ func (store *Store) ListObjects(
 	for rows.Next() {
 		object := BucketObject{}
 		var totalCount int64
+		var cacheControl *string
 		if err := rows.Scan(
 			&object.ID,
 			&object.ProjectID,
@@ -874,11 +885,15 @@ func (store *Store) ListObjects(
 			&object.IsPublic,
 			&object.PublicToken,
 			&object.Version,
+			&cacheControl,
 			&object.CreatedAt,
 			&object.UpdatedAt,
 			&totalCount,
 		); err != nil {
 			return empty, fmt.Errorf("scan object: %w", err)
+		}
+		if cacheControl != nil {
+			object.CacheControl = *cacheControl
 		}
 		objects = append(objects, object)
 		// Every row carries the same count, so assigning it repeatedly is

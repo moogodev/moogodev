@@ -3004,6 +3004,41 @@ Failures are distinguishable:
 | `object_too_large` | 413 | Over **this bucket's** cap. `detail` names the limit. |
 | `quota_exceeded` | 507 | The project total is full. `detail` reports usage and quota. |
 
+### Custom Cache-Control
+
+You can override the default caching behavior for an object by sending a
+`Cache-Control` header on the upload request:
+
+```bash
+curl -X POST "$ENDPOINT/avatars/kit.png" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "Content-Type: image/png" \
+  -H "Cache-Control: public, max-age=31536000, immutable" \
+  --data-binary @kit.png
+```
+
+The header is stored with the object and used for all subsequent downloads
+(both authenticated and public). If omitted, Moogo applies its defaults:
+
+| Access type | Default `Cache-Control` |
+|---|---|
+| Published (`/pub/`) | `public, max-age=300, must-revalidate` |
+| Private / Signed | `private, no-cache` |
+
+A custom value replaces the default for that object entirely. Common patterns:
+
+| Goal | Header |
+|---|---|
+| Long-term cache, never revalidate | `public, max-age=31536000, immutable` |
+| No caching, always check server | `no-store` |
+| Cache for 1 hour, revalidate | `public, max-age=3600, must-revalidate` |
+| Private cache only, 1 hour | `private, max-age=3600` |
+
+> **Note:** The `Cache-Control` header you send on upload applies to **all**
+> subsequent downloads of that object. It is not request-specific. To change it,
+> re-upload the object with a new header (the object key and ETag will update).
+
 ## Download
 
 ```bash

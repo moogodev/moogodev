@@ -56,6 +56,7 @@ type BucketStore interface {
 		sizeBytes int64,
 		contentType string,
 		isPublic bool,
+		cacheControl string,
 	) (*dbcontrol.BucketObject, int64, error)
 	ObjectByKey(ctx context.Context, projectID uuid.UUID, key string) (*dbcontrol.BucketObject, error)
 	SetObjectPublic(ctx context.Context, projectID uuid.UUID, key string, isPublic bool) (*dbcontrol.BucketObject, error)
@@ -495,8 +496,13 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	used := budget.used
+
+	// Read optional Cache-Control header to customize object caching behavior.
+	// Empty string means no override; the default logic in writeObjectHeaders applies.
+	cacheControl := r.Header.Get("Cache-Control")
+
 	object, prevSize, err := handler.store.PutObject(
-		r.Context(), projectID, bucket.ID, key, size, contentType, bucket.IsPublic,
+		r.Context(), projectID, bucket.ID, key, size, contentType, bucket.IsPublic, cacheControl,
 	)
 	if err != nil {
 		_ = handler.fs.DeleteObject(projectID, key)
@@ -894,13 +900,21 @@ func (handler *BucketPlane) writeObjectHeaders(
 	// immutable entry would then be wrong for a year. The ETag is what makes
 	// revalidation cheap instead.
 	if access == accessPublished {
-		header.Set("Cache-Control", "public, max-age=300, must-revalidate")
+		if object.CacheControl != "" {
+			header.Set("Cache-Control", object.CacheControl)
+		} else {
+			header.Set("Cache-Control", "public, max-age=300, must-revalidate")
+		}
 	} else {
 		// Stored but always revalidated. no-store would make the dashboard
 		// re-download a preview image every time the object table is redrawn,
 		// while a plain max-age would let a browser keep serving a copy after the
 		// owner replaced the file. must-revalidate plus the ETag avoids both.
-		header.Set("Cache-Control", "private, no-cache")
+		if object.CacheControl != "" {
+			header.Set("Cache-Control", object.CacheControl)
+		} else {
+			header.Set("Cache-Control", "private, no-cache")
+		}
 	}
 }
 

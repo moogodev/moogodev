@@ -321,6 +321,9 @@ func (stub *stubBucket) DeleteBucket(w http.ResponseWriter, r *http.Request) {
 func (stub *stubBucket) SetBucketPublic(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "SetBucketPublic")
 }
+func (stub *stubBucket) GetBucketInfo(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "GetBucketInfo")
+}
 func (stub *stubBucket) SignURL(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "SignURL")
 }

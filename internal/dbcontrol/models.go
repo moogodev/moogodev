@@ -207,8 +207,9 @@ type BucketObject struct {
 	// Version rotates on every successful upload. It is the HTTP validator, so
 	// replacing the bytes under an existing key stops matching a cached copy.
 	Version   uuid.UUID
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CacheControl string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // ETag is the HTTP validator for this object.

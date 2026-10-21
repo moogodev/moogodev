@@ -306,6 +306,7 @@ func (store *fakeBucketStore) PutObject(
 	sizeBytes int64,
 	contentType string,
 	isPublic bool,
+	cacheControl string,
 ) (*dbcontrol.BucketObject, int64, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -326,6 +327,7 @@ func (store *fakeBucketStore) PutObject(
 		existing.ContentType = contentType
 		existing.BucketID = bucketID
 		existing.Version = uuid.New()
+		existing.CacheControl = cacheControl
 		// A copy, not the stored pointer: a caller that captured the previous
 		// response must not see it change underneath.
 		replaced := *existing
@@ -333,16 +335,17 @@ func (store *fakeBucketStore) PutObject(
 	}
 
 	object := &dbcontrol.BucketObject{
-		ID:          uuid.New(),
-		ProjectID:   projectID,
-		BucketID:    bucketID,
-		Key:         key,
-		SizeBytes:   sizeBytes,
-		ContentType: contentType,
-		IsPublic:    isPublic,
-		Version:     uuid.New(),
-		CreatedAt:   time.Unix(1_700_000_000, 0).UTC(),
-		UpdatedAt:   time.Unix(1_700_000_000, 0).UTC(),
+		ID:           uuid.New(),
+		ProjectID:    projectID,
+		BucketID:     bucketID,
+		Key:          key,
+		SizeBytes:    sizeBytes,
+		ContentType:  contentType,
+		IsPublic:     isPublic,
+		Version:      uuid.New(),
+		CacheControl: cacheControl,
+		CreatedAt:    time.Unix(1_700_000_000, 0).UTC(),
+		UpdatedAt:    time.Unix(1_700_000_000, 0).UTC(),
 	}
 	if isPublic {
 		token := uuid.New().String()
@@ -1391,7 +1394,7 @@ func TestDownloadChangesETagAfterTheObjectIsReplaced(t *testing.T) {
 	fs.contents["logo.png"] = []byte("NEW!")
 	if _, _, err := store.PutObject(
 		context.Background(), store.projectID, bucket.ID, "logo.png", 4, "image/png",
-		bucket.IsPublic,
+		bucket.IsPublic, "",
 	); err != nil {
 		t.Fatalf("re-upload: %v", err)
 	}
