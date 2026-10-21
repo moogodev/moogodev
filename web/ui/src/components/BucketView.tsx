@@ -114,6 +114,7 @@ export default function BucketView({
   // target the dialog's confirm button will act on.
   const [pendingRemove, setPendingRemove] = useState<BucketObject | null>(null);
   const [pendingBucket, setPendingBucket] = useState<Bucket | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   const fileInput = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -410,6 +411,72 @@ export default function BucketView({
     [announce],
   );
 
+  // --- bulk actions ---
+
+  const toggleKey = useCallback((key: string) => {
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelectedKeys((current) => {
+      if (current.size === listing.objects.length) {
+        return new Set();
+      }
+      return new Set(listing.objects.map((o) => o.key));
+    });
+  }, [listing.objects]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedKeys(new Set());
+  }, []);
+
+  const bulkDelete = useCallback(async () => {
+    if (selectedKeys.size === 0) return;
+    const keys = Array.from(selectedKeys);
+    setBusy("bulk-delete");
+    let failed = 0;
+    for (const key of keys) {
+      try {
+        await api.dashboardBucketDelete(projectId, key);
+      } catch {
+        failed += 1;
+      }
+    }
+    setBusy(null);
+    announce(failed === 0 ? `Deleted ${keys.length} object${keys.length === 1 ? "" : "s"}.` : `Deleted ${keys.length - failed}, ${failed} failed.`);
+    clearSelection();
+    await refreshAll();
+  }, [announce, clearSelection, projectId, refreshAll, selectedKeys]);
+
+  const bulkPublish = useCallback(async (makePublic: boolean) => {
+    if (selectedKeys.size === 0) return;
+    const keys = Array.from(selectedKeys);
+    setBusy("bulk-publish");
+    let failed = 0;
+    for (const key of keys) {
+      try {
+        await api.dashboardSetObjectPublic(projectId, key, makePublic);
+      } catch {
+        failed += 1;
+      }
+    }
+    setBusy(null);
+    const verb = makePublic ? "Published" : "Made private";
+    announce(failed === 0 ? `${verb} ${keys.length} object${keys.length === 1 ? "" : "s"}.` : `${verb} ${keys.length - failed}, ${failed} failed.`);
+    clearSelection();
+    await refreshAll();
+  }, [announce, clearSelection, projectId, refreshAll, selectedKeys]);
+
+  const hasSelection = selectedKeys.size > 0;
+
   // --- drag and drop ---
 
   const onDrop = useCallback(
@@ -640,6 +707,13 @@ export default function BucketView({
             onRename={rename}
             onDelete={remove}
             onCopy={copy}
+            selectedKeys={selectedKeys}
+            onToggleKey={toggleKey}
+            onSelectAll={selectAll}
+            onClearSelection={clearSelection}
+            onBulkDelete={bulkDelete}
+            onBulkPublish={bulkPublish}
+            hasSelection={hasSelection}
           />
         )}
 
@@ -817,6 +891,23 @@ function BucketSidebar({
   );
 }
 
+interface ObjectTableProps {
+  objects: BucketObject[];
+  busy: string | null;
+  onPreview: (object: BucketObject) => void;
+  onTogglePublic: (object: BucketObject) => void;
+  onRename: (object: BucketObject) => void;
+  onDelete: (object: BucketObject) => void;
+  onCopy: (label: string, value: string) => void;
+  selectedKeys: Set<string>;
+  onToggleKey: (key: string) => void;
+  onSelectAll: () => void;
+  onClearSelection: () => void;
+  onBulkDelete: () => void;
+  onBulkPublish: (makePublic: boolean) => void;
+  hasSelection: boolean;
+}
+
 function ObjectTable({
   objects,
   busy,
@@ -825,20 +916,68 @@ function ObjectTable({
   onRename,
   onDelete,
   onCopy,
-}: {
-  objects: BucketObject[];
-  busy: string | null;
-  onPreview: (object: BucketObject) => void;
-  onTogglePublic: (object: BucketObject) => void;
-  onRename: (object: BucketObject) => void;
-  onDelete: (object: BucketObject) => void;
-  onCopy: (label: string, value: string) => void;
-}) {
+  selectedKeys,
+  onToggleKey,
+  onSelectAll,
+  onClearSelection,
+  onBulkDelete,
+  onBulkPublish,
+  hasSelection,
+}: ObjectTableProps) {
+  const allSelected = objects.length > 0 && selectedKeys.size === objects.length;
+
   return (
     <div className="overflow-x-auto rounded-xl border border-edge">
+      {hasSelection && (
+        <div className="border-b border-edge bg-panel px-4 py-2 flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground">
+            {selectedKeys.size} of {objects.length} selected
+          </span>
+          <button
+            type="button"
+            onClick={onBulkDelete}
+            disabled={busy === "bulk-delete"}
+            className="cursor-pointer rounded-md border border-amber/40 px-3 py-1.5 text-xs text-amber hover:bg-amber/10 disabled:opacity-50"
+          >
+            Delete selected
+          </button>
+          <button
+            type="button"
+            onClick={() => onBulkPublish(true)}
+            disabled={busy === "bulk-publish"}
+            className="cursor-pointer rounded-md border border-accent/40 px-3 py-1.5 text-xs text-accent-strong hover:bg-accent/10 disabled:opacity-50"
+          >
+            Publish selected
+          </button>
+          <button
+            type="button"
+            onClick={() => onBulkPublish(false)}
+            disabled={busy === "bulk-publish"}
+            className="cursor-pointer rounded-md border border-edge px-3 py-1.5 text-xs text-muted hover:bg-panel-raised disabled:opacity-50"
+          >
+            Make private
+          </button>
+          <button
+            type="button"
+            onClick={onClearSelection}
+            className="cursor-pointer rounded-md border border-edge px-3 py-1.5 text-xs text-muted hover:bg-panel-raised"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
       <table className="w-full border-collapse text-left text-sm">
         <thead className="bg-panel-raised">
           <tr>
+            <th className="whitespace-nowrap border-b border-edge px-4 py-3 w-10">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={onSelectAll}
+                aria-label="Select all objects"
+                className="cursor-pointer rounded border-edge text-accent-strong focus:ring-accent-strong"
+              />
+            </th>
             <th className="whitespace-nowrap border-b border-edge px-4 py-3 font-semibold text-foreground">
               Name
             </th>
@@ -857,74 +996,97 @@ function ObjectTable({
           </tr>
         </thead>
         <tbody>
-          {objects.map((object) => (
-            <tr
-              key={object.id}
-              className="odd:bg-panel even:bg-panel/40 border-b border-edge/60"
-            >
-              <td className="px-4 py-3">
-                <button
-                  type="button"
-                  onClick={() => onPreview(object)}
-                  className="flex cursor-pointer items-center gap-2.5 text-left"
-                >
-                  <span className="shrink-0 rounded border border-edge bg-panel-raised px-1.5 py-0.5 font-mono text-[0.65rem] text-muted">
-                    {fileBadge(object)}
-                  </span>
-                  <span className="truncate font-mono text-foreground">
-                    {object.key}
-                  </span>
-                </button>
-              </td>
-              <td className="whitespace-nowrap px-4 py-3 text-muted">
-                {formatBytes(object.size_bytes)}
-              </td>
-              <td className="whitespace-nowrap px-4 py-3">
-                <button
-                  type="button"
-                  onClick={() => onTogglePublic(object)}
-                  disabled={busy === object.id}
-                  title={
-                    object.is_public
-                      ? "Reachable without a credential"
-                      : "Only reachable with a credential"
-                  }
-                  className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
-                    object.is_public
-                      ? "border-accent/40 bg-accent/10 text-accent-strong hover:bg-accent/20"
-                      : "border-edge text-muted hover:bg-panel-raised"
-                  }`}
-                >
-                  {object.is_public ? "Public" : "Private"}
-                </button>
-              </td>
-              <td className="whitespace-nowrap px-4 py-3 text-muted">
-                {new Date(object.created_at).toLocaleDateString()}
-              </td>
-              <td className="whitespace-nowrap px-4 py-3">
-                <div className="flex items-center gap-1">
-                  {object.is_public && (
+          {objects.map((object) => {
+            const isSelected = selectedKeys.has(object.key);
+            return (
+              <tr
+                key={object.id}
+                className={`odd:bg-panel even:bg-panel/40 border-b border-edge/60 ${isSelected ? "bg-accent/5" : ""}`}
+              >
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => onToggleKey(object.key)}
+                    aria-label={`Select ${object.key}`}
+                    className="cursor-pointer rounded border-edge text-accent-strong focus:ring-accent-strong"
+                  />
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => onPreview(object)}
+                    className="flex cursor-pointer items-center gap-2.5 text-left"
+                  >
+                    <span className="shrink-0 rounded border border-edge bg-panel-raised px-1.5 py-0.5 font-mono text-[0.65rem] text-muted">
+                      {fileBadge(object)}
+                    </span>
+                    <span className="truncate font-mono text-foreground">
+                      {object.key}
+                    </span>
+                  </button>
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-muted">
+                  {formatBytes(object.size_bytes)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => onTogglePublic(object)}
+                    disabled={busy === object.id || busy === "bulk-publish"}
+                    title={
+                      object.is_public
+                        ? "Reachable without a credential"
+                        : "Only reachable with a credential"
+                    }
+                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                      object.is_public
+                        ? "border-accent/40 bg-accent/10 text-accent-strong hover:bg-accent/20"
+                        : "border-edge text-muted hover:bg-panel-raised"
+                    }`}
+                  >
+                    {object.is_public ? "Public" : "Private"}
+                  </button>
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-muted">
+                  {new Date(object.created_at).toLocaleDateString()}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <div className="flex items-center gap-1">
+                    {object.is_public ? (
+                      <>
+                        <RowAction
+                          label="Copy public URL"
+                          onClick={() => onCopy("Public URL", object.public_url)}
+                        />
+                        <RowAction
+                          label="Copy authenticated URL"
+                          onClick={() => onCopy("Authenticated URL", object.url)}
+                        />
+                      </>
+                    ) : (
+                      <RowAction
+                        label="Copy authenticated URL"
+                        onClick={() => onCopy("Authenticated URL", object.url)}
+                      />
+                    )}
+                    <RowAction label="Copy key" onClick={() => onCopy("Key", encodeKey(object.key))} />
                     <RowAction
-                      label="Copy URL"
-                      onClick={() => onCopy("Public URL", object.public_url)}
+                      label="Rename"
+                      onClick={() => onRename(object)}
+                      disabled={busy === object.id}
                     />
-                  )}
-                  <RowAction label="Copy key" onClick={() => onCopy("Key", encodeKey(object.key))} />
-                  <RowAction
-                    label="Rename"
-                    onClick={() => onRename(object)}
-                    disabled={busy === object.id}
-                  />
-                  <RowAction
-                    label="Delete"
-                    onClick={() => onDelete(object)}
-                    disabled={busy === object.id}
-                    tone="warn"
-                  />
-                </div>
-              </td>
-            </tr>
-          ))}
+                    <RowAction
+                      label="Delete"
+                      onClick={() => onDelete(object)}
+                      disabled={busy === object.id || busy === "bulk-delete"}
+                      tone="warn"
+                    />
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
