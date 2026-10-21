@@ -124,6 +124,7 @@ const layout: { group: string; slugs: string[] }[] = [
       "sql-api",
       "create-bucket",
       "object-storage",
+      "javascript-client",
       "dashboard",
       "backups",
       "cli",

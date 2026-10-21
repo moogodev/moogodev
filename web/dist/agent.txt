@@ -19,6 +19,7 @@
 - [SQL API](/docs/sql-api.md): Three endpoints. One runs reads, one runs writes, and one runs several writes as a single unit. All three take a project key, and all three validate your SQL before it touches the database.
 - [Create a bucket](/docs/create-bucket.md): Every project has 250 MB of object storage. A bucket is a named namespace inside that quota, so you can keep avatars separate from exports without either one colliding.
 - [Object storage](/docs/object-storage.md): Files live under your project with a storage credential — not the SQL project key. This page is the full reference.
+- [JavaScript / TypeScript Client](/docs/javascript-client.md): The official @moogodev/client package provides a type-safe, zero-dependency client for Moogo's object storage API.
 - [Dashboard](/docs/dashboard.md): The dashboard is a full studio for your database: browse and edit rows as a spreadsheet, build tables without writing migrations, run SQL in a console, and watch what every request did.
 - [Backups](/docs/backups.md): Moogo keeps an off-site copy of every project's database, taken on a schedule and restorable from the dashboard in one click. Backups are there for the failures a running server cannot fix: a mistaken DROP TABLE, a bulk edit that went...
 - [Command line client](/docs/cli.md): moogo is the command line client for the API: it carries your project's URL and credentials and makes the same HTTP requests you would make with curl. It opens no database and reads no file on the server — if the API will not do it, the...
@@ -51,5 +52,4 @@
 - [Security](/docs/security.md): This page explains how Moogo is built to fail safely, and — just as importantly — what the model does not protect you from.
 - [Errors and troubleshooting](/docs/errors.md): Every error from the Moogo API has the same shape. Branch on code, not on message.
 - [Feedback](/docs/feedback.md): Moogo is built in public and shaped by what people actually try to do with it. Feedback is genuinely useful here — especially the parts that were unclear.
-- [JavaScript / TypeScript Client](/docs/javascript-client.md): The official @moogodev/client package provides a type-safe, zero-dependency client for Moogo's object storage API.
 
