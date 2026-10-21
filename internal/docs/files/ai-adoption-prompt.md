@@ -296,15 +296,7 @@ The CLI follows the same rules as the API: placeholders via args, one statement 
 
 ## Official JS/TS Client
 
-> **⚠️ Not yet published to npm**
->
-> The package is currently **not available on npm** (registration/publish in progress).
-> Install from GitHub for now:
-> ```bash
-> npm install github:moogodev/moogodev#main:clients/js
-> ```
-
-Install (once published):
+Install:
 
 ```bash
 npm install @moogodev/client
@@ -339,7 +331,7 @@ const { url, expiresAt } = await client.getPresignedUrl('avatars/user.png', {
 });
 ```
 
-See [GitHub](https://github.com/moogodev/moogodev/tree/main/clients/js) for full API until npm publish.
+See [npm](https://www.npmjs.com/package/@moogodev/client) for full API.
 
 ## Object storage (buckets)
 

@@ -2,32 +2,11 @@ var e=`# JavaScript / TypeScript Client
 
 The official \`@moogodev/client\` package provides a type-safe, zero-dependency client for Moogo's object storage API.
 
-> **⚠️ Not yet published to npm**
->
-> The package is currently **not available on npm** (registration/publish in progress).
-> You can still use it by installing directly from GitHub:
->
-> \`\`\`bash
-> npm install github:moogodev/moogodev#main:clients/js
-> \`\`\`
->
-> Or clone and link locally:
-> \`\`\`bash
-> git clone https://github.com/moogodev/moogodev
-> cd moogodev/clients/js && npm install && npm run build
-> # then in your project:
-> npm link /path/to/moogodev/clients/js
-> \`\`\`
->
-> This documentation is published ahead of the npm release so you can start integrating. Check the [GitHub repo](https://github.com/moogodev/moogodev/tree/main/clients/js) for publish status.
-
 ## Install
 
 \`\`\`bash
 npm install @moogodev/client
 \`\`\`
-
-> **Note:** Once published, the command above will work. Until then, use the GitHub install method above.
 
 Works in Node 18+, Deno, Bun, Cloudflare Workers, Vercel Edge, and browsers (via bundler).
 

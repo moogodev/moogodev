@@ -1173,15 +1173,7 @@ The CLI follows the same rules as the API: placeholders via args, one statement 
 
 ## Official JS/TS Client
 
-> **⚠️ Not yet published to npm**
->
-> The package is currently **not available on npm** (registration/publish in progress).
-> Install from GitHub for now:
-> ```bash
-> npm install github:moogodev/moogodev#main:clients/js
-> ```
-
-Install (once published):
+Install:
 
 ```bash
 npm install @moogodev/client
@@ -1216,7 +1208,7 @@ const { url, expiresAt } = await client.getPresignedUrl('avatars/user.png', {
 });
 ```
 
-See [GitHub](https://github.com/moogodev/moogodev/tree/main/clients/js) for full API until npm publish.
+See [npm](https://www.npmjs.com/package/@moogodev/client) for full API.
 
 ## Object storage (buckets)
 
@@ -3536,13 +3528,9 @@ All of them use the standard envelope:
 
 Use the official `@moogodev/client` package instead of hand-rolling fetch calls:
 
-> **⚠️ Not yet published to npm**
->
-> The package is currently **not available on npm** (registration/publish in progress).
-> Install from GitHub for now:
-> ```bash
-> npm install github:moogodev/moogodev#main:clients/js
-> ```
+```bash
+npm install @moogodev/client
+```
 
 ```typescript
 import { MoogoClient, createClientFromEnv } from '@moogodev/client';
@@ -10493,32 +10481,11 @@ because someone could not tell which one they had hit.
 
 The official `@moogodev/client` package provides a type-safe, zero-dependency client for Moogo's object storage API.
 
-> **⚠️ Not yet published to npm**
->
-> The package is currently **not available on npm** (registration/publish in progress).
-> You can still use it by installing directly from GitHub:
->
-> ```bash
-> npm install github:moogodev/moogodev#main:clients/js
-> ```
->
-> Or clone and link locally:
-> ```bash
-> git clone https://github.com/moogodev/moogodev
-> cd moogodev/clients/js && npm install && npm run build
-> # then in your project:
-> npm link /path/to/moogodev/clients/js
-> ```
->
-> This documentation is published ahead of the npm release so you can start integrating. Check the [GitHub repo](https://github.com/moogodev/moogodev/tree/main/clients/js) for publish status.
-
 ## Install
 
 ```bash
 npm install @moogodev/client
 ```
-
-> **Note:** Once published, the command above will work. Until then, use the GitHub install method above.
 
 Works in Node 18+, Deno, Bun, Cloudflare Workers, Vercel Edge, and browsers (via bundler).
 
