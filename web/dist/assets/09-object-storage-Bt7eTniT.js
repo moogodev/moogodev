@@ -530,12 +530,55 @@ All of them use the standard envelope:
 
 **Note on 404 shape:** On \`/pub/*\` (public route), missing or unpublished objects return \`404 not_found\` with the same envelope. These responses are sent with \`Cache-Control: no-store\` to avoid CDN negative caching. The shape is identical to authenticated routes.
 
-## A small client
+## Official JavaScript/TypeScript Client
+
+Use the official \`@moogodev/client\` package instead of hand-rolling fetch calls:
+
+\`\`\`bash
+npm install @moogodev/client
+\`\`\`
+
+\`\`\`typescript
+import { MoogoClient, createClientFromEnv } from '@moogodev/client';
+
+// Reads from env: MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY
+const client = createClientFromEnv();
+
+// Upload with custom Cache-Control
+await client.upload('avatars/user.png', fileBlob, {
+  contentType: 'image/png',
+  cacheControl: 'public, max-age=31536000, immutable',
+});
+
+// Download
+const blob = await client.downloadBlob('avatars/user.png');
+
+// List with cursor pagination
+const { objects, nextCursor, total } = await client.listObjects({
+  prefix: 'avatars/',
+  limit: 50,
+});
+
+// Presigned URLs
+const { url } = await client.getPresignedUrl('avatars/user.png', {
+  method: 'GET',
+  expiresIn: 3600,
+});
+
+// Bucket operations
+const buckets = await client.listBuckets();
+const info = await client.getBucketInfo('bucket-id');
+\`\`\`
+
+See [JavaScript Client](/docs/javascript-client) for full API reference, error handling, browser usage, and TypeScript types.
+
+### Minimal fetch wrapper (if you prefer no dependency)
+
+If you need zero dependencies, here's a minimal wrapper:
 
 \`\`\`js
 // storage.js
-// MOOGO_BUCKET_ENDPOINT already ends in /p/{project_id}/bucket.
-const root = process.env.MOOGO_BUCKET_ENDPOINT;
+const root = process.env.MOOGO_BUCKET_ENDPOINT; // ends in /p/{project_id}/bucket
 
 const headers = {
   "X-Moogo-Access-Key-Id": process.env.MOOGO_BUCKET_ACCESS_KEY_ID,
@@ -560,7 +603,6 @@ export const upload = (key, file, bucket) =>
     body: file,
   });
 
-// GET returns the bytes, not JSON, so this bypasses storage().
 export const download = async (key) => {
   const response = await fetch(\`\${root}/\${encodeKey(key)}\`, { headers });
   if (!response.ok) {
@@ -568,12 +610,11 @@ export const download = async (key) => {
     throw new Error(body?.error?.message ?? "storage request failed");
   }
   return response.blob();
-};
+}
 
 export const list = (prefix) =>
   storage(\`?prefix=\${encodeURIComponent(prefix)}&limit=100\`);
 
-// Slashes are meaningful in a key, so encode each segment and keep them.
 const encodeKey = (key) =>
   key.split("/").map(encodeURIComponent).join("/");
 \`\`\`

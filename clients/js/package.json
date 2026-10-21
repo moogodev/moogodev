@@ -34,7 +34,7 @@
   "bugs": {
     "url": "https://github.com/moogodev/moogodev/issues"
   },
-  "homepage": "https://moogo.dev/docs/clients/javascript",
+  "homepage": "https://moogo.dev/docs/javascript-client",
   "devDependencies": {
     "typescript": "^5.4.0",
     "vitest": "^1.4.0",
