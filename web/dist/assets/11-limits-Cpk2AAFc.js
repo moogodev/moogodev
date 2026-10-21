@@ -42,4 +42,31 @@ Database does not auto-shrink when data is deleted. Physical space remains until
 
 One read response carries at most **16 MB** of row data. The row cap of 1000 bounds how many rows come back; this bounds how many bytes they add up to — a thousand rows of a wide \`BLOB\` column would otherwise be a response held twice in memory, once as rows and once as JSON.
 
-A single value larger than the project's own size limit is refused before SQLite materializes it, so \`SELECT zeroblob(n)\` cannot ask for more bytes than the file would ever hold.`;export{e as default};
+A single value larger than the project's own size limit is refused before SQLite materializes it, so \`SELECT zeroblob(n)\` cannot ask for more bytes than the file would ever hold.
+
+## Rate limits
+
+Every response includes standard rate-limit headers so clients can see their
+budget without hitting a 429 first.
+
+| Header | Meaning |
+|---|---|
+| \`X-RateLimit-Limit\` | Maximum requests allowed in the current window |
+| \`X-RateLimit-Remaining\` | Requests remaining in the current window |
+| \`X-RateLimit-Reset\` | Unix timestamp (seconds) when the allowance refills to the limit |
+
+| Endpoint group | Limit | Window | Keyed by |
+|---|---|---|---|
+| Sign-in (\`/auth/*\`) | 10 | 1 minute | Client IP (trusted proxy) |
+| SQL reads (\`/query\`) | 300 | 1 minute | Project ID |
+| SQL writes (\`/exec\`, \`/transaction\`) | 300 | 1 minute | Project ID |
+| Object storage | 300 | 1 minute | Client IP (trusted proxy) |
+| Updates (\`/maintenance\`, \`/exec\` DDL) | 60 | 1 minute | Project ID |
+
+When a limit is exceeded, the response is \`429 Too Many Requests\` with
+\`error.code = "rate_limited"\`, a \`Retry-After\` header (seconds), and the
+standard rate-limit headers above. Use \`X-RateLimit-Reset\` to schedule your
+retry precisely instead of guessing.
+
+> **Note:** The credential limiter is shared across all six unauthenticated
+> endpoints (\`/auth/register\`, \`/auth/login\`, \`/auth/verify\`, \`/auth/resend-verification\`, \`/auth/password-reset-request\`, \`/auth/password-reset-confirm\`) so the allowance cannot be multiplied by moving between endpoints.`;export{e as default};

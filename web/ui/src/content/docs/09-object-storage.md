@@ -82,6 +82,8 @@ Response, for the first upload:
     "url": "https://api.moogo.dev/p/8f3c.../bucket/avatars/kit.png",
     "preview_url": "/api/projects/8f3c.../bucket/avatars/kit.png",
     "public_url": "",
+    "public_url_base": "https://cdn.moogo.dev",
+    "url_base": "https://api.moogo.dev",
     "created_at": "2026-10-01T09:20:11Z",
     "updated_at": "2026-10-01T09:20:11Z",
     "last_modified": "2026-10-01T09:20:11Z"
@@ -91,7 +93,7 @@ Response, for the first upload:
 }
 ```
 
-### The three URL fields
+### The five URL fields
 
 This trips people up, so it is worth being explicit.
 
@@ -100,6 +102,8 @@ This trips people up, so it is worth being explicit.
 | `url` | `/p/{id}/bucket/{key}` | **Yes** — storage credential | Your application fetching a private object. |
 | `preview_url` | `/api/projects/{id}/bucket/{key}` | Session cookie | The dashboard rendering a preview. |
 | `public_url` | `/pub/{id}/{key}` | **No** | Sharing a published object. |
+| `public_url_base` | (CDN origin) | — | Building public URLs in clients. |
+| `url_base` | (API origin) | — | Building authenticated URLs in clients. |
 
 `url` is the one your application uses. Do not put it in an `<img>` tag: a browser
 tab does not carry a storage credential, so the image would break for every
@@ -111,6 +115,9 @@ built from the deployment's CDN origin (`MOOGO_CDN_URL`) when it has one, so a
 published object is served — and can be cached — on a host of its own rather
 than on the credential-bearing API host. With no CDN configured it falls back to
 the API origin.
+
+The two base fields (`public_url_base`, `url_base`) let clients construct URLs
+without hardcoding origins.
 
 ### Upload limits
 
@@ -179,6 +186,24 @@ curl -I "$ENDPOINT/avatars/kit.png" \
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
 ```
+
+### Range requests (partial downloads)
+
+Both `GET` and `HEAD` support the `Range` header for partial content:
+
+```bash
+# Get bytes 0-999 (first 1 KB)
+curl -H "Range: bytes=0-999" "$ENDPOINT/avatars/kit.png" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+```
+
+- `206 Partial Content` with `Content-Range` header when range is valid
+- `416 Range Not Satisfiable` when range is outside file size
+- `If-Range` header supported for conditional range requests (validate ETag or Last-Modified)
+
+Use this for resumable downloads, streaming large files, or reading only the
+metadata (e.g., first few bytes to detect file type).
 
 ## Public download
 
@@ -438,10 +463,40 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/buckets/{project_id}` | List buckets with counts. |
+| `GET` | `/buckets/{project_id}/{bucket_id}` | Get single bucket info + usage. |
 | `POST` | `/buckets/{project_id}` | Create a bucket. |
 | `PATCH` | `/buckets/{project_id}/{bucket_id}` | Update visibility, upload policy, and quota. |
 | `DELETE` | `/buckets/{project_id}/{bucket_id}` | Delete a bucket and its objects. |
 | `POST` | `/buckets/{project_id}/{bucket_id}/public` | Publish or unpublish the bucket. |
+
+### Get bucket info
+
+```bash
+curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+```
+
+```json
+{
+  "success": true,
+  "bucket": {
+    "id": "3f8a...",
+    "name": "avatars",
+    "object_count": 42,
+    "size_bytes": 10485760,
+    "created_at": "2026-10-01T09:14:22Z",
+    "is_public": false,
+    "allowed_types": ["image"],
+    "max_object_size_bytes": 2097152,
+    "quota_bytes": 247463936
+  },
+  "storage_used_bytes": 10485760,
+  "quota_bytes": 262144000
+}
+```
+
+Use this to inspect a bucket's config and usage without listing its objects.
 
 The catalog lives on its own `/buckets` prefix rather than under
 `/bucket/{bucket_id}/`. Folding it in would have meant reserving the key `bucket`,

@@ -146,7 +146,7 @@ explanation lives. Log it.
 | `invalid_body` | 400 | Body was not a JSON object with the expected fields. |
 | `unsupported_media_type` | 415 | `Content-Type` was not `application/json`. |
 | `not_found` | 404 | No such endpoint. Check the path. |
-| `rate_limited` | 429 | Too many requests from one client address. Comes with a `Retry-After` header. |
+| `rate_limited` | 429 | Too many requests from one client address. Comes with `Retry-After` and `X-RateLimit-Reset` headers. |
 | `quota_exceeded` | 429 | An account quota was reached — most often a third project. Storage reports a full storage quota as `507` instead. |
 | `credential_limit` | 429 | The project already holds the maximum number of storage credentials (5). |
 
@@ -182,7 +182,8 @@ the allowance shared across all six — moving from one to the next does not
 reset it. Other routes have ceilings of their own (the data plane, the
 dashboard's update list); see [Limits](/docs/limits).
 
-The `429` carries a `Retry-After` header in seconds. Honour it rather than
+The `429` carries a `Retry-After` header in seconds and `X-RateLimit-Reset`
+(unix timestamp when allowance refills). Honour `Retry-After` rather than
 retrying immediately — the header says how long until a whole attempt is back,
 not when a window resets, so waiting exactly that long is enough.
 
@@ -264,7 +265,7 @@ something about.
 | `quota_below_usage` | 409 | A PATCH tried to set `quota_bytes` below what the bucket already holds. |
 | `bucket_exists` | 409 | A bucket with that name already exists in this project. |
 | `link_expired` | 403 | A signed URL was genuine but past its expiry. |
-| `not_found` | 404 | No such object or bucket. |
+| `not_found` | 404 | No such object or bucket. On `/pub/*` returns same envelope with `Cache-Control: no-store` to avoid CDN negative caching. |
 | `bucket_not_found` | 404 | A signed upload named a bucket this project does not have. |
 | `object_too_large` | 413 | Over the bucket's per-object cap. |
 | `type_not_allowed` | 415 | The `Content-Type` is not in the bucket's `allowed_types`. |

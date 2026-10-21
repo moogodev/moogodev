@@ -138,6 +138,7 @@ is never logged, never in tool args, never in tool results.
 | `/query` | Reads — `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN`, `WITH` that selects | Writes, with `not_a_read` |
 | `/exec` | Writes — `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP` | Reads, with `not_a_write` |
 | `/transaction` | Several writes as one atomic batch | Reads, with `not_a_write` |
+| `/maintenance` | Maintenance operations (`vacuum`) | — |
 
 Request, authorized with the SQL key:
 
@@ -168,6 +169,24 @@ Every failure, on any endpoint, uses one envelope:
 ```json
 { "error": { "code": "not_a_read", "message": "...", "detail": "..." } }
 ```
+
+## Maintenance / Vacuum
+
+Reclaim space after deletes/drops. The database file never shrinks on its own.
+
+```bash
+# Via HTTP
+curl -X POST "$MOOGO_PROJECT_URL/maintenance" \
+  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"operation": "vacuum"}'
+
+# Or via CLI
+moogo db vacuum
+```
+
+Runs `REINDEX` → `ANALYZE` → `VACUUM` → `WAL checkpoint`. Size limits remain
+enforced (250 MB/project).
 
 ## Transactions
 
@@ -224,6 +243,96 @@ Rules the engine enforces, not conventions:
   enforced — an orphan insert fails. Declare it explicitly; a column without
   `REFERENCES` is a plain column.
 
+## Command line client (CLI)
+
+The official `moogo` CLI is a pure HTTP client — it makes the same requests to the API as `curl`, with no direct access to the database or object files.
+
+### Install
+
+**Recommended (no Go required):**
+
+```bash
+curl -fsSL https://get.moogo.dev | sh
+```
+
+**Alternative (if you have Go):**
+
+```bash
+go install github.com/moogodev/moogodev/cmd/moogo@latest
+```
+
+Verify:
+
+```bash
+moogo version
+moogo help
+```
+
+### Environment
+
+| Variable | Required | Notes |
+|---|---|---|
+| `MOOGO_PROJECT_URL` | yes | e.g. `https://api.moogo.dev/p/<project_id>` |
+| `MOOGO_SECRET_KEY` | yes | Project secret key for SQL commands |
+| `MOOGO_BUCKET_ACCESS_KEY_ID` | for `bucket` commands | Storage credential |
+| `MOOGO_BUCKET_SECRET_KEY` | for `bucket` commands | Storage credential |
+
+Flags `--url`, `--key`, `--storage-key-id`, `--storage-key` override environment variables.
+
+### Commands
+
+| Command | Does |
+|---|---|
+| `moogo db push <file>` | Apply a SQL file as one or more transactions |
+| `moogo db seed [file]` | Apply a seed file once (tracked by content hash) |
+| `moogo db reset --yes` | Drop every table and view in the project |
+| `moogo db vacuum` | Reindex, analyze, vacuum and checkpoint the WAL to reclaim free space |
+| `moogo bucket ls [prefix]` | List objects in a bucket (cursor-based, walks pages) |
+| `moogo bucket rm <key>...` | Delete objects, or with `--prefix` an entire folder |
+| `moogo version` | Print client version |
+| `moogo help` | Print usage |
+
+The CLI follows the same rules as the API: placeholders via args, one statement per request where applicable, and it will not do anything the API refuses to do.
+
+## Official JS/TS Client
+
+Install:
+
+```bash
+npm install @moogodev/client
+```
+
+```typescript
+import { MoogoClient, createClientFromEnv } from '@moogodev/client';
+
+// From env vars (MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY)
+const client = createClientFromEnv();
+
+// Upload with custom Cache-Control
+await client.upload('avatars/user.png', fileBlob, {
+  contentType: 'image/png',
+  cacheControl: 'public, max-age=31536000, immutable',
+  onProgress: (loaded, total) => console.log(`${loaded}/${total}`),
+});
+
+// List objects (cursor-based pagination)
+const { objects, nextCursor, total } = await client.listObjects({ 
+  prefix: 'avatars/', 
+  limit: 50 
+});
+
+// Download
+const blob = await client.downloadBlob('avatars/user.png');
+
+// Presigned URL
+const { url, expiresAt } = await client.getPresignedUrl('avatars/user.png', {
+  method: 'GET',
+  expiresIn: 3600,
+});
+```
+
+See [npm](https://www.npmjs.com/package/@moogodev/client) for full API.
+
 ## Object storage (buckets)
 
 Storage takes its own credential. The two credential types are **not**
@@ -240,19 +349,67 @@ With `ENDPOINT=$MOOGO_PROJECT_URL/bucket`:
 | Action | Request |
 |---|---|
 | Upload | `POST $ENDPOINT/{key}` — the body is the raw file bytes and the `Content-Type` is the file's own type: never a JSON wrapper around the bytes, and never `application/json` by default (it is correct only when the file really is JSON). `?bucket=NAME` picks a bucket; no bucket means `default`. |
-| Download | `GET $ENDPOINT/{key}` — returns the bytes with the object's `Content-Type`. |
+| Download | `GET $ENDPOINT/{key}` — returns the bytes with the object's `Content-Type`. Supports `Range` header for partial downloads (206 Partial Content, 416 Range Not Satisfiable). |
 | Delete | `DELETE $ENDPOINT/{key}` |
-| List | `GET $ENDPOINT/?limit=100&order=key&dir=asc` — add `?bucket=NAME` to pick a bucket. |
+| List | `GET $ENDPOINT/?limit=100&order=key&dir=asc` — add `?bucket=NAME` to pick a bucket. **Cursor-based pagination**: use `cursor` from previous page, not `offset`. Response includes `next_cursor` and stable `total`. |
 
 Upload answers with the object — `key`, `size_bytes`, `content_type`,
-`storage_used_bytes` and `quota_bytes` — and three URL fields: `url` for your
-application (it needs the credential), `preview_url` for the dashboard, and
-`public_url`, which stays empty until the object is published. A published
-object is readable by anyone holding its `public_url` —
-`https://cdn.moogo.dev/pub/{project_id}/{key}` on a deployment with a CDN host,
-otherwise the API origin.
+`storage_used_bytes` and `quota_bytes` — and URL fields:
 
-**Important:** Publishing is **per-object**, not global. Setting a bucket to public does **not** automatically publish every existing object — it only affects how new uploads behave and the bucket's default. URLs for objects that were never published remain inaccessible via `/pub/`. If a URL was fetched while the object was not published, CDN negative caching may keep returning 404 for a time until it expires (see Troubleshooting). URLs are shareable once published, but publishing an object can be undone by setting `is_public` to false on that object. Treat published URLs as discoverable while they are public.
+- `url` — authenticated download (needs credential), for your application
+- `preview_url` — dashboard preview (session cookie)
+- `public_url` — empty until published, then `https://cdn.moogo.dev/pub/{project_id}/{key}`
+- `public_url_base` — CDN origin for building public URLs
+- `url_base` — API origin for building authenticated URLs
+
+### Custom Cache-Control
+
+Override default caching by sending `Cache-Control` header on upload:
+
+```bash
+curl -X POST "$ENDPOINT/avatars/kit.png" \
+  -H "Cache-Control: public, max-age=31536000, immutable" \
+  --data-binary @kit.png
+```
+
+Stored with object, used for all subsequent downloads. Defaults:
+
+| Access type | Default `Cache-Control` |
+|---|---|
+| Published (`/pub/`) | `public, max-age=300, must-revalidate` |
+| Private / Signed | `private, no-cache` |
+
+### Publishing — per-object, not global
+
+**Publishing is per-object.** Setting a bucket to public (`PATCH /buckets/{id}` with `is_public: true`) only affects **new uploads** — it fans out the default visibility to future objects. Existing objects keep their individual `is_public` state. To publish an existing object, PATCH it directly.
+
+```bash
+# Publish a single object
+curl -X PATCH "$ENDPOINT/avatars/kit.png" \
+  -H "Content-Type: application/json" \
+  -d '{"is_public": true}'
+
+# Set bucket default for new uploads
+curl -X PATCH "$CATALOG/bucket-id" \
+  -H "Content-Type: application/json" \
+  -d '{"is_public": true}'
+```
+
+### Bucket info endpoint
+
+```bash
+GET /buckets/{project_id}/{bucket_id}
+```
+
+Returns bucket config (`is_public`, `allowed_types`, `max_object_size_bytes`, `quota_bytes`) plus `storage_used_bytes` and project `quota_bytes`.
+
+### 404 shape and CDN negative caching
+
+All errors use the same envelope: `{"error":{"code":"...","message":"...","detail":"..."}}`.
+
+On `/pub/*` (public route), missing or unpublished objects return `404 not_found` with that envelope. These responses are sent with `Cache-Control: no-store, no-cache, must-revalidate, private` to avoid CDN negative caching. The shape is identical to authenticated routes.
+
+If a published object was previously accessed while unpublished, a CDN may have cached the 404. To purge: re-upload the object (changes ETag), or wait for the negative cache TTL to expire.
 
 ## Limits
 
@@ -274,6 +431,14 @@ Every limit is enforced by the server, and most come back in the response.
 Reads report `truncated` and `duration_ms`; storage reports
 `storage_used_bytes` and `quota_bytes`. Check them instead of assuming.
 
+**Rate-limit headers** on every response:
+
+| Header | Meaning |
+|---|---|
+| `X-RateLimit-Limit` | Max requests in window |
+| `X-RateLimit-Remaining` | Requests left in window |
+| `X-RateLimit-Reset` | Unix timestamp when allowance refills to limit |
+
 ## Do
 
 - Read credentials from the environment; never ask the user to paste them.
@@ -281,12 +446,14 @@ Reads report `truncated` and `duration_ms`; storage reports
 - Keep the SQL key and the storage credential on their own endpoints.
 - Branch on `error.code`, never on the message text.
 - Send `Content-Type: application/json` on JSON requests — it is enforced.
-- Page storage listings, and re-fetch when a read returns `truncated: true`.
+- Page storage listings with `cursor`, and re-fetch when a read returns `truncated: true`.
 - Use `/query` for reads and `/exec` for writes; each refuses the other.
 - Group writes that must not half-apply into one `/transaction` batch, and read
   `last_insert_rowid` instead of running a `SELECT` for a new id.
 - Run each migration file as one `/transaction` batch, so a failure applies
   nothing.
+- Use `Range` header for resumable downloads and partial reads.
+- Use `X-RateLimit-Reset` to schedule retries instead of guessing.
 
 ## Don't
 
@@ -302,14 +469,17 @@ Reads report `truncated` and `duration_ms`; storage reports
   `{"error": {"code", "message", "detail"}}`.
 - Don't paste the secret key, the bucket secret, or session cookies into chat,
   logs, or client-side code.
+- Don't use `offset` for pagination — use `cursor` (keyset pagination).
 - Don't treat Moogo as production-ready; it is in development.
 
 ## Learn more
 
 - [Quickstart](/docs/quickstart) — account to first query in two minutes
 - [Credentials](/docs/credentials) — the two credential types and rotation
-- [SQL API](/docs/sql-api) — the full reference for `/query` and `/exec`
-- [Object storage](/docs/object-storage) — buckets, publishing, listing
+- [SQL API](/docs/sql-api) — the full reference for `/query`, `/exec`, `/transaction`, `/maintenance`
+- [Object storage](/docs/object-storage) — buckets, publishing, listing, cursor pagination, range requests, custom Cache-Control
+- [Command line client](/docs/cli) — `moogo db push/seed/reset/vacuum`, `bucket ls/rm`, install via `curl -fsSL https://get.moogo.dev | sh`
+- [Maintenance](/docs/sql-api#post-maintenance--reclaim-space-after-deletes) — reclaim database space with `POST /maintenance` or `moogo db vacuum`
 - [Limits](/docs/limits) — quotas and request caps in detail
 - [Errors](/docs/errors) — every error code and what to do about it
 - [Security](/docs/security) — the threat model, stated plainly

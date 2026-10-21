@@ -121,6 +121,25 @@ before this is the only way back.
 Foreign keys are honoured, so tables are dropped in dependency order and a
 schema that points at itself in several places still resets cleanly.
 
+## Vacuum (reclaim space)
+
+\`\`\`bash
+moogo db vacuum
+\`\`\`
+
+Runs \`REINDEX\` → \`ANALYZE\` → \`VACUUM\` → \`WAL checkpoint\` on the project's
+database to reclaim physical space after large deletes or drops. The database
+file never shrinks on its own; this command reclaims the freed pages.
+
+Size limits remain enforced (250 MB/project). Equivalent to:
+
+\`\`\`bash
+curl -X POST "$MOOGO_PROJECT_URL/maintenance" \\
+  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"operation": "vacuum"}'
+\`\`\`
+
 ## List objects
 
 \`\`\`bash
