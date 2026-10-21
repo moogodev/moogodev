@@ -438,6 +438,8 @@ All of them use the standard envelope:
 { "error": { "code": "object_too_large", "message": "the object is larger than this bucket accepts", "detail": "bucket limit is 2097152 bytes" } }
 ```
 
+**Note on 404 shape:** On `/pub/*` (public route), missing or unpublished objects return `404 not_found` with the same envelope. These responses are sent with `Cache-Control: no-store` to avoid CDN negative caching. The shape is identical to authenticated routes.
+
 ## A small client
 
 ```js
