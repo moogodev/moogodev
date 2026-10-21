@@ -2679,3 +2679,49 @@ func parseByteRange(header string, size int64) ([]byteRange, bool) {
 	}
 	return []byteRange{{start: s, end: e}}, true
 }
+
+// GetBucketInfo handles GET /buckets/{project_id}/{bucket_id}.
+func (handler *BucketPlane) GetBucketInfo(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := auth.ProjectIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	bucketID, err := uuidParam(r, "bucket_id")
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket_id",
+			"the bucket id is not a valid UUID")
+		return
+	}
+
+	bucket, err := handler.bucketByID(r.Context(), projectID, bucketID)
+	if err != nil {
+		handler.writeStoreError(w, r, projectID, err, "load bucket")
+		return
+	}
+
+	used, err := handler.store.BucketStorageUsedBytes(r.Context(), projectID, bucketID)
+	if err != nil {
+		handler.writeStoreError(w, r, projectID, err, "bucket usage")
+		return
+	}
+
+	stats, err := handler.store.ListBucketsWithStats(r.Context(), projectID)
+	if err == nil {
+		for i := range stats {
+			if stats[i].ID == bucketID {
+				bucket.ObjectCount = stats[i].ObjectCount
+				bucket.SizeBytes = stats[i].SizeBytes
+				break
+			}
+		}
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"success":            true,
+		"bucket":             handler.bucketResponse(bucket),
+		"storage_used_bytes": used,
+		"quota_bytes":        handler.quota,
+	})
+}

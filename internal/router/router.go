@@ -127,6 +127,7 @@ type BucketHandlers interface {
 	CreateBucket(http.ResponseWriter, *http.Request)
 	UpdateBucketSettings(http.ResponseWriter, *http.Request)
 	DeleteBucket(http.ResponseWriter, *http.Request)
+	GetBucketInfo(http.ResponseWriter, *http.Request)
 	SetBucketPublic(http.ResponseWriter, *http.Request)
 	// SignURL mints a time-limited URL for one object on the public plane.
 	SignURL(http.ResponseWriter, *http.Request)
@@ -507,6 +508,7 @@ func New(deps Deps) http.Handler {
 					buckets.Post("/", deps.Bucket.CreateBucket)
 
 					buckets.Route("/{bucket_id}", func(bucket chi.Router) {
+						bucket.Get("/", deps.Bucket.GetBucketInfo)
 						bucket.Patch("/", deps.Bucket.UpdateBucketSettings)
 						bucket.Delete("/", deps.Bucket.DeleteBucket)
 						bucket.Post("/public", deps.Bucket.SetBucketPublic)
@@ -611,6 +613,7 @@ func New(deps Deps) http.Handler {
 		catalog.Post("/sign", deps.Bucket.SignURL)
 
 		catalog.Route("/{bucket_id}", func(bucket chi.Router) {
+			bucket.Get("/", deps.Bucket.GetBucketInfo)
 			bucket.Patch("/", deps.Bucket.UpdateBucketSettings)
 			bucket.Delete("/", deps.Bucket.DeleteBucket)
 			bucket.Post("/public", deps.Bucket.SetBucketPublic)
