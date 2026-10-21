@@ -4010,7 +4010,7 @@ import type {
 ## Links
 
 - **npm**: [@moogodev/client](https://www.npmjs.com/package/@moogodev/client)
-- **GitHub**: [clients/js](https://github.com/moogodev/moogodev/tree/main/clients/js)
+- **GitHub**: [clients/js](https://github.com/moogodev/moogodev/tree/master/clients/js)
 - **Object Storage API**: [Object Storage](/docs/object-storage)
 - **Rate Limits**: [Limits](/docs/limits)
 - **Error Codes**: [Errors](/docs/errors)
