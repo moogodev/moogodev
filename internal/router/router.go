@@ -294,9 +294,18 @@ func New(deps Deps) http.Handler {
 
 	// --- Public: sign in and session inspection ---
 
-	root.Get("/auth/setup", deps.OAuth.Setup)
-	root.Get("/auth/google", deps.OAuth.GoogleRedirect)
-	root.Get("/auth/google/callback", deps.OAuth.GoogleCallback)
+	// OAuth endpoints get their own address-keyed limiter (GETs, lighter work
+	// than credential routes but still worth capping to avoid enumeration/abuse).
+	//
+	// The callback exchanges a code for a token and creates/looks up a user,
+	// which does work on every call. The redirect is just a redirect but
+	// limiting it prevents automated flows from hammering the endpoint.
+	oauthLimiter := ratelimit.New(ratelimit.Config{Limit: 30, Window: time.Minute}).Plane("oauth")
+	oauthLimited := oauthLimiter.Middleware
+
+	root.With(oauthLimited).Get("/auth/setup", deps.OAuth.Setup)
+	root.With(oauthLimited).Get("/auth/google", deps.OAuth.GoogleRedirect)
+	root.With(oauthLimited).Get("/auth/google/callback", deps.OAuth.GoogleCallback)
 	root.Get("/auth/session", deps.OAuth.Session)
 
 	root.Post("/auth/logout", deps.OAuth.Logout)

@@ -57,7 +57,8 @@ budget without hitting a 429 first.
 
 | Endpoint group | Limit | Window | Keyed by |
 |---|---|---|---|
-| Sign-in (`/auth/*`) | 10 | 1 minute | Client IP (trusted proxy) |
+| Sign-in (email/password: `/auth/register`, `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/verify-email`, `/auth/resend-verification`) | 10 | 1 minute | Client IP (trusted proxy) |
+| OAuth (`/auth/google`, `/auth/google/callback`, `/auth/setup`) | 30 | 1 minute | Client IP (trusted proxy) |
 | SQL reads (`/query`) | 300 | 1 minute | Project ID |
 | SQL writes (`/exec`, `/transaction`) | 300 | 1 minute | Project ID |
 | Object storage | 300 | 1 minute | Client IP (trusted proxy) |
@@ -68,5 +69,7 @@ When a limit is exceeded, the response is `429 Too Many Requests` with
 standard rate-limit headers above. Use `X-RateLimit-Reset` to schedule your
 retry precisely instead of guessing.
 
-> **Note:** The credential limiter is shared across all six unauthenticated
-> endpoints (`/auth/register`, `/auth/login`, `/auth/verify`, `/auth/resend-verification`, `/auth/password-reset-request`, `/auth/password-reset-confirm`) so the allowance cannot be multiplied by moving between endpoints.
+> **Note:** The email/password credential limiter is shared across all six unauthenticated
+> endpoints (`/auth/register`, `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/verify-email`, `/auth/resend-verification`) so the allowance cannot be multiplied by moving between endpoints.
+> 
+> OAuth endpoints have a separate, looser limiter (30/min) since they are GET-based and the callback does lighter work than a bcrypt compare, but still caps enumeration/abuse.

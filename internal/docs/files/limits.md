@@ -82,7 +82,8 @@ overrun the quota.
 | Transaction duration | **15 seconds** for the whole batch | `statement_timeout` |
 | Result payload (one read) | **16 MB** | `result_too_large` |
 | Storage credentials per project | **5** | `credential_limit` |
-| Sign-in endpoints | **10 / minute / client address**, shared | `rate_limited` |
+| Sign-in endpoints (email/password) | **10 / minute / client address**, shared across 6 endpoints | `rate_limited` |
+| OAuth endpoints (`/auth/google*`, `/auth/setup`) | **30 / minute / client address** | `rate_limited` |
 | Data plane | **300 / minute** — queries per project, storage per address | `rate_limited` |
 | Dashboard update list (`GET /api/updates`) | **60 / minute / client address** | `rate_limited` |
 

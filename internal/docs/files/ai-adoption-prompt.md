@@ -424,7 +424,8 @@ Every limit is enforced by the server, and most come back in the response.
 | JSON request body | 1 MB (`body_too_large`) |
 | Statement | 64 KB (`sql_too_long`), 15 seconds (`statement_timeout`) |
 | Storage credentials | 5 per project (`credential_limit`) |
-| Sign-in endpoints | 10 requests/minute per client address, shared across them (`rate_limited`) |
+| Sign-in endpoints (email/password) | 10 requests/minute per client address, shared across 6 endpoints (`rate_limited`) |
+| OAuth endpoints (`/auth/google*`, `/auth/setup`) | 30 requests/minute per client address (`rate_limited`) |
 | Data plane | 300 requests/minute — queries per project, storage per address (`rate_limited`) |
 | Result rows | 1000 per response; `truncated: true` when the cap was hit |
 
