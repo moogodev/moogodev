@@ -534,9 +534,13 @@ All of them use the standard envelope:
 
 Use the official \`@moogodev/client\` package instead of hand-rolling fetch calls:
 
-\`\`\`bash
-npm install @moogodev/client
-\`\`\`
+> **⚠️ Not yet published to npm**
+>
+> The package is currently **not available on npm** (registration/publish in progress).
+> Install from GitHub for now:
+> \`\`\`bash
+> npm install github:moogodev/moogodev#main:clients/js
+> \`\`\`
 
 \`\`\`typescript
 import { MoogoClient, createClientFromEnv } from '@moogodev/client';
