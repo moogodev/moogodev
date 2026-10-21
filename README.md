@@ -26,6 +26,16 @@ update feed.
   statement, 64 KB per statement text).
 - **Object storage** — buckets under the same project, with their own storage
   credential: upload, preview, public/private objects.
+- **Cursor-based pagination** — stable `next_cursor` + `total` for object listings (no offset drift).
+- **Range requests** — `206 Partial Content`, `416 Range Not Satisfiable`, `If-Range` for resumable downloads.
+- **Custom Cache-Control** — send `Cache-Control` header on upload to override defaults (`public, max-age=31536000, immutable`, `no-store`, etc.).
+- **Maintenance/Vacuum** — `POST /maintenance` (`vacuum`) or `moogo db vacuum` (REINDEX → ANALYZE → VACUUM → WAL checkpoint).
+- **Rate-limit headers** — `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` on every response.
+- **Base URLs in responses** — `public_url_base` (CDN origin) + `url_base` (API origin) for client-side URL construction.
+- **Per-object publishing** — `PATCH /bucket/.../key` with `is_public: true`; bucket toggle sets default for new uploads.
+- **Dashboard QoL** — bulk select, copy authenticated/public URLs, bulk publish/make private, delete multiple.
+- **Official JS/TS client** — `npm i @moogodev/client` with full TypeScript types.
+- **OAuth rate limiting** — `/auth/google*` endpoints limited separately from email/password (30/min vs 10/min shared).
 - **Dashboard** — projects, a table browser with a visual table builder, a SQL
   console that runs pasted multi-statement scripts in order (with an examples
   shelf), a read-only schema visualizer with relationship edges, bucket
@@ -58,6 +68,9 @@ update feed.
   same routes, same credentials, same rules as curl, and no configuration
   that reaches past the API. Install via `curl -fsSL https://get.moogo.dev | sh`
   (no Go required) or `go install github.com/moogodev/moogodev/cmd/moogo@latest`.
+- **Official JS/TS client** — `@moogodev/client` on npm with full TypeScript
+  types, cursor pagination, Range downloads, presigned URLs, signed uploads,
+  and credential management.
 
 The two planes share no tables. A client on the data plane never learns whether
 a project exists on the control plane; a signed-in user never holds a secret
