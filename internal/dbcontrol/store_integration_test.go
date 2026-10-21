@@ -322,11 +322,11 @@ func TestObjectKeysAreScopedPerProject(t *testing.T) {
 	}
 
 	if _, _, err := store.PutObject(context.Background(),
-		alicesProject.ID, alicesBucket.ID, "shared.txt", 11, "text/plain", false); err != nil {
+		alicesProject.ID, alicesBucket.ID, "shared.txt", 11, "text/plain", false, ""); err != nil {
 		t.Fatalf("alice's put: %v", err)
 	}
 	if _, _, err := store.PutObject(context.Background(),
-		bobsProject.ID, bobsBucket.ID, "shared.txt", 22, "text/plain", false); err != nil {
+		bobsProject.ID, bobsBucket.ID, "shared.txt", 22, "text/plain", false, ""); err != nil {
 		t.Fatalf("bob's put: %v", err)
 	}
 
@@ -366,7 +366,7 @@ func TestStorageUsedBytesCountsOnlyThatProject(t *testing.T) {
 			t.Fatalf("create bucket: %v", err)
 		}
 		if _, _, err := store.PutObject(context.Background(),
-			fixture.project.ID, bucket.ID, "f", fixture.bytes, "text/plain", false); err != nil {
+			fixture.project.ID, bucket.ID, "f", fixture.bytes, "text/plain", false, ""); err != nil {
 			t.Fatalf("put: %v", err)
 		}
 	}
