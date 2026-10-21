@@ -340,10 +340,12 @@ type ObjectResponse struct {
 	PreviewURL string `json:"preview_url"`
 	// PublicURL is set only for published objects; it is empty otherwise rather
 	// than pointing at a route that would 404.
-	PublicURL    string    `json:"public_url"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	LastModified time.Time `json:"last_modified"`
+	PublicURL      string    `json:"public_url"`
+	PublicURLBase  string    `json:"public_url_base,omitempty"`
+	URLBase        string    `json:"url_base,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	LastModified   time.Time `json:"last_modified"`
 }
 
 // Upload handles POST /bucket/{project_id}/* and the dashboard's equivalent.
@@ -1887,6 +1889,10 @@ func (handler *BucketPlane) objectResponse(
 	if object.IsPublic {
 		response.PublicURL = fmt.Sprintf("%s/pub/%s/%s", handler.publicCDNURL(r), projectID, escapedKey)
 	}
+
+	// Expose base URLs for easier client construction.
+	response.PublicURLBase = handler.publicCDNURL(r)
+	response.URLBase = base
 
 	return response
 }

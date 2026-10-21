@@ -115,6 +115,7 @@ type decision struct {
 	allowed   bool
 	wait      time.Duration
 	remaining int
+	resetAt   time.Time
 }
 
 // allow reports whether a caller identified by key may proceed, and how long
@@ -147,7 +148,10 @@ func (limiter *Limiter) check(key string) decision {
 			tokens: float64(limiter.config.Limit) - 1,
 			last:   now,
 		}
-		return decision{allowed: true, remaining: limiter.config.Limit - 1}
+		// After spending one token from a full bucket, we need one full refill
+		// period worth to reach Limit again.
+		resetAt := now.Add(limiter.config.Window)
+		return decision{allowed: true, remaining: limiter.config.Limit - 1, resetAt: resetAt}
 	}
 
 	// Refill proportionally to elapsed time.
@@ -174,7 +178,8 @@ func (limiter *Limiter) check(key string) decision {
 		// half a second would do is how rate limits get ignored.
 		missing := 1 - bucket.tokens
 		wait := time.Duration(missing / float64(limiter.config.Limit) * float64(limiter.config.Window))
-		return decision{allowed: false, wait: wait, remaining: 0}
+		resetAt := now.Add(wait)
+		return decision{allowed: false, wait: wait, remaining: 0, resetAt: resetAt}
 	}
 
 	bucket.tokens--
@@ -182,7 +187,23 @@ func (limiter *Limiter) check(key string) decision {
 	if remaining < 0 {
 		remaining = 0
 	}
-	return decision{allowed: true, remaining: remaining}
+	// When at limit-? remaining, time to refill to limit
+	var resetAt time.Time
+	if remaining >= limiter.config.Limit {
+		resetAt = now
+	} else {
+		// Need (Limit - tokens) tokens worth of refill
+		needed := float64(limiter.config.Limit) - bucket.tokens
+		if needed < 0 {
+			needed = 0
+		}
+		d := time.Duration(needed / float64(limiter.config.Limit) * float64(limiter.config.Window))
+		if d < time.Second {
+			d = time.Second
+		}
+		resetAt = now.Add(d)
+	}
+	return decision{allowed: true, remaining: remaining, resetAt: resetAt}
 }
 
 // sweepLocked drops buckets that have been full and idle for a full window.
@@ -254,6 +275,9 @@ func (limiter *Limiter) writeHeaders(w http.ResponseWriter, result decision) {
 	header := w.Header()
 	header.Set("X-RateLimit-Limit", strconv.Itoa(limiter.config.Limit))
 	header.Set("X-RateLimit-Remaining", strconv.Itoa(result.remaining))
+	if !result.resetAt.IsZero() {
+		header.Set("X-RateLimit-Reset", strconv.FormatInt(result.resetAt.Unix(), 10))
+	}
 }
 
 // clientKey identifies the caller from RemoteAddr alone.
