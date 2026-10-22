@@ -1032,6 +1032,26 @@ main_failed=0
 news_failed=0
 mcp_failed=0
 verify_base=http://127.0.0.1:8080
+	# Assert base_url from /healthz matches MOOGO_BASE_URL in env file
+	expected_base="$(grep -E '^[[:space:]]*MOOGO_BASE_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | sed 's/^["'\'']//; s/["'\'']$//' | sed 's/[[:space:]]*$//')"
+	if [[ -z "$expected_base" ]]; then
+		echo "!! check failed: MOOGO_BASE_URL not set in $ENV_FILE" >&2
+		main_failed=1
+	else
+		# Normalize: ensure no trailing slash
+		expected_base="${expected_base%/}"
+		actual_base="$(curl -fsS --max-time 5 "$verify_base/healthz" 2>/dev/null | sed -n 's/.*"base_url":"\([^"]*\)".*/\1/p')"
+		actual_base="${actual_base%/}"
+		if [[ -z "$actual_base" ]]; then
+			echo "!! check failed: /healthz did not return base_url" >&2
+			main_failed=1
+		elif [[ "$actual_base" != "$expected_base" ]]; then
+			echo "!! check failed: base_url mismatch" >&2
+			echo "   expected (from $ENV_FILE): $expected_base" >&2
+			echo "   actual (from /healthz):      $actual_base" >&2
+			main_failed=1
+		fi
+	fi
 if ! curl -fsS --max-time 5 "$verify_base/healthz" >/dev/null; then
 	echo "!! check failed: $verify_base/healthz did not answer 200" >&2
 	main_failed=1

@@ -413,6 +413,60 @@ curl -fsS http://127.0.0.1:4618/mcp \
 # → 200 OK, serverInfo.name=moogo, tools: query,exec,transaction,list_schema,(+bucket tools)
 ```
 
+curl -fsS http://127.0.0.1:4618/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
+# → 200 OK, serverInfo.name=moogo, tools: query,exec,transaction,list_schema,(+bucket tools)
+
+## Upgrading (Breaking Changes)
+
+### v0.2.0 → v0.2.1 (BREAKING: env var standardization)
+
+All legacy env vars removed. **Action required** before restart:
+
+```bash
+# /etc/moogo/moogo.env — replace old names with new names
+# Old (removed):            # New (required):
+MOOGO_API_URL              →  MOOGO_BASE_URL
+MOOGO_BUCKET_ENDPOINT      →  MOOGO_BASE_URL
+MOOGO_BUCKET_ACCESS_KEY_ID →  MOOGO_STORAGE_ACCESS_KEY_ID
+MOOGO_BUCKET_SECRET_KEY    →  MOOGO_STORAGE_SECRET_KEY
+MOOGO_PROJECT_KEY          →  MOOGO_SQL_KEY
+```
+
+Minimal working file after upgrade:
+
+```bash
+MOOGO_BASE_URL=https://api.yourdomain.com
+MOOGO_PROJECT_ID=your-project-uuid
+MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_xxx
+MOOGO_STORAGE_SECRET_KEY=moogo_sk_xxx
+MOOGO_SQL_KEY=moogo_proj_xxx        # only for SQL operations
+MOOGO_PUBLIC_URL=https://app.yourdomain.com
+MOOGO_DATABASE_URL=postgres://...
+MOOGO_SESSION_SECRET=your-64-char-secret
+MOOGO_COOKIE_SECURE=true
+MOOGO_ENV=production
+RESEND_API_KEY=re_xxx   # or MOOGO_GOOGLE_CLIENT_ID=xxx
+```
+
+Check config before restart:
+
+```bash
+sudo -u moogo env $(grep -v '^#' /etc/moogo/moogo.env | xargs) \
+  /usr/local/bin/moogo --check-config
+sudo systemctl restart moogo
+```
+
+**Deploy script enforces this:** `deploy.sh` now asserts that `base_url` from `/healthz` matches `MOOGO_BASE_URL` in the env file. A mismatch fails the deploy with a clear message.
+
+### v0.1.x → v0.2.0 (BREAKING: SDK auth + env vars)
+
+- SDK storage auth changed from HMAC to Bearer token (`Authorization: Bearer moogo_sk_...`)
+- `createStorageClient()` / `createSQLClient()` factories added
+- Legacy env vars still accepted with deprecation warnings (removed in v0.2.1)
+
 ## What this does not give you
 
 - **No high availability.** One node. If the VPS is down the product is down.
