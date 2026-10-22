@@ -845,27 +845,12 @@ export function createSQLClient(config: {
 export function createClientFromEnv(env?: Record<string, string | undefined>): MoogoClient {
   const getEnv = (key: string) => env?.[key] ?? process.env[key];
 
-  // Deprecation warnings for old env var names (log once per process)
-  const warned = new Set<string>();
-  const warnDeprecated = (oldKey: string, newKey: string) => {
-    if (process.env[oldKey] && !process.env[newKey] && !warned.has(oldKey)) {
-      console.warn(`[moogo] Deprecation: ${oldKey} is deprecated, use ${newKey} instead`);
-      warned.add(oldKey);
-    }
-  };
-
-  warnDeprecated('MOOGO_API_URL', 'MOOGO_BASE_URL');
-  warnDeprecated('MOOGO_BUCKET_ENDPOINT', 'MOOGO_BASE_URL');
-  warnDeprecated('MOOGO_BUCKET_ACCESS_KEY_ID', 'MOOGO_STORAGE_ACCESS_KEY_ID');
-  warnDeprecated('MOOGO_BUCKET_SECRET_KEY', 'MOOGO_STORAGE_SECRET_KEY');
-  warnDeprecated('MOOGO_PROJECT_KEY', 'MOOGO_SQL_KEY');
-
-  // Resolve base URL: new names first, then legacy
-  const rawBase = getEnv('MOOGO_BASE_URL') || getEnv('MOOGO_API_URL') || getEnv('MOOGO_BUCKET_ENDPOINT') || 'https://api.moogo.dev';
+  // Standard env vars only (no legacy fallbacks)
+  const rawBase = getEnv('MOOGO_BASE_URL') || 'https://api.moogo.dev';
   const baseUrl = rawBase.replace(/\/p\/[^/]+\/bucket.*$/, '').replace(/\/+$/, '');
 
-  // SQL key (new name first)
-  const projectKey = getEnv('MOOGO_SQL_KEY') || getEnv('MOOGO_PROJECT_KEY');
+  // SQL key
+  const projectKey = getEnv('MOOGO_SQL_KEY');
   if (projectKey) {
     return new MoogoClient({
       baseUrl,
@@ -873,11 +858,11 @@ export function createClientFromEnv(env?: Record<string, string | undefined>): M
       projectKey,
     });
   }
-  // Storage keys (new names first)
+  // Storage keys
   return new MoogoClient({
     baseUrl,
     projectId: getEnv('MOOGO_PROJECT_ID')!,
-    accessKeyId: getEnv('MOOGO_STORAGE_ACCESS_KEY_ID') || getEnv('MOOGO_BUCKET_ACCESS_KEY_ID')!,
-    secretKey: getEnv('MOOGO_STORAGE_SECRET_KEY') || getEnv('MOOGO_BUCKET_SECRET_KEY')!,
+    accessKeyId: getEnv('MOOGO_STORAGE_ACCESS_KEY_ID')!,
+    secretKey: getEnv('MOOGO_STORAGE_SECRET_KEY')!,
   });
 }

@@ -108,10 +108,10 @@ describe('MoogoClient instantiation', () => {
     const originalEnv = process.env;
     process.env = {
       ...originalEnv,
-      MOOGO_API_URL: 'https://api.moogo.dev',
+      MOOGO_BASE_URL: 'https://api.moogo.dev',
       MOOGO_PROJECT_ID: 'test-project',
-      MOOGO_BUCKET_ACCESS_KEY_ID: 'test-key',
-      MOOGO_BUCKET_SECRET_KEY: 'test-secret',
+      MOOGO_STORAGE_ACCESS_KEY_ID: 'test-key',
+      MOOGO_STORAGE_SECRET_KEY: 'test-secret',
     };
     const client = createClientFromEnv();
     expect(client).toBeInstanceOf(MoogoClient);

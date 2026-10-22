@@ -38,11 +38,6 @@ console.log(response.object.public_url); // https://cdn.moogo.dev/pub/.../avatar
 | `MOOGO_STORAGE_ACCESS_KEY_ID` | Yes | Storage credential access key |
 | `MOOGO_STORAGE_SECRET_KEY` | Yes | Storage credential secret key |
 
-**Legacy names** (still work, show deprecation warning):
-- `MOOGO_API_URL` → use `MOOGO_BASE_URL`
-- `MOOGO_BUCKET_ACCESS_KEY_ID` → use `MOOGO_STORAGE_ACCESS_KEY_ID`
-- `MOOGO_BUCKET_SECRET_KEY` → use `MOOGO_STORAGE_SECRET_KEY`
-
 Or pass config explicitly:
 
 ```typescript
@@ -420,8 +415,6 @@ await sql.maintenance();
 | `MOOGO_BASE_URL` | Yes | API base URL (e.g., `https://api.moogo.dev`) |
 | `MOOGO_PROJECT_ID` | Yes | Your project UUID |
 | `MOOGO_SQL_KEY` | Yes | Project secret key (from project settings) |
-
-**Legacy:** `MOOGO_PROJECT_KEY` → use `MOOGO_SQL_KEY`
 
 Or pass config explicitly:
 
