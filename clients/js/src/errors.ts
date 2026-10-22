@@ -102,7 +102,7 @@ export class BodyTooLargeError extends MoogoError {
 
 export class ObjectTooLargeError extends MoogoError {
   constructor(detail?: string) {
-    super('object_too_large', 'Object over the bucket max size', 413, detail);
+    super('object_too_large', 'Object over the bucket max size. Check bucket max_object_size_bytes (default 250 MB). Use `PATCH /buckets/{id}` to increase, or split the file.', 413, detail);
     this.name = 'ObjectTooLargeError';
     Object.setPrototypeOf(this, ObjectTooLargeError.prototype);
   }
@@ -118,7 +118,7 @@ export class UnsupportedMediaTypeError extends MoogoError {
 
 export class QuotaExceededError extends MoogoError {
   constructor(detail?: string) {
-    super('quota_exceeded', 'Project or bucket storage would go over quota', 409, detail);
+    super('quota_exceeded', 'Project or bucket storage would go over quota. Delete objects or run `moogo db vacuum` / `POST /maintenance` to reclaim space.', 409, detail);
     this.name = 'QuotaExceededError';
     Object.setPrototypeOf(this, QuotaExceededError.prototype);
   }
@@ -142,7 +142,7 @@ export class LinkExpiredError extends MoogoError {
 
 export class NotFoundError extends MoogoError {
   constructor(detail?: string) {
-    super('not_found', 'Bucket/object missing or not published', 404, detail);
+    super('not_found', 'Bucket/object missing or not published. For public URLs: ensure object is published (PATCH is_public: true) and check key spelling. Private objects return 404 on /pub/ routes.', 404, detail);
     this.name = 'NotFoundError';
     Object.setPrototypeOf(this, NotFoundError.prototype);
   }
@@ -169,7 +169,7 @@ export class RateLimitedError extends MoogoError {
   public readonly resetAt: number | null;
 
   constructor(retryAfter: number, resetAt: number | null, detail?: string) {
-    super('rate_limited', 'Too many requests', 429, detail);
+    super('rate_limited', `Too many requests. Retry after ${retryAfter}s (reset at ${resetAt ? new Date(resetAt * 1000).toISOString() : 'unknown'}). Use X-RateLimit-Reset header for precise timing.`, 429, detail);
     this.name = 'RateLimitedError';
     this.retryAfter = retryAfter;
     this.resetAt = resetAt;
@@ -213,7 +213,7 @@ export class UnauthorizedError extends MoogoError {
   constructor(detail?: string) {
     const hint = detail
       ? detail
-      : 'Authentication required. Check: MOOGO_API_URL (not BUCKET_ENDPOINT), MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY. For SQL: use MOOGO_PROJECT_KEY instead.';
+      : 'Authentication required. Storage: set MOOGO_BASE_URL (or MOOGO_API_URL), MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY. SQL: set MOOGO_SQL_KEY (or MOOGO_PROJECT_KEY). Old names (MOOGO_BUCKET_*) still work but deprecated.';
     super('unauthorized', hint, 401, detail);
     this.name = 'UnauthorizedError';
     Object.setPrototypeOf(this, UnauthorizedError.prototype);

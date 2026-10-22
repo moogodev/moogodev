@@ -603,10 +603,10 @@ npm install @moogodev/client
 ```
 
 ```typescript
-import { MoogoClient, createClientFromEnv } from '@moogodev/client';
+import { createStorageClient } from '@moogodev/client';
 
-// Reads from env: MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY
-const client = createClientFromEnv();
+// Reads from env: MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY
+const client = createStorageClient();
 
 // Upload with custom Cache-Control
 await client.upload('avatars/user.png', fileBlob, {
@@ -634,7 +634,7 @@ const buckets = await client.listBuckets();
 const info = await client.getBucketInfo('bucket-id');
 ```
 
-See [JavaScript Client](/docs/javascript-client) for full API reference, error handling, browser usage, and TypeScript types.
+See [JavaScript Client](/docs/javascript-client) for full API reference, SQL client, error handling, browser usage, and TypeScript types.
 
 ### Minimal fetch wrapper (if you prefer no dependency)
 

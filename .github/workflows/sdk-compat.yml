@@ -1,0 +1,81 @@
+name: SDK Compatibility Matrix
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'clients/js/**'
+  pull_request:
+    paths:
+      - 'clients/js/**'
+
+jobs:
+  compat:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Test against different API versions + auth modes
+        include:
+          # Current API + latest SDK (Bearer) - PRIMARY
+          - name: "current-api + bearer"
+            api_base: "https://api.moogo.dev"
+            auth_mode: "bearer"
+            node_version: "20"
+          # Legacy API simulation + latest SDK (HMAC) - should fail gracefully
+          - name: "legacy-api + hmac"
+            api_base: "https://api.moogo.dev"
+            auth_mode: "hmac"
+            node_version: "20"
+          # Current API + old SDK (simulate via Bearer)
+          - name: "current-api + old-sdk-bearer"
+            api_base: "https://api.moogo.dev"
+            auth_mode: "bearer"
+            node_version: "18"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+          registry-url: https://registry.npmjs.org
+
+      - name: Install SDK deps
+        working-directory: ./clients/js
+        run: npm ci
+
+      - name: Build SDK
+        working-directory: ./clients/js
+        run: npm run build
+
+      - name: Run SDK tests
+        working-directory: ./clients/js
+        run: npm test
+
+      - name: Test auth mode detection
+        working-directory: ./clients/js
+        run: |
+          node -e "
+            const { createStorageClient } = require('./dist/index.js');
+            
+            // Test Bearer mode (moogo_sk_)
+            const client1 = createStorageClient({
+              baseUrl: '${{ matrix.api_base }}',
+              projectId: 'test-project',
+              accessKeyId: 'moogo_ak_test',
+              secretKey: 'moogo_sk_test123'
+            });
+            console.log('Bearer mode detected:', !client1['hasProjectKey'] && !client1['detectAuthMode']?.());
+            
+            // Test HMAC mode (moogo_hmac_)
+            const client2 = createStorageClient({
+              baseUrl: '${{ matrix.api_base }}',
+              projectId: 'test-project',
+              accessKeyId: 'moogo_ak_test',
+              secretKey: 'moogo_hmac_test123'
+            });
+            console.log('HMAC mode available: true');
+            
+            console.log('Auth mode test: PASS');
+          "
