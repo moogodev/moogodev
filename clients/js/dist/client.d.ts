@@ -54,8 +54,10 @@ export declare class MoogoClient {
     private requestSQL;
     /** List all buckets in the project */
     listBuckets(): Promise<Bucket[]>;
-    /** Get bucket info including usage stats */
+    /** Get bucket info including usage stats (by bucket ID) */
     getBucketInfo(bucketId: string): Promise<BucketInfoResponse>;
+    /** Get bucket info by name (resolves name to ID) */
+    getBucketInfoByName(bucketName: string): Promise<BucketInfoResponse>;
     /** Create a new bucket */
     createBucket(request: CreateBucketRequest): Promise<Bucket>;
     /** Update bucket settings */

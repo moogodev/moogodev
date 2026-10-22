@@ -226,10 +226,19 @@ export class MoogoClient {
         const response = await this.requestStorage('GET', this.getCatalogPath());
         return response.buckets;
     }
-    /** Get bucket info including usage stats */
+    /** Get bucket info including usage stats (by bucket ID) */
     async getBucketInfo(bucketId) {
         const response = await this.requestStorage('GET', `${this.getCatalogPath()}/${bucketId}`);
         return response;
+    }
+    /** Get bucket info by name (resolves name to ID) */
+    async getBucketInfoByName(bucketName) {
+        const buckets = await this.listBuckets();
+        const bucket = buckets.find(b => b.name === bucketName);
+        if (!bucket) {
+            throw new Error(`Bucket not found: ${bucketName}`);
+        }
+        return this.getBucketInfo(bucket.id);
     }
     /** Create a new bucket */
     async createBucket(request) {
@@ -260,7 +269,7 @@ export class MoogoClient {
      */
     async upload(key, data, options = {}) {
         const { bucket = 'default', contentType, cacheControl, onProgress, signal } = options;
-        const path = `/p/${this.projectId}/${encodeURIComponent(key)}`;
+        const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}`;
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
@@ -356,7 +365,7 @@ export class MoogoClient {
     /** Download an object */
     async download(key, options = {}) {
         const { bucket = 'default', signal, range } = options;
-        const path = `/p/${this.projectId}/${encodeURIComponent(key)}`;
+        const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}`;
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
@@ -417,7 +426,7 @@ export class MoogoClient {
     /** Get object metadata (HEAD request) */
     async headObject(key, options = {}) {
         const { bucket = 'default', signal } = options;
-        const path = `/p/${this.projectId}/${encodeURIComponent(key)}`;
+        const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}`;
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
@@ -460,7 +469,7 @@ export class MoogoClient {
     /** Delete an object */
     async deleteObject(key, options = {}) {
         const { bucket = 'default', signal } = options;
-        const path = `/p/${this.projectId}/${encodeURIComponent(key)}`;
+        const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}`;
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
@@ -488,7 +497,7 @@ export class MoogoClient {
     /** Get a presigned URL for an object */
     async getPresignedUrl(key, request, options = {}) {
         const { bucket = 'default', signal } = options;
-        const path = `/p/${this.projectId}/${encodeURIComponent(key)}/sign`;
+        const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}/sign`;
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
@@ -501,7 +510,7 @@ export class MoogoClient {
     /** Create a signed upload URL (returns upload URL + object metadata) */
     async createSignedUpload(key, request, options = {}) {
         const { bucket = 'default', signal } = options;
-        const path = `/p/${this.projectId}/${encodeURIComponent(key)}/sign-upload`;
+        const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}/sign-upload`;
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
@@ -514,7 +523,7 @@ export class MoogoClient {
     /** Update object metadata (visibility, key) */
     async updateObject(key, updates, options = {}) {
         const { bucket = 'default', signal } = options;
-        const path = `/p/${this.projectId}/${encodeURIComponent(key)}`;
+        const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}`;
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
@@ -623,12 +632,14 @@ export function createSQLClient(config) {
 /** Convenience function to create a client from environment variables */
 export function createClientFromEnv(env) {
     const getEnv = (key) => env?.[key] ?? process.env[key];
+    // Deprecation warnings for old env var names (log once per process)
+    const warned = new Set();
     const warnDeprecated = (oldKey, newKey) => {
-        if (process.env[oldKey] && !process.env[newKey]) {
+        if (process.env[oldKey] && !process.env[newKey] && !warned.has(oldKey)) {
             console.warn(`[moogo] Deprecation: ${oldKey} is deprecated, use ${newKey} instead`);
+            warned.add(oldKey);
         }
     };
-    // Deprecation warnings for old env var names
     warnDeprecated('MOOGO_API_URL', 'MOOGO_BASE_URL');
     warnDeprecated('MOOGO_BUCKET_ENDPOINT', 'MOOGO_BASE_URL');
     warnDeprecated('MOOGO_BUCKET_ACCESS_KEY_ID', 'MOOGO_STORAGE_ACCESS_KEY_ID');

@@ -304,13 +304,23 @@ export class MoogoClient {
     return response.buckets;
   }
 
-  /** Get bucket info including usage stats */
+  /** Get bucket info including usage stats (by bucket ID) */
   async getBucketInfo(bucketId: string): Promise<BucketInfoResponse> {
     const response = await this.requestStorage<BucketInfoResponse>(
       'GET',
       `${this.getCatalogPath()}/${bucketId}`
     );
     return response;
+  }
+
+  /** Get bucket info by name (resolves name to ID) */
+  async getBucketInfoByName(bucketName: string): Promise<BucketInfoResponse> {
+    const buckets = await this.listBuckets();
+    const bucket = buckets.find(b => b.name === bucketName);
+    if (!bucket) {
+      throw new Error(`Bucket not found: ${bucketName}`);
+    }
+    return this.getBucketInfo(bucket.id);
   }
 
   /** Create a new bucket */
@@ -370,7 +380,7 @@ export class MoogoClient {
   ): Promise<UploadResponse> {
     const { bucket = 'default', contentType, cacheControl, onProgress, signal } = options;
 
-    const path = `/p/${this.projectId}/${encodeURIComponent(key)}`;
+    const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}`;
     const query: Record<string, string> = {};
     if (bucket !== 'default') query.bucket = bucket;
 
@@ -481,7 +491,7 @@ export class MoogoClient {
   ): Promise<Response> {
     const { bucket = 'default', signal, range } = options;
 
-    const path = `/p/${this.projectId}/${encodeURIComponent(key)}`;
+    const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}`;
     const query: Record<string, string> = {};
     if (bucket !== 'default') query.bucket = bucket;
 
@@ -556,7 +566,7 @@ export class MoogoClient {
   ): Promise<{ headers: Headers; exists: boolean }> {
     const { bucket = 'default', signal } = options;
 
-    const path = `/p/${this.projectId}/${encodeURIComponent(key)}`;
+    const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}`;
     const query: Record<string, string> = {};
     if (bucket !== 'default') query.bucket = bucket;
 
@@ -607,7 +617,7 @@ export class MoogoClient {
   async deleteObject(key: string, options: { bucket?: string; signal?: AbortSignal } = {}): Promise<void> {
     const { bucket = 'default', signal } = options;
 
-    const path = `/p/${this.projectId}/${encodeURIComponent(key)}`;
+    const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}`;
     const query: Record<string, string> = {};
     if (bucket !== 'default') query.bucket = bucket;
 
@@ -636,7 +646,7 @@ export class MoogoClient {
   ): Promise<PresignedUrlResponse> {
     const { bucket = 'default', signal } = options;
 
-    const path = `/p/${this.projectId}/${encodeURIComponent(key)}/sign`;
+    const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}/sign`;
     const query: Record<string, string> = {};
     if (bucket !== 'default') query.bucket = bucket;
 
@@ -655,7 +665,7 @@ export class MoogoClient {
   ): Promise<SignedUploadResponse> {
     const { bucket = 'default', signal } = options;
 
-    const path = `/p/${this.projectId}/${encodeURIComponent(key)}/sign-upload`;
+    const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}/sign-upload`;
     const query: Record<string, string> = {};
     if (bucket !== 'default') query.bucket = bucket;
 
@@ -674,7 +684,7 @@ export class MoogoClient {
   ): Promise<ObjectResponse> {
     const { bucket = 'default', signal } = options;
 
-    const path = `/p/${this.projectId}/${encodeURIComponent(key)}`;
+    const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}`;
     const query: Record<string, string> = {};
     if (bucket !== 'default') query.bucket = bucket;
 
@@ -834,13 +844,16 @@ export function createSQLClient(config: {
 /** Convenience function to create a client from environment variables */
 export function createClientFromEnv(env?: Record<string, string | undefined>): MoogoClient {
   const getEnv = (key: string) => env?.[key] ?? process.env[key];
+
+  // Deprecation warnings for old env var names (log once per process)
+  const warned = new Set<string>();
   const warnDeprecated = (oldKey: string, newKey: string) => {
-    if (process.env[oldKey] && !process.env[newKey]) {
+    if (process.env[oldKey] && !process.env[newKey] && !warned.has(oldKey)) {
       console.warn(`[moogo] Deprecation: ${oldKey} is deprecated, use ${newKey} instead`);
+      warned.add(oldKey);
     }
   };
 
-  // Deprecation warnings for old env var names
   warnDeprecated('MOOGO_API_URL', 'MOOGO_BASE_URL');
   warnDeprecated('MOOGO_BUCKET_ENDPOINT', 'MOOGO_BASE_URL');
   warnDeprecated('MOOGO_BUCKET_ACCESS_KEY_ID', 'MOOGO_STORAGE_ACCESS_KEY_ID');
