@@ -7,6 +7,8 @@ package config
 
 import (
 	"fmt"
+	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -354,11 +356,38 @@ func Load() (Config, error) {
 	if len(reader.problems) > 0 {
 		return Config{}, reader.err()
 	}
+
+	// BaseURL handling with fail-fast in production, legacy fallback with warning
+	base := strings.TrimRight(reader.string("MOOGO_BASE_URL", ""), "/")
+	if base == "" {
+		// Legacy fallback: MOOGO_API_URL (deprecated)
+		if legacy := strings.TrimRight(reader.string("MOOGO_API_URL", ""), "/"); legacy != "" {
+			log.Printf("[WARN] MOOGO_API_URL is deprecated; rename it to MOOGO_BASE_URL, using %s", legacy)
+			base = legacy
+		}
+	}
+
+	// Fail-fast in production: BaseURL must be explicitly set
+	if base == "" {
+		if cfg.Environment == "production" {
+			return Config{}, fmt.Errorf(
+				"MOOGO_BASE_URL is required in production: it is the origin of the data plane " +
+					"(e.g. https://api.example.com), not the dashboard. MOOGO_PUBLIC_URL is %q.",
+				cfg.PublicURL)
+		}
+		// Development/test: fall back to PublicURL
+		base = cfg.PublicURL
+	}
+
+	// Validate BaseURL is a proper absolute URL (scheme + host, no path)
+	if err := validateAbsoluteURL(base); err != nil {
+		return Config{}, fmt.Errorf("MOOGO_BASE_URL: %w", err)
+	}
+
+	cfg.BaseURL = base
+
 	// The data plane only has a hostname of its own when a deployment splits it
 	// off from the dashboard; otherwise the two are the same host.
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = cfg.PublicURL
-	}
 	// Published objects are served from a CDN host when the deployment has
 	// one; without it they are served from the same origin as the data plane,
 	// so public_url is never empty and never points at nothing.
@@ -659,3 +688,28 @@ func isKnownSessionSecret(secret string) bool {
 // it configurable in one direction only would reintroduce exactly the drift this
 // prevents.
 const StorageCeilingBytes int64 = 250 * 1024 * 1024
+
+// validateAbsoluteURL checks that a string is a valid absolute URL with scheme and host,
+// no path, query, or fragment.
+func validateAbsoluteURL(s string) error {
+	u, err := url.Parse(s)
+	if err != nil {
+		return fmt.Errorf("not a valid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("must use http:// or https:// scheme")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("missing host")
+	}
+	if u.Path != "" && u.Path != "/" {
+		return fmt.Errorf("must not contain a path (got %q)", u.Path)
+	}
+	if u.RawQuery != "" {
+		return fmt.Errorf("must not contain query parameters")
+	}
+	if u.Fragment != "" {
+		return fmt.Errorf("must not contain a fragment")
+	}
+	return nil
+}

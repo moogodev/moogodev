@@ -252,6 +252,7 @@ func TestAProjectLimitBelowOneIsRejected(t *testing.T) {
 func TestProductionRejectsThePublishedDevelopmentSecret(t *testing.T) {
 	_, err := loadWith(t, map[string]string{
 		"MOOGO_ENV":            "production",
+		"MOOGO_BASE_URL":       "https://api.example.com",
 		"MOOGO_COOKIE_SECURE":  "true",
 		"MOOGO_SESSION_SECRET": "local-dev-session-secret-change-me-0123456789",
 		"RESEND_API_KEY":       "re_test",
@@ -285,6 +286,7 @@ func TestDevelopmentAcceptsThePublishedSecret(t *testing.T) {
 func TestProductionAcceptsAGeneratedSecret(t *testing.T) {
 	cfg, err := loadWith(t, map[string]string{
 		"MOOGO_ENV":            "production",
+		"MOOGO_BASE_URL":       "https://api.example.com",
 		"MOOGO_COOKIE_SECURE":  "true",
 		"MOOGO_SESSION_SECRET": strings.Repeat("x", 45),
 		"RESEND_API_KEY":       "re_test",
@@ -304,8 +306,9 @@ func TestProductionAcceptsAGeneratedSecret(t *testing.T) {
 // therefore cannot open a single account, and must not boot into it.
 func TestProductionRefusesToBootWithNoSignInPath(t *testing.T) {
 	_, err := loadWith(t, map[string]string{
-		"MOOGO_ENV":           "production",
-		"MOOGO_COOKIE_SECURE": "true",
+		"MOOGO_ENV":            "production",
+		"MOOGO_BASE_URL":       "https://api.example.com",
+		"MOOGO_COOKIE_SECURE":  "true",
 	})
 
 	if err == nil {
@@ -322,6 +325,7 @@ func TestProductionRefusesToBootWithNoSignInPath(t *testing.T) {
 func TestProductionAcceptsGoogleAsTheOnlySignInPath(t *testing.T) {
 	_, err := loadWith(t, map[string]string{
 		"MOOGO_ENV":              "production",
+		"MOOGO_BASE_URL":         "https://api.example.com",
 		"MOOGO_COOKIE_SECURE":    "true",
 		"MOOGO_GOOGLE_CLIENT_ID": "client-id",
 	})
@@ -443,6 +447,7 @@ func TestEveryEnvironmentTheCodeBranchesOnIsAccepted(t *testing.T) {
 		{"development", "development", nil, false},
 		{"test", "test", nil, false},
 		{"production", "production", map[string]string{
+			"MOOGO_BASE_URL":       "https://api.example.com",
 			"MOOGO_COOKIE_SECURE":  "true",
 			"MOOGO_SESSION_SECRET": strings.Repeat("x", 45),
 			"RESEND_API_KEY":       "re_test",

@@ -26,7 +26,7 @@ func (pinger *stubPinger) Ping(ctx context.Context) error {
 
 func TestLivenessAlwaysPasses(t *testing.T) {
 	pinger := &stubPinger{err: errors.New("postgres is down")}
-	handler := NewHealth(pinger, time.Second, logger.Nop())
+	handler := NewHealth(pinger, time.Second, logger.Nop(), "https://app.example.com", "https://api.example.com", "https://cdn.example.com")
 
 	recorder := httptest.NewRecorder()
 	handler.Liveness(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -43,7 +43,7 @@ func TestLivenessAlwaysPasses(t *testing.T) {
 
 func TestReadinessPassesWhenControlPlaneAnswers(t *testing.T) {
 	pinger := &stubPinger{}
-	handler := NewHealth(pinger, time.Second, logger.Nop())
+	handler := NewHealth(pinger, time.Second, logger.Nop(), "https://app.example.com", "https://api.example.com", "https://cdn.example.com")
 
 	recorder := httptest.NewRecorder()
 	handler.Readiness(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
@@ -58,7 +58,7 @@ func TestReadinessPassesWhenControlPlaneAnswers(t *testing.T) {
 
 func TestReadinessFailsWhenControlPlaneIsDown(t *testing.T) {
 	pinger := &stubPinger{err: errors.New("connection refused")}
-	handler := NewHealth(pinger, time.Second, logger.Nop())
+	handler := NewHealth(pinger, time.Second, logger.Nop(), "https://app.example.com", "https://api.example.com", "https://cdn.example.com")
 
 	recorder := httptest.NewRecorder()
 	handler.Readiness(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
@@ -75,7 +75,7 @@ func TestReadinessFailsWhenControlPlaneIsDown(t *testing.T) {
 
 func TestReadinessBoundsTheCheck(t *testing.T) {
 	pinger := &stubPinger{}
-	handler := NewHealth(pinger, 5*time.Millisecond, logger.Nop())
+	handler := NewHealth(pinger, 5*time.Millisecond, logger.Nop(), "https://app.example.com", "https://api.example.com", "https://cdn.example.com")
 
 	recorder := httptest.NewRecorder()
 	handler.Readiness(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))

@@ -21,11 +21,12 @@ type ControlPlanePinger interface {
 // means a slow database takes the whole service out of rotation, when the only
 // thing broken is one dependency.
 type Health struct {
-	controlPlane ControlPlanePinger
-	// readinessTimeout bounds the dependency check so a hung database cannot
-	// hang the probe itself.
+	controlPlane    ControlPlanePinger
 	readinessTimeout time.Duration
-	log              *logger.Logger
+	log             *logger.Logger
+	publicURL       string
+	baseURL         string
+	cdnURL          string
 }
 
 // NewHealth creates a Health handler.
@@ -33,6 +34,9 @@ func NewHealth(
 	controlPlane ControlPlanePinger,
 	readinessTimeout time.Duration,
 	log *logger.Logger,
+	publicURL string,
+	baseURL string,
+	cdnURL string,
 ) *Health {
 	if readinessTimeout <= 0 {
 		readinessTimeout = 2 * time.Second
@@ -41,6 +45,9 @@ func NewHealth(
 		controlPlane:     controlPlane,
 		readinessTimeout: readinessTimeout,
 		log:              log,
+		publicURL:        publicURL,
+		baseURL:          baseURL,
+		cdnURL:           cdnURL,
 	}
 }
 
@@ -48,8 +55,15 @@ func NewHealth(
 //
 // It checks nothing on purpose: a probe that depends on the database reports
 // the database as broken and the orchestrator restarts a process that is fine.
+// It also exposes the configured origins so deploy scripts and uptime monitors
+// can assert the correct data plane / CDN host.
 func (handler *Health) Liveness(w http.ResponseWriter, r *http.Request) {
-	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{
+		"status":      "ok",
+		"public_url":  handler.publicURL,
+		"base_url":    handler.baseURL,
+		"cdn_url":     handler.cdnURL,
+	})
 }
 
 // Readiness handles GET /readyz.

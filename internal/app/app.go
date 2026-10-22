@@ -60,6 +60,14 @@ type Options struct {
 func Build(ctx context.Context, options Options) (*App, error) {
 	cfg := options.Config
 
+	// Log all origins at startup for immediate misconfig detection
+	options.Log.Info("moogo origins configured", logger.Fields{
+		"public_url":  cfg.PublicURL,
+		"base_url":    cfg.BaseURL,
+		"cdn_url":     cfg.CDNURL,
+		"environment": cfg.Environment,
+	})
+
 	store, err := dbcontrol.New(ctx, cfg, options.Log)
 	if err != nil {
 		return nil, fmt.Errorf("control plane: %w", err)
@@ -171,7 +179,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 	trustedProxies := splitList(cfg.TrustedProxies)
 
 	built := router.New(router.Deps{
-		Health:         handler.NewHealth(store, healthCheckTimeout, options.Log),
+		Health:         handler.NewHealth(store, healthCheckTimeout, options.Log, cfg.PublicURL, cfg.BaseURL, cfg.CDNURL),
 		OAuth:          oauthHandler,
 		Credentials:    credentialsHandler,
 		Control:        controlHandler,
