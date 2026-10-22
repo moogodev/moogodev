@@ -858,16 +858,22 @@ export class MoogoClient {
 /** Convenience function to create a client from environment variables */
 export function createClientFromEnv(env?: Record<string, string | undefined>): MoogoClient {
   const getEnv = (key: string) => env?.[key] ?? process.env[key];
+
+  // Resolve base URL: prefer MOOGO_API_URL, fall back to MOOGO_BUCKET_ENDPOINT
+  // (which is often set to https://api.moogo.dev/p/{project_id}/bucket)
+  const rawBase = getEnv('MOOGO_API_URL') || getEnv('MOOGO_BUCKET_ENDPOINT') || 'https://api.moogo.dev';
+  const baseUrl = rawBase.replace(/\/p\/[^/]+\/bucket.*$/, '').replace(/\/+$/, '');
+
   const projectKey = getEnv('MOOGO_PROJECT_KEY');
   if (projectKey) {
     return new MoogoClient({
-      baseUrl: getEnv('MOOGO_API_URL') || 'https://api.moogo.dev',
+      baseUrl,
       projectId: getEnv('MOOGO_PROJECT_ID')!,
       projectKey,
     });
   }
   return new MoogoClient({
-    baseUrl: getEnv('MOOGO_API_URL') || 'https://api.moogo.dev',
+    baseUrl,
     projectId: getEnv('MOOGO_PROJECT_ID')!,
     accessKeyId: getEnv('MOOGO_BUCKET_ACCESS_KEY_ID')!,
     secretKey: getEnv('MOOGO_BUCKET_SECRET_KEY')!,

@@ -201,7 +201,10 @@ class InvalidMethodError extends MoogoError {
 exports.InvalidMethodError = InvalidMethodError;
 class UnauthorizedError extends MoogoError {
     constructor(detail) {
-        super('unauthorized', 'Authentication required', 401, detail);
+        const hint = detail
+            ? detail
+            : 'Authentication required. Check: MOOGO_API_URL (not BUCKET_ENDPOINT), MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY. For SQL: use MOOGO_PROJECT_KEY instead.';
+        super('unauthorized', hint, 401, detail);
         this.name = 'UnauthorizedError';
         Object.setPrototypeOf(this, UnauthorizedError.prototype);
     }
