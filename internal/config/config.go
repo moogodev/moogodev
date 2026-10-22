@@ -266,6 +266,7 @@ func (reader *envReader) bool(key string, fallback bool) bool {
 // never overwritten by the file.
 func Load() (Config, error) {
 	loadDotenv(".env")
+	warnUnknownMoogoEnv()
 
 	reader := &envReader{}
 
@@ -650,6 +651,61 @@ func stripQuotes(value string) string {
 	return value
 }
 
+var knownMoogoEnv = map[string]bool{
+	"MOOGO_ACTIVITY_LOG_RETENTION_DAYS": true,
+	"MOOGO_ADDR":                        true,
+	"MOOGO_API_URL":                     true, // deprecated, accepted
+	"MOOGO_BACKUP_ACCESS_KEY":           true,
+	"MOOGO_BACKUP_ALERT_AFTER":          true,
+	"MOOGO_BACKUP_ALERT_WEBHOOK":        true,
+	"MOOGO_BACKUP_BATCH_SIZE":           true,
+	"MOOGO_BACKUP_BUCKET":               true,
+	"MOOGO_BACKUP_DOWNLOAD_TTL":         true,
+	"MOOGO_BACKUP_ENABLED":              true,
+	"MOOGO_BACKUP_ENDPOINT":             true,
+	"MOOGO_BACKUP_INTERVAL":             true,
+	"MOOGO_BACKUP_MAX_AGE":              true,
+	"MOOGO_BACKUP_PREFIX":               true,
+	"MOOGO_BACKUP_REGION":               true,
+	"MOOGO_BACKUP_RETENTION":            true,
+	"MOOGO_BACKUP_SECRET_KEY":           true,
+	"MOOGO_BACKUP_TIMEOUT":              true,
+	"MOOGO_BACKUP_VERIFY_BATCH_SIZE":    true,
+	"MOOGO_BACKUP_VERIFY_INTERVAL":      true,
+	"MOOGO_BACKUP_VERIFY_MAX_AGE":       true,
+	"MOOGO_BASE_URL":                    true,
+	"MOOGO_CDN_URL":                     true,
+	"MOOGO_COOKIE_DOMAIN":               true,
+	"MOOGO_COOKIE_SECURE":               true,
+	"MOOGO_DATA_DIR":                    true,
+	"MOOGO_DATABASE_URL":                true,
+	"MOOGO_DB_CONNECT_TIMEOUT":          true,
+	"MOOGO_DB_MAX_CONNS":                true,
+	"MOOGO_DB_MIN_CONNS":                true,
+	"MOOGO_DEFAULT_MAX_DB_BYTES":        true,
+	"MOOGO_DEFAULT_MAX_PROJECTS":        true,
+	"MOOGO_DEFAULT_MAX_STORAGE_BYTES":   true,
+	"MOOGO_ENV":                         true,
+	"MOOGO_GOOGLE_CLIENT_ID":            true,
+	"MOOGO_GOOGLE_CLIENT_SECRET":        true,
+	"MOOGO_IDLE_TIMEOUT":                true,
+	"MOOGO_MAIL_FROM":                   true,
+	"MOOGO_MAX_BODY_BYTES":              true,
+	"MOOGO_MAX_CACHED_PROJECTS":         true,
+	"MOOGO_MAX_DB_BYTES":                true,
+	"MOOGO_MAX_OBJECT_BYTES":            true,
+	"MOOGO_MAX_PROJECTS":                true,
+	"MOOGO_MAX_STORAGE_BYTES":           true,
+	"MOOGO_NEWS_URL":                    true,
+	"MOOGO_PUBLIC_URL":                  true,
+	"MOOGO_READ_TIMEOUT":                true,
+	"MOOGO_SHUTDOWN_TIMEOUT":            true,
+	"MOOGO_SITEMAP_CACHE_TTL":           true,
+	"MOOGO_SQL_READ_ONLY":               true,
+	"MOOGO_SESSION_SECURE":              true,
+	"MOOGO_SESSION_SECRET":              true,
+}
+
 // Floor values. Anything below these is a configuration mistake rather than a
 // supported setting.
 const (
@@ -657,6 +713,19 @@ const (
 	minimumBodyBytes           = 1024
 	minimumSessionSecretLength = 32
 )
+
+func warnUnknownMoogoEnv() {
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		if strings.HasPrefix(key, "MOOGO_") && !knownMoogoEnv[key] {
+			log.Printf("[WARN] unknown MOOGO_* environment variable: %s (check for typos)", key)
+		}
+	}
+}
 
 // knownSessionSecrets are the session secrets that appear in the repository,
 // in dev.sh and in .env.example.

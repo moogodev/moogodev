@@ -62,6 +62,8 @@ func Run(ctx context.Context, args []string, streams Streams) int {
 	case "version", "--version":
 		fmt.Fprintln(streams.Out, buildVersion())
 		return ExitOK
+	case "config", "doctor":
+		return runConfig(streams, args[1:])
 	case "db":
 		return runDB(ctx, streams, args[1:])
 	case "bucket":
@@ -102,6 +104,8 @@ Usage:
   moogo db vacuum             reclaim free space after deleting rows
   moogo bucket ls [prefix]    list the objects in a bucket
   moogo bucket rm <key...>    delete objects, or with --prefix a whole folder
+  moogo config                show effective configuration and check for issues
+  moogo doctor                alias for moogo config
   moogo version               print the client version
   moogo help                  print this help
 
