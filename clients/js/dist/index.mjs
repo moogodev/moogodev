@@ -32,4 +32,4 @@
 // Errors
 export { MoogoError, MissingKeyError, InvalidKeyError, KeyTooLongError, KeyTakenError, InvalidBucketError, InvalidCursorError, InvalidOrderError, BodyTooLargeError, ObjectTooLargeError, UnsupportedMediaTypeError, QuotaExceededError, ProjectPausedError, LinkExpiredError, NotFoundError, BucketNotFoundError, CredentialLimitError, RateLimitedError, InvalidBodyError, InvalidExpiresInError, InvalidMethodError, UnauthorizedError, createErrorFromResponse, } from './errors.js';
 // Client
-export { MoogoClient, createClientFromEnv } from './client.js';
+export { MoogoClient, createClientFromEnv, createStorageClient, createSQLClient } from './client.js';

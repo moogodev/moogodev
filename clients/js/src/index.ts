@@ -97,4 +97,4 @@ export {
 } from './errors.js';
 
 // Client
-export { MoogoClient, createClientFromEnv } from './client.js';
+export { MoogoClient, createClientFromEnv, createStorageClient, createSQLClient } from './client.js';

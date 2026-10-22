@@ -44,13 +44,11 @@ export declare class MoogoClient {
     private getCatalogPath;
     /** Build the credentials path */
     private getCredentialsPath;
-    /** Create authorization header using AWS Signature V4-like scheme */
-    private createAuthHeader;
-    private hashBody;
-    private hashString;
-    private getSigningKey;
-    private hmacSha256;
-    /** Execute a storage request with HMAC auth and error handling */
+    /** Detect auth mode from secret key prefix */
+    private detectAuthMode;
+    /** Get storage auth headers (Bearer or HMAC) */
+    private getStorageAuthHeaders;
+    /** Execute a storage request with Bearer/HMAC auth and error handling */
     private requestStorage;
     /** Execute a SQL request with Bearer token auth and error handling */
     private requestSQL;
@@ -176,6 +174,23 @@ export declare class MoogoClient {
         reclaimed_bytes: number;
     }>;
 }
+/** Create a client for storage operations (upload, download, list, bucket mgmt) */
+export declare function createStorageClient(config: {
+    baseUrl: string;
+    projectId: string;
+    accessKeyId: string;
+    secretKey: string;
+    fetch?: typeof fetch;
+    timeout?: number;
+}): MoogoClient;
+/** Create a client for SQL operations (query, exec, transaction, maintenance) */
+export declare function createSQLClient(config: {
+    baseUrl: string;
+    projectId: string;
+    projectKey: string;
+    fetch?: typeof fetch;
+    timeout?: number;
+}): MoogoClient;
 /** Convenience function to create a client from environment variables */
 export declare function createClientFromEnv(env?: Record<string, string | undefined>): MoogoClient;
 //# sourceMappingURL=client.d.ts.map

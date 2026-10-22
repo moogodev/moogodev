@@ -31,7 +31,7 @@
  * ```
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createClientFromEnv = exports.MoogoClient = exports.createErrorFromResponse = exports.UnauthorizedError = exports.InvalidMethodError = exports.InvalidExpiresInError = exports.InvalidBodyError = exports.RateLimitedError = exports.CredentialLimitError = exports.BucketNotFoundError = exports.NotFoundError = exports.LinkExpiredError = exports.ProjectPausedError = exports.QuotaExceededError = exports.UnsupportedMediaTypeError = exports.ObjectTooLargeError = exports.BodyTooLargeError = exports.InvalidOrderError = exports.InvalidCursorError = exports.InvalidBucketError = exports.KeyTakenError = exports.KeyTooLongError = exports.InvalidKeyError = exports.MissingKeyError = exports.MoogoError = void 0;
+exports.createSQLClient = exports.createStorageClient = exports.createClientFromEnv = exports.MoogoClient = exports.createErrorFromResponse = exports.UnauthorizedError = exports.InvalidMethodError = exports.InvalidExpiresInError = exports.InvalidBodyError = exports.RateLimitedError = exports.CredentialLimitError = exports.BucketNotFoundError = exports.NotFoundError = exports.LinkExpiredError = exports.ProjectPausedError = exports.QuotaExceededError = exports.UnsupportedMediaTypeError = exports.ObjectTooLargeError = exports.BodyTooLargeError = exports.InvalidOrderError = exports.InvalidCursorError = exports.InvalidBucketError = exports.KeyTakenError = exports.KeyTooLongError = exports.InvalidKeyError = exports.MissingKeyError = exports.MoogoError = void 0;
 // Errors
 var errors_js_1 = require("./errors.js");
 Object.defineProperty(exports, "MoogoError", { enumerable: true, get: function () { return errors_js_1.MoogoError; } });
@@ -61,3 +61,5 @@ Object.defineProperty(exports, "createErrorFromResponse", { enumerable: true, ge
 var client_js_1 = require("./client.js");
 Object.defineProperty(exports, "MoogoClient", { enumerable: true, get: function () { return client_js_1.MoogoClient; } });
 Object.defineProperty(exports, "createClientFromEnv", { enumerable: true, get: function () { return client_js_1.createClientFromEnv; } });
+Object.defineProperty(exports, "createStorageClient", { enumerable: true, get: function () { return client_js_1.createStorageClient; } });
+Object.defineProperty(exports, "createSQLClient", { enumerable: true, get: function () { return client_js_1.createSQLClient; } });

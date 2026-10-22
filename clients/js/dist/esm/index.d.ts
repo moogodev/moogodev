@@ -31,5 +31,5 @@
  */
 export type { ClientConfig, ProjectId, BucketId, ObjectKey, ApiError, ApiErrorResponse, ApiSuccessResponse, ObjectBase, ObjectResponse, Bucket, CreateBucketRequest, UpdateBucketRequest, BucketInfoResponse, ListBucketsResponse, UploadResponse, ListObjectsQuery, ListObjectsResponse, PresignedUrlRequest, PresignedUrlResponse, SignedUploadResponse, StorageCredential, ListCredentialsResponse, CreateCredentialRequest, CreateCredentialResponse, RotateCredentialResponse, DeleteResponse, QueryRequest, QueryRow, QueryResponse, ExecRequest, ExecResponse, TransactionRequest, TransactionResponse, TransactionResult, } from './types.js';
 export { MoogoError, MissingKeyError, InvalidKeyError, KeyTooLongError, KeyTakenError, InvalidBucketError, InvalidCursorError, InvalidOrderError, BodyTooLargeError, ObjectTooLargeError, UnsupportedMediaTypeError, QuotaExceededError, ProjectPausedError, LinkExpiredError, NotFoundError, BucketNotFoundError, CredentialLimitError, RateLimitedError, InvalidBodyError, InvalidExpiresInError, InvalidMethodError, UnauthorizedError, createErrorFromResponse, } from './errors.js';
-export { MoogoClient, createClientFromEnv } from './client.js';
+export { MoogoClient, createClientFromEnv, createStorageClient, createSQLClient } from './client.js';
 //# sourceMappingURL=index.d.ts.map
