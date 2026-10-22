@@ -164,10 +164,12 @@ export interface ClientConfig {
     baseUrl: string;
     /** Project ID */
     projectId: string;
-    /** Access Key ID */
-    accessKeyId: string;
-    /** Secret Key */
-    secretKey: string;
+    /** Access Key ID (for storage operations) */
+    accessKeyId?: string;
+    /** Secret Key (for storage operations) */
+    secretKey?: string;
+    /** Project Key (for SQL operations) - used instead of accessKeyId/secretKey */
+    projectKey?: string;
     /** Optional: custom fetch implementation */
     fetch?: typeof fetch;
     /** Optional: default timeout in ms */
@@ -179,5 +181,52 @@ export interface ParsedAuth {
     signature: string;
     timestamp: string;
     signedHeaders: string;
+}
+/** SQL query request */
+export interface QueryRequest {
+    sql: string;
+    args?: any[];
+}
+/** SQL query response row */
+export interface QueryRow {
+    [column: string]: any;
+}
+/** SQL query response */
+export interface QueryResponse {
+    success: true;
+    rows: QueryRow[];
+    row_count: number;
+    columns: string[];
+    truncated: boolean;
+    duration_ms: number;
+}
+/** SQL exec request */
+export interface ExecRequest {
+    sql: string;
+    args?: any[];
+}
+/** SQL exec response */
+export interface ExecResponse {
+    success: true;
+    rows_affected: number;
+    duration_ms: number;
+    last_insert_id?: number;
+}
+/** SQL transaction request */
+export interface TransactionRequest {
+    statements: (string | QueryRequest)[];
+}
+/** SQL transaction response */
+export interface TransactionResponse {
+    success: true;
+    results: TransactionResult[];
+    duration_ms: number;
+}
+export interface TransactionResult {
+    rows?: QueryRow[];
+    row_count?: number;
+    rows_affected?: number;
+    columns?: string[];
+    truncated?: boolean;
 }
 //# sourceMappingURL=types.d.ts.map

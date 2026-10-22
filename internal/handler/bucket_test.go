@@ -535,6 +535,20 @@ func (store *fakeBucketStore) BucketStats(
 	return count, used, nil
 }
 
+func (store *fakeBucketStore) ListPublicObjects(
+	_ context.Context, _ uuid.UUID, bucketID uuid.UUID,
+) ([]dbcontrol.BucketObject, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	var objects []dbcontrol.BucketObject
+	for _, object := range store.objects {
+		if object.BucketID == bucketID && object.IsPublic {
+			objects = append(objects, *object)
+		}
+	}
+	return objects, nil
+}
+
 // ProjectByID mirrors the store lookup the presigned upload uses for the pause
 // check. The fixtures are ready projects unless a test says otherwise.
 func (store *fakeBucketStore) ProjectByID(

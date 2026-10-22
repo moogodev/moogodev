@@ -181,11 +181,13 @@ That URL works with no header, no cookie, and no session. You can put it in an
 with `Cross-Origin-Resource-Policy: cross-origin`, so a page on any other domain
 can embed them.
 
-> **Understand what publishing means.** A public URL is a bearer token. Anyone who
-> has the link has the file, and there is no way to make it private again without
-> changing the URL. Publish only what you intend to be public — avatars, public
-> assets, exported reports — and keep anything sensitive private behind a
-> credential.
+> **Understand what publishing means.** A public URL is a bearer token. Anyone
+> who has the link can read the file while the object is published, and anyone
+> who saved or re-shared the bytes keeps them after you unpublish. Unpublishing
+> stops new requests — a copy already held by a CDN or browser can linger until
+> its cache TTL expires — but it cannot recall a file that has been copied.
+> Publish only what you intend to be public — avatars, public assets, exported
+> reports — and keep anything sensitive private behind a credential.
 >
 > Private objects are **not** merely awkward to fetch: an unlisted object answers
 > `404` on the public route, so it is indistinguishable from one that does not

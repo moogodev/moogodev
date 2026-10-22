@@ -181,11 +181,11 @@ const bucket = await client.createBucket({
 
 // Update bucket settings
 await client.updateBucket('bucket-id', {
-  is_public: true,        // new uploads are public by default
+  is_public: true,        // also republishes every object already in the bucket
   quota_bytes: 100 * 1024 * 1024,
 });
 
-// Toggle bucket public/private (affects new uploads)
+// Publish or unpublish a whole bucket (bulk: rewrites every existing object)
 await client.setBucketPublic('bucket-id', true);
 
 // Delete bucket and all objects

@@ -5,6 +5,8 @@ interface ObjectPreviewProps {
   object: BucketObject;
   onClose: () => void;
   onOpenPublic: () => void;
+  onTogglePublic: () => void;
+  busy: boolean;
 }
 
 // ObjectPreview is the detail drawer for one object: a large preview on the left,
@@ -19,6 +21,8 @@ export default function ObjectPreview({
   object,
   onClose,
   onOpenPublic,
+  onTogglePublic,
+  busy,
 }: ObjectPreviewProps) {
   const [text, setText] = useState<string | null>(null);
   const [textError, setTextError] = useState<string | null>(null);
@@ -137,21 +141,41 @@ export default function ObjectPreview({
               </dt>
               <dd className="mt-1.5">
                 {object.is_public ? (
-                  <button
-                    type="button"
-                    onClick={onOpenPublic}
-                    className="w-full cursor-pointer break-all rounded-md bg-panel-raised px-2.5 py-2 text-left font-mono text-xs text-accent-strong transition-colors hover:bg-hover-bg"
-                  >
-                    {object.public_url}
-                    <span className="mt-1 block text-[0.7rem] text-muted">
-                      click to open in a new tab
-                    </span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={onOpenPublic}
+                      className="w-full cursor-pointer break-all rounded-md bg-panel-raised px-2.5 py-2 text-left font-mono text-xs text-accent-strong transition-colors hover:bg-hover-bg"
+                    >
+                      {object.public_url}
+                      <span className="mt-1 block text-[0.7rem] text-muted">
+                        click to open in a new tab
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onTogglePublic}
+                      disabled={busy}
+                      className="mt-2 cursor-pointer text-xs text-muted underline decoration-dotted underline-offset-2 transition-colors hover:text-foreground disabled:opacity-50"
+                    >
+                      Unpublish this object
+                    </button>
+                  </>
                 ) : (
-                  <p className="text-xs text-muted">
-                    This object is private. Publish it to get a link you can use on
-                    your own site.
-                  </p>
+                  <>
+                    <p className="text-xs text-muted">
+                      This object is private. Publish it to get a link you can use on
+                      your own site.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={onTogglePublic}
+                      disabled={busy}
+                      className="mt-2 cursor-pointer rounded-md bg-accent-strong px-2.5 py-1.5 text-xs font-semibold text-accent-ink transition-colors hover:bg-accent disabled:opacity-50"
+                    >
+                      {busy ? "Publishing…" : "Publish this object"}
+                    </button>
+                  </>
                 )}
               </dd>
             </div>

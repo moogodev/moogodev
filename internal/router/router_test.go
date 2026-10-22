@@ -327,6 +327,9 @@ func (stub *stubBucket) GetBucketInfo(w http.ResponseWriter, r *http.Request) {
 func (stub *stubBucket) SignURL(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "SignURL")
 }
+func (stub *stubBucket) PurgeCache(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "PurgeCache")
+}
 
 // stubDocs is a minimal docs handler for tests.
 type stubDocs struct{ called string }

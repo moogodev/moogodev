@@ -251,24 +251,37 @@ export default function BucketSettingsPage({ projectId }: BucketSettingsPageProp
       <section className="rounded-xl border border-edge bg-panel p-5">
         <SectionHeading>Visibility</SectionHeading>
         <p className="mt-2 max-w-[68ch] text-[0.82rem] font-medium leading-relaxed text-muted">
-          This is the default for new uploads. Turning a bucket off makes the objects already in
-          it private as well — each file can then be published again on its own from the Bucket
-          tab. Replacing an existing file never changes its visibility either way.
+          This applies to <strong className="text-foreground">every object in the bucket</strong>,
+          not only to new uploads. Saving a change updates the objects already here as well; each
+          file can then be published or unpublished on its own from the Bucket tab. Replacing an
+          existing file never changes its visibility either way.
         </p>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           <VisibilityOption
             chosen={draft.isPublic}
             onChoose={() => setPublic(true)}
             title="Public"
-            detail="New uploads are reachable by their URL without a credential."
+            detail="Publishes every object in this bucket, including the ones already uploaded. New uploads are public too."
           />
           <VisibilityOption
             chosen={!draft.isPublic}
             onChoose={() => setPublic(false)}
             title="Private"
-            detail="New uploads need the bucket credential to read."
+            detail="Makes every object in this bucket private, including the ones already uploaded. New uploads are private too."
           />
         </div>
+        {draft.isPublic !== bucket.is_public && bucket.object_count > 0 && (
+          <p
+            role="status"
+            className="mt-4 rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-[0.8rem] leading-relaxed text-amber"
+          >
+            Saving this will make{" "}
+            {bucket.object_count === 1 ? "the 1 object" : `all ${bucket.object_count} objects`} in{" "}
+            <span className="font-mono">{bucket.name}</span>{" "}
+            {draft.isPublic ? "public" : "private"}. URLs change behaviour immediately; content
+            already cached by a CDN or browser can take up to 5 minutes to follow.
+          </p>
+        )}
       </section>
 
       <section className="rounded-xl border border-edge bg-panel p-5">

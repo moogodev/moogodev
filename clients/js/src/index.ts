@@ -58,6 +58,15 @@ export type {
   CreateCredentialResponse,
   RotateCredentialResponse,
   DeleteResponse,
+  // SQL types
+  QueryRequest,
+  QueryRow,
+  QueryResponse,
+  ExecRequest,
+  ExecResponse,
+  TransactionRequest,
+  TransactionResponse,
+  TransactionResult,
 } from './types.js';
 
 // Errors

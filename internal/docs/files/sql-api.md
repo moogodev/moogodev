@@ -407,9 +407,9 @@ back as `400` with a specific `code`.
 |---|---|
 | `ATTACH` | Opens an arbitrary path as a database. This would turn `/exec` into a file reader for the whole host. |
 | `DETACH` | The other half of the same escape. |
-| `VACUUM` | Rewrites the whole file, bypassing the per-project size limit. |
-| `REINDEX` | Same — it rebuilds and can grow the file unchecked. |
-| `ANALYZE` | Same. |
+| `REINDEX` | Rebuilds indexes; use `POST /maintenance` instead. |
+| `ANALYZE` | Updates planner statistics; use `POST /maintenance` instead. |
+| `VACUUM` | Rewrites the whole file; use `POST /maintenance` instead. |
 | `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE` | You get one statement per request, and transactions are managed per request. |
 
 ### Functions that read files or load native code
@@ -438,13 +438,17 @@ that might be wrong. Write your invariants in application code.
 Allowed:
 
 `table_info`, `table_xinfo`, `index_list`, `index_info`, `index_xinfo`,
-`foreign_key_list`, `collation_list`, `function_list`,
-`module_list`, `pragma_list`, `compile_options`, `integrity_check`,
-`quick_check`, `foreign_key_check`
+`foreign_key_list`, `collation_list`, `foreign_key_check`
 
 The same list covers the `pragma_*` function spelling — `pragma_database_list()`
 is refused for the same reason `PRAGMA database_list` is: it reports filesystem
 paths.
+
+Two further groups are refused. `function_list`, `module_list`, `pragma_list`
+and `compile_options` describe the SQLite *engine* rather than your schema, so
+they are fingerprinting material with no page that needs them. `integrity_check`
+and `quick_check` walk every page of the file in one step, which the per-statement
+timeout cannot interrupt; run those against a downloaded copy instead.
 
 Both spellings work:
 
@@ -471,7 +475,65 @@ a substitute for the body limit, which is enforced while reading.
 A write that **would** cross the size ceiling is refused before it commits. You
 get an error, not a silently truncated database.
 
-## Migration Strategy
+## `POST /maintenance` — reclaim space after deletes
+
+Deleting rows frees pages inside the database file, but SQLite does not shrink
+the file on disk until it is rewritten. Run maintenance to reindex, rebuild
+query planner statistics, vacuum the file and fold the write-ahead log back in
+one operation.
+
+```bash
+curl $MOOGO_PROJECT_URL/maintenance \
+  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+  -X POST
+```
+
+`/maintenance/vacuum` is accepted as an alias for the same operation.
+
+### Response
+
+```json
+{
+  "success": true,
+  "vacuumed": true,
+  "reindexed": true,
+  "optimized": true,
+  "checkpointed": true,
+  "size_before_bytes": 245760,
+  "size_after_bytes": 65536,
+  "freed_bytes": 180224,
+  "duration_ms": 42
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `vacuumed` | boolean | `false` when the file had no free pages, so the rewrite had no space to return. The other steps still ran. |
+| `reindexed` | boolean | Indexes were rebuilt. |
+| `optimized` | boolean | Query planner statistics were rebuilt. |
+| `checkpointed` | boolean | The write-ahead log was folded back into the main file. |
+| `size_before_bytes` | integer | Size on disk before the run, including the log sidecar. |
+| `size_after_bytes` | integer | Size on disk after the run, including the log sidecar. |
+| `freed_bytes` | integer | `size_before_bytes - size_after_bytes`. |
+| `duration_ms` | integer | Server-side execution time. |
+
+### Rules
+
+- **Its own route.** `VACUUM`, `REINDEX` and `ANALYZE` are rejected on `/exec`
+  and `/transaction` because rewriting the whole file would bypass the per-project
+  size limit. The maintenance endpoint runs them in a fixed order with the
+  project's write lock and the same size limit still in force.
+- **Idempotent in effect.** Running it on a tight database is cheap and reports
+  `vacuumed: false`.
+- **One at a time per project.** The endpoint shares the project's write lock and
+  statement slot budget with `/exec` and `/transaction`; a concurrent request
+  waits for its turn or returns `503 database_busy` with `Retry-After: 1`.
+- **Budgeted.** The run uses the same statement timeout and is subject to the same
+  concurrency limit as other writes.
+- **Project key required.** A storage credential cannot run maintenance.
+
+You can also run it with the official CLI: `moogo db vacuum`.
+
 
 Moogo does not include a built-in migration framework. Instead, you run DDL
 statements directly via the `/exec` endpoint. This gives you full control but
@@ -812,6 +874,81 @@ Every error has the same shape, so you can branch on `code` instead of parsing
 | `invalid_json` | 400 | The body was not valid JSON. |
 
 See [Errors and troubleshooting](/docs/errors) for how to handle them.
+
+## Transaksi dan enkapsulasi endpoint
+
+Endpoint `/transaction` (alias `/exec/txn`) menerima sekumpulan pernyataan SQL dan menjamin atomicity: keduanya commit atau keduanya rollback. Batasan penting:
+
+- **Maksimal 100 pernyataan** dalam satu transaksi.
+- **Budget 15 detik** total waktu eksekusi; melewati batas akan menyebabkan `500 timeout`.
+- **DDL + data in one transaction**: generally safe for small schema migrations (adding columns, simple indexes) together with light data manipulation. **Do not** combine large schema migrations (adding many tables/indexes) with intensive data manipulation in a single transaction. If your application relies on `last_insert_rowid`, ensure this read pattern is documented for each client language: the value is only available in the same session and immediately following the INSERT statement.
+
+**Safe schema migration patterns**:
+
+1. **Remove DDL from transaction** if it involves many tables/indexes; run separately before or after data manipulation.
+2. **If they must be together**: close the transaction immediately after data is inserted, then commit. Do not hold a transaction open during a long user session.
+3. **Reading `last_insert_rowid`**: after a successful INSERT in the same transaction, fetch the value before the next statement. Use with caution in concurrent environments.
+
+## Limits and performance
+
+From `/docs/limits.md`, limits are already transparent, but some practical patterns need clarification:
+
+- **Paging vs reading all**: For datasets over 100 rows, use `LIMIT/OFFSET` with small pages (e.g., 50 rows per page) instead of `SELECT *` entirely. Using large `OFFSET` gets slower because SQLite must skip preceding rows.
+- **CTE vs subquery**: For complex queries, CTE is generally more readable and sometimes performs better, but avoid recursive CTEs in the same transaction as write operations, because SQLite may lock pages.
+- **Avoid `SELECT *`**: Column names change will break clients without migration. Always specify needed columns.
+- **Database does not auto-shrink**: `DELETE` frees pages immediately, but physical space (`250 MB` ceiling) does not decrease until `VACUUM` executes (blocked on Moogo). If project approaches the limit, delete rows progressively rather than one large deletion.
+- **Performance Anomalies Near the 250 MB Limit**: As usage approaches the ceiling, SQLite adds a small overhead to check the limit before every write. It is recommended to monitor daily usage and migrate to a new project before reaching 230 MB.
+
+## SQL Security
+
+From `/docs/security.md` and `/docs/sql-api.md`, validation is already strong:
+
+- `ATTACH`, `VACUUM`, `REINDEX`, `ANALYZE` are blocked.
+- Triggers are forbidden.
+- Filesystem functions are blocked.
+- `PRAGMA` only allowed from an allowlist.
+
+This is good engineering. However, one thing needs careful interpretation:
+
+- **Sensitive column names** (e.g., named `readfile` or variations) will be rejected even if it's just a naming coincidence.
+
+**Recommendations**:
+
+- Explain that this is a trade-off: there are column names that may not be used in any query.
+- Provide a list of sensitive names that can be checked before deploy, not just a list of functions.
+- Example sensitive names: `readfile`, `writefile`, `delete`, `vacuum`, `attach` (column names matching blocked SQL keywords).
+
+## Error handling
+
+From `/docs/errors.md`, error envelope is consistent and can be branched by `code`. This is good. But for small-to-medium developers, this still needs improvement:
+
+- Many developers compare `message`, not `code`.
+- Consistency across endpoints exists, but safe branching patterns may not be widely known.
+
+**Recommendations**:
+
+- Provide explicit error handling examples, e.g., how to distinguish `database_busy` from other errors.
+- Explain which errors are retryable and which are not.
+
+```js
+// Example safe error handling pattern:
+try {
+  const body = await sql(query, args);
+} catch (err) {
+  const code = err.error?.code;
+  if (code === 'database_busy') {
+    // retry with exponential backoff
+    await delay(1000);
+    return sql(query, args);
+  }
+  if (code === 'quota_exceeded') {
+    // don't retry; notify user
+    throw new Error('Storage quota exceeded');
+  }
+  // other errors can bubble to UI
+  throw err;
+}
+```
 
 ## Next
 

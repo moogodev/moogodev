@@ -7,9 +7,30 @@ the client will not do it either.
 
 ## Install
 
+### Install script (recommended)
+
+The fastest way. Works on macOS and Linux. Detects your OS and architecture, downloads the correct prebuilt binary from GitHub Releases, and installs it to `/usr/local/bin` or `~/.local/bin`.
+
+```bash
+curl -fsSL https://get.moogo.dev | sh
+```
+
+After installation, verify it:
+
+```bash
+moogo version
+moogo help
+```
+
+### Install with Go
+
+If you already have [Go](https://go.dev) installed:
+
 ```bash
 go install github.com/moogodev/moogodev/cmd/moogo@latest
 ```
+
+> `go install` requires Go on your machine and builds from source. The install script above does **not** require Go.
 
 Or build it from a checkout:
 
@@ -99,6 +120,25 @@ before this is the only way back.
 
 Foreign keys are honoured, so tables are dropped in dependency order and a
 schema that points at itself in several places still resets cleanly.
+
+## Vacuum (reclaim space)
+
+```bash
+moogo db vacuum
+```
+
+Runs `REINDEX` → `ANALYZE` → `VACUUM` → `WAL checkpoint` on the project's
+database to reclaim physical space after large deletes or drops. The database
+file never shrinks on its own; this command reclaims the freed pages.
+
+Size limits remain enforced (250 MB/project). Equivalent to:
+
+```bash
+curl -X POST "$MOOGO_PROJECT_URL/maintenance" \
+  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"operation": "vacuum"}'
+```
 
 ## List objects
 

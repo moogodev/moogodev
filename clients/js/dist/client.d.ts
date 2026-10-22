@@ -2,7 +2,7 @@
  * Moogo JavaScript/TypeScript Client
  * Official client for Moogo object storage API.
  */
-import type { ClientConfig, Bucket, CreateBucketRequest, UpdateBucketRequest, BucketInfoResponse, ObjectResponse, UploadResponse, ListObjectsQuery, ListObjectsResponse, PresignedUrlRequest, PresignedUrlResponse, SignedUploadResponse, StorageCredential, CreateCredentialRequest, CreateCredentialResponse, RotateCredentialResponse } from './types.js';
+import type { ClientConfig, Bucket, CreateBucketRequest, UpdateBucketRequest, BucketInfoResponse, ObjectResponse, UploadResponse, ListObjectsQuery, ListObjectsResponse, PresignedUrlRequest, PresignedUrlResponse, SignedUploadResponse, StorageCredential, CreateCredentialRequest, CreateCredentialResponse, RotateCredentialResponse, QueryRequest, QueryResponse, ExecRequest, ExecResponse, TransactionRequest, TransactionResponse } from './types.js';
 /**
  * Moogo client for object storage operations.
  *
@@ -30,11 +30,16 @@ import type { ClientConfig, Bucket, CreateBucketRequest, UpdateBucketRequest, Bu
 export declare class MoogoClient {
     private readonly baseUrl;
     private readonly projectId;
-    private readonly accessKeyId;
-    private readonly secretKey;
+    private readonly accessKeyId?;
+    private readonly secretKey?;
+    private readonly projectKey?;
     private readonly fetchImpl;
     private readonly timeout;
     constructor(config: ClientConfig);
+    /** Check if configured for SQL operations (project key) */
+    private hasProjectKey;
+    /** Check if configured for storage operations (access key) */
+    private hasStorageCredentials;
     /** Build the bucket catalog path */
     private getCatalogPath;
     /** Build the credentials path */
@@ -45,8 +50,10 @@ export declare class MoogoClient {
     private hashString;
     private getSigningKey;
     private hmacSha256;
-    /** Execute a request with auth and error handling */
-    private request;
+    /** Execute a storage request with HMAC auth and error handling */
+    private requestStorage;
+    /** Execute a SQL request with Bearer token auth and error handling */
+    private requestSQL;
     /** List all buckets in the project */
     listBuckets(): Promise<Bucket[]>;
     /** Get bucket info including usage stats */
@@ -149,6 +156,25 @@ export declare class MoogoClient {
     getObjectETag(key: string, options?: {
         bucket?: string;
     }): Promise<string | null>;
+    /** Execute a SQL read query */
+    query(request: QueryRequest, options?: {
+        signal?: AbortSignal;
+    }): Promise<QueryResponse>;
+    /** Execute a SQL write statement */
+    exec(request: ExecRequest, options?: {
+        signal?: AbortSignal;
+    }): Promise<ExecResponse>;
+    /** Execute multiple SQL statements in a transaction */
+    transaction(request: TransactionRequest, options?: {
+        signal?: AbortSignal;
+    }): Promise<TransactionResponse>;
+    /** Run database maintenance (VACUUM, REINDEX, ANALYZE) */
+    maintenance(options?: {
+        signal?: AbortSignal;
+    }): Promise<{
+        success: true;
+        reclaimed_bytes: number;
+    }>;
 }
 /** Convenience function to create a client from environment variables */
 export declare function createClientFromEnv(env?: Record<string, string | undefined>): MoogoClient;

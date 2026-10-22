@@ -1067,3 +1067,50 @@ func (store *Store) BucketStats(
 	}
 	return objectCount, usedBytes, nil
 }
+
+// ListPublicObjects returns all objects in a bucket that are currently public.
+// Used by the purge-cache endpoint to enumerate URLs that need CDN invalidation.
+func (store *Store) ListPublicObjects(
+	ctx context.Context,
+	projectID uuid.UUID,
+	bucketID uuid.UUID,
+) ([]BucketObject, error) {
+	const query = `
+		SELECT id, project_id, bucket_id, key, size_bytes, content_type,
+		       is_public, public_token, version, cache_control, created_at, updated_at
+		FROM bucket_objects
+		WHERE project_id = $1 AND bucket_id = $2 AND is_public = true
+		ORDER BY created_at ASC`
+
+	rows, err := store.pool.Query(ctx, query, projectID, bucketID)
+	if err != nil {
+		return nil, fmt.Errorf("list public objects: %w", err)
+	}
+	defer rows.Close()
+
+	var objects []BucketObject
+	for rows.Next() {
+		var obj BucketObject
+		if err := rows.Scan(
+			&obj.ID,
+			&obj.ProjectID,
+			&obj.BucketID,
+			&obj.Key,
+			&obj.SizeBytes,
+			&obj.ContentType,
+			&obj.IsPublic,
+			&obj.PublicToken,
+			&obj.Version,
+			&obj.CacheControl,
+			&obj.CreatedAt,
+			&obj.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan public object: %w", err)
+		}
+		objects = append(objects, obj)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate public objects: %w", err)
+	}
+	return objects, nil
+}

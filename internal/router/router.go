@@ -129,6 +129,7 @@ type BucketHandlers interface {
 	DeleteBucket(http.ResponseWriter, *http.Request)
 	GetBucketInfo(http.ResponseWriter, *http.Request)
 	SetBucketPublic(http.ResponseWriter, *http.Request)
+	PurgeCache(http.ResponseWriter, *http.Request)
 	// SignURL mints a time-limited URL for one object on the public plane.
 	SignURL(http.ResponseWriter, *http.Request)
 }
@@ -626,6 +627,7 @@ func New(deps Deps) http.Handler {
 			bucket.Patch("/", deps.Bucket.UpdateBucketSettings)
 			bucket.Delete("/", deps.Bucket.DeleteBucket)
 			bucket.Post("/public", deps.Bucket.SetBucketPublic)
+			bucket.Post("/purge-cache", deps.Bucket.PurgeCache)
 		})
 	})
 

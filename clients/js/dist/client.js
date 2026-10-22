@@ -38,6 +38,7 @@ class MoogoClient {
     projectId;
     accessKeyId;
     secretKey;
+    projectKey;
     fetchImpl;
     timeout;
     constructor(config) {
@@ -45,16 +46,30 @@ class MoogoClient {
             throw new Error('baseUrl is required');
         if (!config.projectId)
             throw new Error('projectId is required');
-        if (!config.accessKeyId)
-            throw new Error('accessKeyId is required');
-        if (!config.secretKey)
-            throw new Error('secretKey is required');
+        if (!config.accessKeyId && !config.projectKey) {
+            throw new Error('Either accessKeyId/secretKey (storage) or projectKey (SQL) is required');
+        }
+        if (config.accessKeyId && !config.secretKey) {
+            throw new Error('secretKey is required when accessKeyId is provided');
+        }
+        if (config.secretKey && !config.accessKeyId) {
+            throw new Error('accessKeyId is required when secretKey is provided');
+        }
         this.baseUrl = config.baseUrl.replace(/\/+$/, '');
         this.projectId = config.projectId;
         this.accessKeyId = config.accessKeyId;
         this.secretKey = config.secretKey;
+        this.projectKey = config.projectKey;
         this.fetchImpl = config.fetch ?? fetch;
         this.timeout = config.timeout ?? DEFAULT_TIMEOUT;
+    }
+    /** Check if configured for SQL operations (project key) */
+    hasProjectKey() {
+        return !!this.projectKey;
+    }
+    /** Check if configured for storage operations (access key) */
+    hasStorageCredentials() {
+        return !!this.accessKeyId && !!this.secretKey;
     }
     /** Build the bucket catalog path */
     getCatalogPath() {
@@ -128,8 +143,11 @@ class MoogoClient {
             .map(b => b.toString(16).padStart(2, '0'))
             .join('');
     }
-    /** Execute a request with auth and error handling */
-    async request(method, path, options = {}) {
+    /** Execute a storage request with HMAC auth and error handling */
+    async requestStorage(method, path, options = {}) {
+        if (!this.hasStorageCredentials()) {
+            throw new Error('Storage operations require accessKeyId and secretKey');
+        }
         const url = new URL(path, this.baseUrl);
         if (options.query) {
             Object.entries(options.query).forEach(([k, v]) => {
@@ -185,34 +203,88 @@ class MoogoClient {
             throw new errors_js_1.MoogoError('network_error', `Network error: ${error}`, 0);
         }
     }
+    /** Execute a SQL request with Bearer token auth and error handling */
+    async requestSQL(method, path, options = {}) {
+        if (!this.hasProjectKey()) {
+            throw new Error('SQL operations require projectKey');
+        }
+        const url = new URL(path, this.baseUrl);
+        if (options.query) {
+            Object.entries(options.query).forEach(([k, v]) => {
+                if (v !== undefined && v !== null)
+                    url.searchParams.set(k, v);
+            });
+        }
+        const requestHeaders = {
+            'Authorization': `Bearer ${this.projectKey}`,
+            'Content-Type': 'application/json',
+            ...options.headers,
+        };
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        const signal = options.signal
+            ? AbortSignal.any([options.signal, controller.signal])
+            : controller.signal;
+        try {
+            const response = await this.fetchImpl(url.toString(), {
+                method,
+                headers: requestHeaders,
+                body: options.body,
+                signal,
+            });
+            clearTimeout(timeoutId);
+            const contentType = response.headers.get('Content-Type') || '';
+            const isJson = contentType.includes('application/json');
+            let data;
+            if (isJson) {
+                data = await response.json();
+            }
+            else {
+                data = await response.text();
+            }
+            if (!response.ok) {
+                throw (0, errors_js_1.createErrorFromResponse)(response, data);
+            }
+            return data;
+        }
+        catch (error) {
+            clearTimeout(timeoutId);
+            if (error instanceof errors_js_1.MoogoError)
+                throw error;
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                throw new errors_js_1.MoogoError('timeout', 'Request timed out', 408);
+            }
+            throw new errors_js_1.MoogoError('network_error', `Network error: ${error}`, 0);
+        }
+    }
     // ==================== Bucket Operations ====================
     /** List all buckets in the project */
     async listBuckets() {
-        const response = await this.request('GET', this.getCatalogPath());
+        const response = await this.requestStorage('GET', this.getCatalogPath());
         return response.buckets;
     }
     /** Get bucket info including usage stats */
     async getBucketInfo(bucketId) {
-        const response = await this.request('GET', `${this.getCatalogPath()}/${bucketId}`);
+        const response = await this.requestStorage('GET', `${this.getCatalogPath()}/${bucketId}`);
         return response;
     }
     /** Create a new bucket */
     async createBucket(request) {
-        const response = await this.request('POST', this.getCatalogPath(), { body: JSON.stringify(request) });
+        const response = await this.requestStorage('POST', this.getCatalogPath(), { body: JSON.stringify(request) });
         return response.bucket;
     }
     /** Update bucket settings */
     async updateBucket(bucketId, request) {
-        const response = await this.request('PATCH', `${this.getCatalogPath()}/${bucketId}`, { body: JSON.stringify(request) });
+        const response = await this.requestStorage('PATCH', `${this.getCatalogPath()}/${bucketId}`, { body: JSON.stringify(request) });
         return response.bucket;
     }
     /** Delete a bucket and all its objects */
     async deleteBucket(bucketId) {
-        await this.request('DELETE', `${this.getCatalogPath()}/${bucketId}`);
+        await this.requestStorage('DELETE', `${this.getCatalogPath()}/${bucketId}`);
     }
     /** Toggle bucket public/private (fans out to all objects) */
     async setBucketPublic(bucketId, isPublic) {
-        const response = await this.request('POST', `${this.getCatalogPath()}/${bucketId}/public`, { body: JSON.stringify({ is_public: isPublic }) });
+        const response = await this.requestStorage('POST', `${this.getCatalogPath()}/${bucketId}/public`, { body: JSON.stringify({ is_public: isPublic }) });
         return response.bucket;
     }
     // ==================== Object Operations ====================
@@ -229,6 +301,9 @@ class MoogoClient {
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
+        if (!this.hasStorageCredentials()) {
+            throw new Error('Upload requires storage credentials (accessKeyId and secretKey)');
+        }
         const requestHeaders = {};
         if (contentType)
             requestHeaders['Content-Type'] = contentType;
@@ -322,6 +397,9 @@ class MoogoClient {
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
+        if (!this.hasStorageCredentials()) {
+            throw new Error('Download requires storage credentials (accessKeyId and secretKey)');
+        }
         const requestHeaders = {
             'X-Moogo-Access-Key-Id': this.accessKeyId,
         };
@@ -381,6 +459,9 @@ class MoogoClient {
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
+        if (!this.hasStorageCredentials()) {
+            throw new Error('HEAD requires storage credentials (accessKeyId and secretKey)');
+        }
         const url = new URL(`${this.baseUrl}${path}`);
         Object.entries(query).forEach(([k, v]) => url.searchParams.set(k, v));
         const requestHeaders = {
@@ -424,7 +505,7 @@ class MoogoClient {
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
-        await this.request('DELETE', path, { query, signal });
+        await this.requestStorage('DELETE', path, { query, signal });
     }
     /** List objects in a bucket */
     async listObjects(query = {}) {
@@ -443,7 +524,7 @@ class MoogoClient {
             params.limit = String(query.limit);
         if (query.cursor)
             params.cursor = query.cursor;
-        return this.request('GET', `/p/${this.projectId}/bucket`, { query: params });
+        return this.requestStorage('GET', `/p/${this.projectId}/bucket`, { query: params });
     }
     /** Get a presigned URL for an object */
     async getPresignedUrl(key, request, options = {}) {
@@ -452,7 +533,7 @@ class MoogoClient {
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
-        return this.request('POST', path, {
+        return this.requestStorage('POST', path, {
             query,
             body: JSON.stringify(request),
             signal,
@@ -465,7 +546,7 @@ class MoogoClient {
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
-        return this.request('POST', path, {
+        return this.requestStorage('POST', path, {
             query,
             body: JSON.stringify(request),
             signal,
@@ -478,26 +559,26 @@ class MoogoClient {
         const query = {};
         if (bucket !== 'default')
             query.bucket = bucket;
-        const response = await this.request('PATCH', path, { query, body: JSON.stringify(updates), signal });
+        const response = await this.requestStorage('PATCH', path, { query, body: JSON.stringify(updates), signal });
         return response.object;
     }
     // ==================== Credential Operations ====================
     /** List storage credentials */
     async listCredentials() {
-        const response = await this.request('GET', this.getCredentialsPath());
+        const response = await this.requestStorage('GET', this.getCredentialsPath());
         return response.credentials;
     }
     /** Create a new storage credential */
     async createCredential(request) {
-        return this.request('POST', this.getCredentialsPath(), { body: JSON.stringify(request) });
+        return this.requestStorage('POST', this.getCredentialsPath(), { body: JSON.stringify(request) });
     }
     /** Rotate a credential (generates new secret) */
     async rotateCredential(credentialId) {
-        return this.request('POST', `${this.getCredentialsPath()}/${credentialId}/rotate`);
+        return this.requestStorage('POST', `${this.getCredentialsPath()}/${credentialId}/rotate`);
     }
     /** Revoke a credential */
     async revokeCredential(credentialId) {
-        await this.request('DELETE', `${this.getCredentialsPath()}/${credentialId}`);
+        await this.requestStorage('DELETE', `${this.getCredentialsPath()}/${credentialId}`);
     }
     // ==================== Utility Methods ====================
     /** Get the public URL for an object (if published) */
@@ -532,11 +613,45 @@ class MoogoClient {
             return null;
         return result.headers.get('ETag');
     }
+    // ==================== SQL Operations ====================
+    /** Execute a SQL read query */
+    async query(request, options = {}) {
+        return this.requestSQL('POST', `/p/${this.projectId}/query`, {
+            body: JSON.stringify(request),
+            signal: options.signal,
+        });
+    }
+    /** Execute a SQL write statement */
+    async exec(request, options = {}) {
+        return this.requestSQL('POST', `/p/${this.projectId}/exec`, {
+            body: JSON.stringify(request),
+            signal: options.signal,
+        });
+    }
+    /** Execute multiple SQL statements in a transaction */
+    async transaction(request, options = {}) {
+        return this.requestSQL('POST', `/p/${this.projectId}/transaction`, {
+            body: JSON.stringify(request),
+            signal: options.signal,
+        });
+    }
+    /** Run database maintenance (VACUUM, REINDEX, ANALYZE) */
+    async maintenance(options = {}) {
+        return this.requestSQL('POST', `/p/${this.projectId}/maintenance`, { signal: options.signal });
+    }
 }
 exports.MoogoClient = MoogoClient;
 /** Convenience function to create a client from environment variables */
 function createClientFromEnv(env) {
     const getEnv = (key) => env?.[key] ?? process.env[key];
+    const projectKey = getEnv('MOOGO_PROJECT_KEY');
+    if (projectKey) {
+        return new MoogoClient({
+            baseUrl: getEnv('MOOGO_API_URL') || 'https://api.moogo.dev',
+            projectId: getEnv('MOOGO_PROJECT_ID'),
+            projectKey,
+        });
+    }
     return new MoogoClient({
         baseUrl: getEnv('MOOGO_API_URL') || 'https://api.moogo.dev',
         projectId: getEnv('MOOGO_PROJECT_ID'),

@@ -28,15 +28,7 @@ The check happens **inside the transaction** that creates the project, not befor
 
 The check runs **before** the write, and SQLite refuses the page growth that would cross the ceiling, so a write that would overrun is refused; it is not partially applied and it is not silently truncated.
 
-**Pola pembacaan dan penulisannya**:
-
-- Untuk dataset kecil (di bawah 100 baris), `SELECT *` boleh digunakan untuk kemudahan.
-- Untuk dataset lebih besar, gunakan `LIMIT`/`OFFSET` dengan halaman kecil (misal: 50 baris per halaman) daripada membaca seluruh data sekaligus.
-- Hindari `OFFSET` yang sangat besar (lebih dari setengah total baris), karena performa menurun secara linear.
-- Gunakan CTE untuk logika kompres kompleks, tetapi hindari CTE rekurif di transaksi yang sama dengan operasi tulis.
-- **Jangan gunakan `SELECT *`** dalam pengolahan produksi; selalu nama kolom yang dibutuhkan, karena perubahan schema akan memecah klien tanpa migrasi.
-
-Database does not auto-shrink when data is deleted. Physical space remains until you run `moogo db vacuum` or `POST /maintenance` (see [SQL API](./07-sql-api#post-maintenance--reclaim-space-after-deletes)). Reclaim space regularly after large deletes.
+Database does not auto-shrink when data is deleted. Physical space remains until you run `moogo db vacuum` or `POST /maintenance` (see [SQL API](/docs/sql-api)). Reclaim space regularly after large deletes.
 
 ### Result size
 

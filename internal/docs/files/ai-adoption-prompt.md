@@ -379,18 +379,20 @@ Stored with object, used for all subsequent downloads. Defaults:
 | Published (`/pub/`) | `public, max-age=300, must-revalidate` |
 | Private / Signed | `private, no-cache` |
 
-### Publishing — per-object, not global
+### Publishing — per object, and the bucket toggle is bulk
 
-**Publishing is per-object.** Setting a bucket to public (`PATCH /buckets/{id}` with `is_public: true`) only affects **new uploads** — it fans out the default visibility to future objects. Existing objects keep their individual `is_public` state. To publish an existing object, PATCH it directly.
+**A bucket toggle is bulk, not "new uploads only".** `POST /buckets/{project_id}/{bucket_id}/public` — or `PATCH` on the bucket with `is_public` — sets the visibility new uploads inherit **and rewrites `is_public` on every object already in the bucket**. The response reports `affected`, the number of objects it changed. Making a bucket private therefore takes every object in it off `/pub/` immediately; making it public puts every object back.
+
+To change one file only, PATCH that object. Overwriting a key never changes its visibility in either direction.
 
 ```bash
-# Publish a single object
+# Publish one object
 curl -X PATCH "$ENDPOINT/avatars/kit.png" \
   -H "Content-Type: application/json" \
   -d '{"is_public": true}'
 
-# Set bucket default for new uploads
-curl -X PATCH "$CATALOG/bucket-id" \
+# Publish a whole bucket — this also publishes everything already in it
+curl -X POST "$CATALOG/bucket-id/public" \
   -H "Content-Type: application/json" \
   -d '{"is_public": true}'
 ```
@@ -401,15 +403,13 @@ curl -X PATCH "$CATALOG/bucket-id" \
 GET /buckets/{project_id}/{bucket_id}
 ```
 
-Returns bucket config (`is_public`, `allowed_types`, `max_object_size_bytes`, `quota_bytes`) plus `storage_used_bytes` and project `quota_bytes`.
+Returns bucket config (`is_public`, `allowed_types`, `max_object_size_bytes`, `quota_bytes`) plus `storage_used_bytes`, project `quota_bytes`, and the two URL origins: `public_url_base` and `url_base`.
 
 ### 404 shape and CDN negative caching
 
 All errors use the same envelope: `{"error":{"code":"...","message":"...","detail":"..."}}`.
 
-On `/pub/*` (public route), missing or unpublished objects return `404 not_found` with that envelope. These responses are sent with `Cache-Control: no-store, no-cache, must-revalidate, private` to avoid CDN negative caching. The shape is identical to authenticated routes.
-
-If a published object was previously accessed while unpublished, a CDN may have cached the 404. To purge: re-upload the object (changes ETag), or wait for the negative cache TTL to expire.
+On `/pub/*` (public route), missing or unpublished objects return `404 not_found` with that envelope. These responses are sent with `Cache-Control: no-store, no-cache, must-revalidate, private`, so they are not cached negatively. A published object is cached for at most five minutes (`max-age=300`). If a URL was fetched while an older deployment was live, an edge copy of that 404 can still linger until its TTL expires — use a new key or purge your CDN.
 
 ## Limits
 

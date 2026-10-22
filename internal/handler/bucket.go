@@ -67,6 +67,7 @@ type BucketStore interface {
 	StorageUsedBytes(ctx context.Context, projectID uuid.UUID) (int64, error)
 	BucketStorageUsedBytes(ctx context.Context, projectID uuid.UUID, bucketID uuid.UUID) (int64, error)
 	BucketStats(ctx context.Context, projectID uuid.UUID, bucketID uuid.UUID) (int64, int64, error)
+	ListPublicObjects(ctx context.Context, projectID uuid.UUID, bucketID uuid.UUID) ([]dbcontrol.BucketObject, error)
 	// ProjectByID is how a presigned upload sees the pause state the
 	// credential middleware would have checked for a normal upload.
 	ProjectByID(ctx context.Context, projectID uuid.UUID) (*dbcontrol.Project, error)
@@ -1787,6 +1788,55 @@ func (handler *BucketPlane) SetBucketPublic(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+// PurgeCache handles POST /buckets/{project_id}/{bucket_id}/purge-cache.
+// It returns the list of public URLs that would need cache purging.
+// If Cloudflare credentials are configured in the future, this endpoint
+// can be extended to call the Cloudflare API directly.
+func (handler *BucketPlane) PurgeCache(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := auth.ProjectIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	bucketID, err := uuidParam(r, "bucket_id")
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket_id",
+			"the bucket id is not a valid UUID")
+		return
+	}
+
+	// Verify bucket exists and belongs to project
+	bucket, err := handler.bucketByID(r.Context(), projectID, bucketID)
+	if err != nil {
+		handler.writeStoreError(w, r, projectID, err, "load bucket")
+		return
+	}
+
+	// Get all public objects in this bucket
+	objects, err := handler.store.ListPublicObjects(r.Context(), projectID, bucketID)
+	if err != nil {
+		handler.writeStoreError(w, r, projectID, err, "list public objects")
+		return
+	}
+
+	base := handler.publicCDNURL(r)
+	urls := make([]string, 0, len(objects))
+	for _, obj := range objects {
+		escapedKey := escapeKeyPath(obj.Key)
+		urls = append(urls, fmt.Sprintf("%s/pub/%s/%s", base, projectID, escapedKey))
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"success":       true,
+		"bucket_id":     bucketID,
+		"bucket_name":   bucket.Name,
+		"purged_count":  len(urls),
+		"urls":          urls,
+		"note":          "These URLs should be purged from your CDN. If using Cloudflare, call the Purge Cache API with these URLs. For manual purge, use the dashboard or Cloudflare API with your zone ID and API token.",
+	})
+}
+
 // resolveBucket finds the bucket a request targets, creating the default bucket
 // when the request names none.
 //
@@ -2737,5 +2787,10 @@ func (handler *BucketPlane) GetBucketInfo(w http.ResponseWriter, r *http.Request
 		"bucket":             handler.bucketResponse(bucket),
 		"storage_used_bytes": used,
 		"quota_bytes":        handler.quota,
+		// The same two origins an object response carries, so a client can build
+		// public and authenticated URLs from the bucket alone instead of
+		// uploading something first to discover them.
+		"public_url_base": handler.publicCDNURL(r),
+		"url_base":        handler.publicBaseURL(r),
 	})
 }

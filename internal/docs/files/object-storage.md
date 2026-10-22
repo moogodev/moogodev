@@ -82,6 +82,8 @@ Response, for the first upload:
     "url": "https://api.moogo.dev/p/8f3c.../bucket/avatars/kit.png",
     "preview_url": "/api/projects/8f3c.../bucket/avatars/kit.png",
     "public_url": "",
+    "public_url_base": "https://cdn.moogo.dev",
+    "url_base": "https://api.moogo.dev",
     "created_at": "2026-10-01T09:20:11Z",
     "updated_at": "2026-10-01T09:20:11Z",
     "last_modified": "2026-10-01T09:20:11Z"
@@ -91,7 +93,7 @@ Response, for the first upload:
 }
 ```
 
-### The three URL fields
+### The five URL fields
 
 This trips people up, so it is worth being explicit.
 
@@ -100,6 +102,8 @@ This trips people up, so it is worth being explicit.
 | `url` | `/p/{id}/bucket/{key}` | **Yes** — storage credential | Your application fetching a private object. |
 | `preview_url` | `/api/projects/{id}/bucket/{key}` | Session cookie | The dashboard rendering a preview. |
 | `public_url` | `/pub/{id}/{key}` | **No** | Sharing a published object. |
+| `public_url_base` | (CDN origin) | — | Building public URLs in clients. |
+| `url_base` | (API origin) | — | Building authenticated URLs in clients. |
 
 `url` is the one your application uses. Do not put it in an `<img>` tag: a browser
 tab does not carry a storage credential, so the image would break for every
@@ -111,6 +115,9 @@ built from the deployment's CDN origin (`MOOGO_CDN_URL`) when it has one, so a
 published object is served — and can be cached — on a host of its own rather
 than on the credential-bearing API host. With no CDN configured it falls back to
 the API origin.
+
+The two base fields (`public_url_base`, `url_base`) let clients construct URLs
+without hardcoding origins.
 
 ### Upload limits
 
@@ -128,6 +135,41 @@ Failures are distinguishable:
 | `object_too_large` | 413 | Over **this bucket's** cap. `detail` names the limit. |
 | `quota_exceeded` | 507 | The project total is full. `detail` reports usage and quota. |
 
+### Custom Cache-Control
+
+You can override the default caching behavior for an object by sending a
+`Cache-Control` header on the upload request:
+
+```bash
+curl -X POST "$ENDPOINT/avatars/kit.png" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "Content-Type: image/png" \
+  -H "Cache-Control: public, max-age=31536000, immutable" \
+  --data-binary @kit.png
+```
+
+The header is stored with the object and used for all subsequent downloads
+(both authenticated and public). If omitted, Moogo applies its defaults:
+
+| Access type | Default `Cache-Control` |
+|---|---|
+| Published (`/pub/`) | `public, max-age=300, must-revalidate` |
+| Private / Signed | `private, no-cache` |
+
+A custom value replaces the default for that object entirely. Common patterns:
+
+| Goal | Header |
+|---|---|
+| Long-term cache, never revalidate | `public, max-age=31536000, immutable` |
+| No caching, always check server | `no-store` |
+| Cache for 1 hour, revalidate | `public, max-age=3600, must-revalidate` |
+| Private cache only, 1 hour | `private, max-age=3600` |
+
+> **Note:** The `Cache-Control` header you send on upload applies to **all**
+> subsequent downloads of that object. It is not request-specific. To change it,
+> re-upload the object with a new header (the object key and ETag will update).
+
 ## Download
 
 ```bash
@@ -144,6 +186,24 @@ curl -I "$ENDPOINT/avatars/kit.png" \
   -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
 ```
+
+### Range requests (partial downloads)
+
+Both `GET` and `HEAD` support the `Range` header for partial content:
+
+```bash
+# Get bytes 0-999 (first 1 KB)
+curl -H "Range: bytes=0-999" "$ENDPOINT/avatars/kit.png" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+```
+
+- `206 Partial Content` with `Content-Range` header when range is valid
+- `416 Range Not Satisfiable` when range is outside file size
+- `If-Range` header supported for conditional range requests (validate ETag or Last-Modified)
+
+Use this for resumable downloads, streaming large files, or reading only the
+metadata (e.g., first few bytes to detect file type).
 
 ## Public download
 
@@ -333,6 +393,43 @@ record atomically from the caller's point of view; the object keeps its identity
 and `id`. A rename never changes visibility — if a body carries both `new_key` and
 `is_public`, the rename wins and the visibility is left as it was.
 
+## Publishing vs bucket visibility
+
+There are two switches, and they do different things.
+
+**Per object** — `PATCH /p/{project_id}/bucket/{key}` with `{"is_public": true}`. This
+publishes or unpublishes a single object, and it is the normal way to share a
+file. Only objects with `is_public: true` answer on `/pub/{project_id}/{key}`.
+
+**Per bucket** — `POST /buckets/{project_id}/{bucket_id}/public` with
+`{"is_public": true|false}`. This is a bulk operation, not a default for new
+uploads alone: it sets the visibility new uploads inherit **and rewrites
+`is_public` on every object already in the bucket**. The response's `affected`
+field is the number of objects it changed. Making a bucket private therefore
+takes every object in it off `/pub/` immediately; making it public puts every
+object back.
+
+The dashboard states this before saving a bucket visibility change, and the
+bucket list labels the state as "every object is public" rather than "new
+uploads are public", because that is what the toggle does.
+
+Overwriting a key (`PUT` on an existing key) never changes visibility in either
+direction: it is a storage operation, not a publishing one.
+
+### Caching and unpublishing
+
+A published object is served with `Cache-Control: public, max-age=300,
+must-revalidate`, so a CDN or browser holds the bytes for at most five minutes.
+A `404` on the public route is sent with `Cache-Control: no-store`, so a missing
+or unpublished object is never cached negatively: publishing it is visible on
+the next request.
+
+Unpublishing stops new requests, but it cannot recall a copy that a CDN, a
+browser, or another user already stored. Treat "publish" as "hand out this
+file", not as a grant you can revoke after the fact. If you need a URL that can
+be withdrawn cleanly, publish under a versioned key (`avatar-v2.png`) and stop
+linking the old one.
+
 ## Delete
 
 **One object:**
@@ -397,10 +494,46 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/buckets/{project_id}` | List buckets with counts. |
+| `GET` | `/buckets/{project_id}/{bucket_id}` | Get single bucket info + usage. |
 | `POST` | `/buckets/{project_id}` | Create a bucket. |
 | `PATCH` | `/buckets/{project_id}/{bucket_id}` | Update visibility, upload policy, and quota. |
 | `DELETE` | `/buckets/{project_id}/{bucket_id}` | Delete a bucket and its objects. |
-| `POST` | `/buckets/{project_id}/{bucket_id}/public` | Publish or unpublish the bucket. |
+| `POST` | `/buckets/{project_id}/{bucket_id}/public` | Publish or unpublish the bucket — sets the upload default and rewrites every existing object. |
+
+### Get bucket info
+
+```bash
+curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+```
+
+```json
+{
+  "success": true,
+  "bucket": {
+    "id": "3f8a...",
+    "name": "avatars",
+    "object_count": 42,
+    "size_bytes": 10485760,
+    "created_at": "2026-10-01T09:14:22Z",
+    "is_public": false,
+    "allowed_types": ["image"],
+    "max_object_size_bytes": 2097152,
+    "quota_bytes": 247463936
+  },
+  "storage_used_bytes": 10485760,
+  "quota_bytes": 262144000,
+  "public_url_base": "https://cdn.moogo.dev",
+  "url_base": "https://api.moogo.dev"
+}
+```
+
+Use this to inspect a bucket's config and usage without listing its objects. The
+two bases in the response are the same ones an object response carries, so a
+client can construct public and authenticated URLs from the bucket alone:
+`{public_url_base}/pub/{project_id}/{key}` and
+`{url_base}/p/{project_id}/bucket/{key}`.
 
 The catalog lives on its own `/buckets` prefix rather than under
 `/bucket/{bucket_id}/`. Folding it in would have meant reserving the key `bucket`,
@@ -432,12 +565,57 @@ All of them use the standard envelope:
 { "error": { "code": "object_too_large", "message": "the object is larger than this bucket accepts", "detail": "bucket limit is 2097152 bytes" } }
 ```
 
-## A small client
+**Note on 404 shape:** On `/pub/*` (public route), missing or unpublished objects return `404 not_found` with the same envelope. These responses are sent with `Cache-Control: no-store` to avoid CDN negative caching. The shape is identical to authenticated routes.
+
+## Official JavaScript/TypeScript Client
+
+Use the official `@moogodev/client` package instead of hand-rolling fetch calls:
+
+```bash
+npm install @moogodev/client
+```
+
+```typescript
+import { MoogoClient, createClientFromEnv } from '@moogodev/client';
+
+// Reads from env: MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY
+const client = createClientFromEnv();
+
+// Upload with custom Cache-Control
+await client.upload('avatars/user.png', fileBlob, {
+  contentType: 'image/png',
+  cacheControl: 'public, max-age=31536000, immutable',
+});
+
+// Download
+const blob = await client.downloadBlob('avatars/user.png');
+
+// List with cursor pagination
+const { objects, nextCursor, total } = await client.listObjects({
+  prefix: 'avatars/',
+  limit: 50,
+});
+
+// Presigned URLs
+const { url } = await client.getPresignedUrl('avatars/user.png', {
+  method: 'GET',
+  expiresIn: 3600,
+});
+
+// Bucket operations
+const buckets = await client.listBuckets();
+const info = await client.getBucketInfo('bucket-id');
+```
+
+See [JavaScript Client](/docs/javascript-client) for full API reference, error handling, browser usage, and TypeScript types.
+
+### Minimal fetch wrapper (if you prefer no dependency)
+
+If you need zero dependencies, here's a minimal wrapper:
 
 ```js
 // storage.js
-// MOOGO_BUCKET_ENDPOINT already ends in /p/{project_id}/bucket.
-const root = process.env.MOOGO_BUCKET_ENDPOINT;
+const root = process.env.MOOGO_BUCKET_ENDPOINT; // ends in /p/{project_id}/bucket
 
 const headers = {
   "X-Moogo-Access-Key-Id": process.env.MOOGO_BUCKET_ACCESS_KEY_ID,
@@ -462,7 +640,6 @@ export const upload = (key, file, bucket) =>
     body: file,
   });
 
-// GET returns the bytes, not JSON, so this bypasses storage().
 export const download = async (key) => {
   const response = await fetch(`${root}/${encodeKey(key)}`, { headers });
   if (!response.ok) {
@@ -470,15 +647,25 @@ export const download = async (key) => {
     throw new Error(body?.error?.message ?? "storage request failed");
   }
   return response.blob();
-};
+}
 
 export const list = (prefix) =>
   storage(`?prefix=${encodeURIComponent(prefix)}&limit=100`);
 
-// Slashes are meaningful in a key, so encode each segment and keep them.
 const encodeKey = (key) =>
   key.split("/").map(encodeURIComponent).join("/");
 ```
+
+## Troubleshooting
+
+- **415 unsupported_media_type** — you're missing or wrong `Content-Type`. On JSON endpoints it must be `application/json`. On an object upload it must be the file's type (never JSON-wrapped).
+- **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need `Authorization: Bearer $MOOGO_SECRET_KEY`. The types are not interchangeable.
+- **404 on an object you just uploaded** — check the key case and the bucket (`?bucket=`). The path is `/bucket/{key}`, not `/buckets/`.
+- **Object 404s on `/pub/` right after making it public** — check that the object is actually published: make the bucket public, or `PATCH` the object with `{"is_public": true}`, and read `is_public` back. Missing and unpublished objects answer `404` by design, and those responses are `no-store`, so a fresh publish shows up on the next request. If the URL was fetched while an older deployment was live, an edge copy of that 404 can linger until its TTL expires — use a new key or purge your CDN. For mutable assets, versioning keys (`image-v2.png`) is more reliable than cache invalidation.
+- **object_too_large** — above the bucket's `max_object_size_bytes` (or 250 MB). Shrink the file, raise the cap, or split it.
+- **quota_exceeded** — project or bucket storage would go over its limit. Delete some objects or increase quota.
+- **truncated: true** — your listing is capped at `limit` rows. Send the `next_cursor` to fetch the next page, or increase `limit` up to 1000.
+- **invalid_cursor** — the cursor belongs to a different listing (different bucket/filters/order). Drop it and start from page 1.
 
 ## Next
 

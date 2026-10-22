@@ -619,7 +619,7 @@ export default function BucketView({
                 {selectedBucket.max_object_size_bytes > 0 && (
                   <> · up to {describeSize(selectedBucket.max_object_size_bytes)} per file</>
                 )}
-                {selectedBucket.is_public && <> · new uploads are public</>}
+                {selectedBucket.is_public && <> · every object is public</>}
               </p>
             )}
 
@@ -789,6 +789,8 @@ export default function BucketView({
           object={preview}
           onClose={() => setPreview(null)}
           onOpenPublic={() => preview.public_url && window.open(preview.public_url, "_blank")}
+          onTogglePublic={() => void togglePublic(preview)}
+          busy={busy === preview.id}
         />
       )}
     </div>
