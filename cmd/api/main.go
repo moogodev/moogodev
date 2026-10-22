@@ -49,7 +49,7 @@ func run() error {
 		fmt.Printf("  environment:   %s\n", cfg.Environment)
 		fmt.Printf("  addr:          %s\n", cfg.Addr)
 		fmt.Printf("  public url:    %s\n", cfg.PublicURL)
-		fmt.Printf("  api url:       %s\n", cfg.APIURL)
+		fmt.Printf("  api url:       %s\n", cfg.BaseURL)
 		fmt.Printf("  cdn url:       %s\n", cfg.CDNURL)
 		fmt.Printf("  data dir:      %s\n", cfg.DataDir)
 		fmt.Printf("  cookie secure: %v\n", cfg.CookieSecure)

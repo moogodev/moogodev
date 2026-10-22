@@ -11,11 +11,11 @@ npm i ofetch  # or use built-in fetch (modern browsers)
 **Environment variables** (\`.env\` — only public bucket URL goes to client):
 
 \`\`\`env
-VITE_MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+VITE_MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 VITE_MOOGO_CDN_URL=https://cdn.moogo.dev
-VITE_MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
-VITE_MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
+VITE_MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
+VITE_MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 \`\`\`
 
 > ⚠️ **Never expose \`MOOGO_SECRET_KEY\` (SQL key) in client code.**  
@@ -27,10 +27,10 @@ VITE_MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 // composables/useMoogoBucket.ts
 import { ofetch, type FetchResponse } from "ofetch";
 
-const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BUCKET_ENDPOINT!;
+const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BASE_URL!;
 const CDN_URL = (import.meta.env.VITE_MOOGO_CDN_URL ?? "").replace(/\\/+$/, "");
-const BUCKET_ACCESS_KEY_ID = import.meta.env.VITE_MOOGO_BUCKET_ACCESS_KEY_ID!;
-const BUCKET_SECRET_KEY = import.meta.env.VITE_MOOGO_BUCKET_SECRET_KEY!;
+const BUCKET_ACCESS_KEY_ID = import.meta.env.VITE_MOOGO_STORAGE_ACCESS_KEY_ID!;
+const BUCKET_SECRET_KEY = import.meta.env.VITE_MOOGO_STORAGE_SECRET_KEY!;
 
 const STORAGE_HEADERS = {
   "X-Moogo-Access-Key-Id": BUCKET_ACCESS_KEY_ID,

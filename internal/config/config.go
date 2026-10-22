@@ -20,8 +20,8 @@ type Config struct {
 	// PublicURL is the origin the browser dashboard is served from, and so the
 	// origin the OAuth redirect URI is built from.
 	PublicURL string
-	// APIURL is the origin a client application is told to talk to: the base of
-	// MOOGO_PROJECT_URL and MOOGO_BUCKET_ENDPOINT.
+	// BaseURL is the origin a client application is told to talk to: the base of
+	// MOOGO_PROJECT_URL and MOOGO_BASE_URL.
 	//
 	// It exists because a split deployment puts the dashboard and the data
 	// plane on different hostnames, and the value has to be assembled from
@@ -29,13 +29,13 @@ type Config struct {
 	// that request arrived at the dashboard, and behind a proxy it arrived over
 	// plain HTTP. Defaults to PublicURL, which is what a single-host
 	// deployment wants.
-	APIURL string
+	BaseURL string
 	// CDNURL is the origin published objects are served from, so the URL a
 	// client is given for a public object points at the CDN host rather than
 	// at the data plane. It is the base of an object's public_url; the
-	// authenticated url keeps using APIURL, so a private object never leaks
+	// authenticated url keeps using BaseURL, so a private object never leaks
 	// the CDN host and a public one never carries an API credential route.
-	// Defaults to APIURL, which is what a deployment with no separate CDN
+	// Defaults to BaseURL, which is what a deployment with no separate CDN
 	// host wants.
 	CDNURL string
 	// NewsURL is the What's-new service whose published posts feed the
@@ -270,7 +270,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		Addr:            reader.string("MOOGO_ADDR", "127.0.0.1:8080"),
 		PublicURL:       strings.TrimRight(reader.string("MOOGO_PUBLIC_URL", "http://localhost:8080"), "/"),
-		APIURL:          strings.TrimRight(reader.string("MOOGO_API_URL", ""), "/"),
+		BaseURL:          strings.TrimRight(reader.string("MOOGO_BASE_URL", ""), "/"),
 		CDNURL:          strings.TrimRight(reader.string("MOOGO_CDN_URL", ""), "/"),
 		NewsURL:         strings.TrimRight(reader.string("MOOGO_NEWS_URL", "http://127.0.0.1:8081"), "/"),
 		ReadTimeout:     reader.duration("MOOGO_READ_TIMEOUT", 15*time.Second),
@@ -356,14 +356,14 @@ func Load() (Config, error) {
 	}
 	// The data plane only has a hostname of its own when a deployment splits it
 	// off from the dashboard; otherwise the two are the same host.
-	if cfg.APIURL == "" {
-		cfg.APIURL = cfg.PublicURL
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = cfg.PublicURL
 	}
 	// Published objects are served from a CDN host when the deployment has
 	// one; without it they are served from the same origin as the data plane,
 	// so public_url is never empty and never points at nothing.
 	if cfg.CDNURL == "" {
-		cfg.CDNURL = cfg.APIURL
+		cfg.CDNURL = cfg.BaseURL
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err

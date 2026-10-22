@@ -35,7 +35,7 @@ const (
 // a useful answer.
 func (handlers *Server) objects() (*StorageClient, error) {
 	if handlers.storage == nil {
-		return nil, fmt.Errorf("this server has no bucket credentials: set MOOGO_BUCKET_ACCESS_KEY_ID and MOOGO_BUCKET_SECRET_KEY")
+		return nil, fmt.Errorf("this server has no bucket credentials: set MOOGO_STORAGE_ACCESS_KEY_ID and MOOGO_STORAGE_SECRET_KEY")
 	}
 	return handlers.storage, nil
 }

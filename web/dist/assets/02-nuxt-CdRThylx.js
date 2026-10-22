@@ -13,11 +13,11 @@ Works with Server Routes, Composables, and Nitro (Edge/Node).
 \`\`\`env
 MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
 MOOGO_SECRET_KEY=moogo_...
-MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 MOOGO_CDN_URL=https://cdn.moogo.dev
-MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
-MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
+MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
+MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 \`\`\`
 
 \`\`\`ts
@@ -27,10 +27,10 @@ export default defineNuxtConfig({
     moogoProjectUrl: process.env.MOOGO_PROJECT_URL,
     moogoSecretKey: process.env.MOOGO_SECRET_KEY,
     public: {
-      moogoBucketEndpoint: process.env.MOOGO_BUCKET_ENDPOINT,
+      moogoBucketEndpoint: process.env.MOOGO_BASE_URL,
       moogoCdnUrl: process.env.MOOGO_CDN_URL,
-      moogoBucketAccessKeyId: process.env.MOOGO_BUCKET_ACCESS_KEY_ID,
-      moogoBucketSecretKey: process.env.MOOGO_BUCKET_SECRET_KEY,
+      moogoBucketAccessKeyId: process.env.MOOGO_STORAGE_ACCESS_KEY_ID,
+      moogoBucketSecretKey: process.env.MOOGO_STORAGE_SECRET_KEY,
     },
   },
 });

@@ -15,11 +15,11 @@ pip install django djangorestframework requests gunicorn
 import os
 MOOGO_PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
 MOOGO_SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
-MOOGO_BUCKET_ENDPOINT = os.environ["MOOGO_BUCKET_ENDPOINT"]
+MOOGO_BASE_URL = os.environ["MOOGO_BASE_URL"]
 # Optional: origin public objects are served from; falls back to the bucket endpoint origin when empty.
 MOOGO_CDN_URL = os.environ.get("MOOGO_CDN_URL", "")
-MOOGO_BUCKET_ACCESS_KEY_ID = os.environ["MOOGO_BUCKET_ACCESS_KEY_ID"]
-MOOGO_BUCKET_SECRET_KEY = os.environ["MOOGO_BUCKET_SECRET_KEY"]
+MOOGO_STORAGE_ACCESS_KEY_ID = os.environ["MOOGO_STORAGE_ACCESS_KEY_ID"]
+MOOGO_STORAGE_SECRET_KEY = os.environ["MOOGO_STORAGE_SECRET_KEY"]
 \`\`\`
 
 ## Client (\`moogo/client.py\`)
@@ -43,11 +43,11 @@ class MoogoClient:
     def __init__(self):
         self.project_url = settings.MOOGO_PROJECT_URL
         self.secret_key = settings.MOOGO_SECRET_KEY
-        self.bucket_endpoint = settings.MOOGO_BUCKET_ENDPOINT
+        self.bucket_endpoint = settings.MOOGO_BASE_URL
         # Optional CDN origin for public objects; falls back to the bucket endpoint origin when empty.
         self.cdn_url = getattr(settings, "MOOGO_CDN_URL", "").rstrip("/")
-        self.bucket_access_key_id = settings.MOOGO_BUCKET_ACCESS_KEY_ID
-        self.bucket_secret_key = settings.MOOGO_BUCKET_SECRET_KEY
+        self.bucket_access_key_id = settings.MOOGO_STORAGE_ACCESS_KEY_ID
+        self.bucket_secret_key = settings.MOOGO_STORAGE_SECRET_KEY
 
         self.sql_headers = {"Authorization": f"Bearer {self.secret_key}", "Content-Type": "application/json"}
         self.storage_headers = {"X-Moogo-Access-Key-Id": self.bucket_access_key_id, "Authorization": f"Bearer {self.bucket_secret_key}"}

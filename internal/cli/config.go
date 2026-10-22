@@ -17,9 +17,9 @@ const (
 	EnvSecretKey = "MOOGO_SECRET_KEY"
 	// EnvBucketAccessKeyID is a storage credential's access key id, which
 	// authorises object storage.
-	EnvBucketAccessKeyID = "MOOGO_BUCKET_ACCESS_KEY_ID"
+	EnvBucketAccessKeyID = "MOOGO_STORAGE_ACCESS_KEY_ID"
 	// EnvBucketSecretKey is that credential's secret.
-	EnvBucketSecretKey = "MOOGO_BUCKET_SECRET_KEY"
+	EnvBucketSecretKey = "MOOGO_STORAGE_SECRET_KEY"
 )
 
 // Config is who a command talks to the API as.

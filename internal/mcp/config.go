@@ -84,8 +84,8 @@ func ParseEnv(getenv func(string) string) (Config, error) {
 		SecretKey:         strings.TrimSpace(getenv("MOOGO_SECRET_KEY")),
 		Transport:         strings.TrimSpace(getenv("MOOGO_MCP_TRANSPORT")),
 		Addr:              strings.TrimSpace(getenv("MOOGO_MCP_ADDR")),
-		BucketAccessKeyID: strings.TrimSpace(getenv("MOOGO_BUCKET_ACCESS_KEY_ID")),
-		BucketSecretKey:   strings.TrimSpace(getenv("MOOGO_BUCKET_SECRET_KEY")),
+		BucketAccessKeyID: strings.TrimSpace(getenv("MOOGO_STORAGE_ACCESS_KEY_ID")),
+		BucketSecretKey:   strings.TrimSpace(getenv("MOOGO_STORAGE_SECRET_KEY")),
 	}
 
 	var problems []string
@@ -116,7 +116,7 @@ func ParseEnv(getenv func(string) string) (Config, error) {
 	// visible at startup instead of at the first object call.
 	if (config.BucketAccessKeyID == "") != (config.BucketSecretKey == "") {
 		problems = append(problems,
-			"MOOGO_BUCKET_ACCESS_KEY_ID and MOOGO_BUCKET_SECRET_KEY must be set together, or neither")
+			"MOOGO_STORAGE_ACCESS_KEY_ID and MOOGO_STORAGE_SECRET_KEY must be set together, or neither")
 	}
 
 	if len(problems) > 0 {

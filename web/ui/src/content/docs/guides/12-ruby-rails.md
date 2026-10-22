@@ -14,11 +14,11 @@ gem 'httparty'  # or use Net::HTTP (stdlib)
 ```bash
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
 export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
 # Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
-export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
-export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
+export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
+export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
 ```
 
 ## Client (`lib/moogo.rb`)
@@ -33,10 +33,10 @@ require 'erb'
 class Moogo
   PROJECT_URL = ENV['MOOGO_PROJECT_URL']
   SECRET_KEY  = ENV['MOOGO_SECRET_KEY']
-  BUCKET_ENDPOINT = ENV['MOOGO_BUCKET_ENDPOINT']
+  BUCKET_ENDPOINT = ENV['MOOGO_BASE_URL']
   CDN_URL = ENV['MOOGO_CDN_URL'].to_s.sub(%r{/+\z}, '')
-  BUCKET_ACCESS_KEY_ID = ENV['MOOGO_BUCKET_ACCESS_KEY_ID']
-  BUCKET_SECRET_KEY = ENV['MOOGO_BUCKET_SECRET_KEY']
+  BUCKET_ACCESS_KEY_ID = ENV['MOOGO_STORAGE_ACCESS_KEY_ID']
+  BUCKET_SECRET_KEY = ENV['MOOGO_STORAGE_SECRET_KEY']
 
   SQL_HEADERS = { 'Authorization' => "Bearer #{SECRET_KEY}", 'Content-Type' => 'application/json' }
   STORAGE_HEADERS = { 'X-Moogo-Access-Key-Id' => BUCKET_ACCESS_KEY_ID, 'Authorization' => "Bearer #{BUCKET_SECRET_KEY}" }
@@ -203,10 +203,10 @@ puts Moogo.bucket_public_url(key)
 class Moogo
   PROJECT_URL = Rails.application.credentials.moogo_project_url || ENV['MOOGO_PROJECT_URL']
   SECRET_KEY  = Rails.application.credentials.moogo_secret_key || ENV['MOOGO_SECRET_KEY']
-  BUCKET_ENDPOINT = Rails.application.credentials.moogo_bucket_endpoint || ENV['MOOGO_BUCKET_ENDPOINT']
+  BUCKET_ENDPOINT = Rails.application.credentials.moogo_bucket_endpoint || ENV['MOOGO_BASE_URL']
   CDN_URL = (Rails.application.credentials.moogo_cdn_url || ENV['MOOGO_CDN_URL']).to_s.sub(%r{/+\z}, '')
-  BUCKET_ACCESS_KEY_ID = Rails.application.credentials.moogo_bucket_access_key_id || ENV['MOOGO_BUCKET_ACCESS_KEY_ID']
-  BUCKET_SECRET_KEY = Rails.application.credentials.moogo_bucket_secret_key || ENV['MOOGO_BUCKET_SECRET_KEY']
+  BUCKET_ACCESS_KEY_ID = Rails.application.credentials.moogo_bucket_access_key_id || ENV['MOOGO_STORAGE_ACCESS_KEY_ID']
+  BUCKET_SECRET_KEY = Rails.application.credentials.moogo_bucket_secret_key || ENV['MOOGO_STORAGE_SECRET_KEY']
 
   SQL_HEADERS = { 'Authorization' => "Bearer #{SECRET_KEY}", 'Content-Type' => 'application/json' }
   STORAGE_HEADERS = { 'X-Moogo-Access-Key-Id' => BUCKET_ACCESS_KEY_ID, 'Authorization' => "Bearer #{BUCKET_SECRET_KEY}" }

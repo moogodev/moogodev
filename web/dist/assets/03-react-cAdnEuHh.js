@@ -11,7 +11,7 @@ A guide for using Moogo from a **client-side React** app (Vite, CRA, Remix SPA m
 Moogo's **SQL endpoints** (\`/query\`, \`/exec\`) require the \`MOOGO_SECRET_KEY\` as a Bearer token.  
 **Never put this key in client-side code** — it would be visible in the browser bundle.
 
-**Bucket endpoints** (\`/bucket/*\`) use a separate credential (\`MOOGO_BUCKET_ACCESS_KEY_ID\` + \`MOOGO_BUCKET_SECRET_KEY\`).  
+**Bucket endpoints** (\`/bucket/*\`) use a separate credential (\`MOOGO_STORAGE_ACCESS_KEY_ID\` + \`MOOGO_STORAGE_SECRET_KEY\`).  
 These **can** be used client-side for public uploads/downloads.
 
 ---
@@ -148,10 +148,10 @@ Since bucket credentials are separate, you **can** use them directly in React fo
 
 \`\`\`tsx
 // hooks/useMoogoBucket.ts
-const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BUCKET_ENDPOINT!;
+const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BASE_URL!;
 const CDN_URL = (import.meta.env.VITE_MOOGO_CDN_URL ?? "").replace(/\\/+$/, "");
-const ACCESS_KEY = import.meta.env.VITE_MOOGO_BUCKET_ACCESS_KEY_ID!;
-const SECRET_KEY = import.meta.env.VITE_MOOGO_BUCKET_SECRET_KEY!;
+const ACCESS_KEY = import.meta.env.VITE_MOOGO_STORAGE_ACCESS_KEY_ID!;
+const SECRET_KEY = import.meta.env.VITE_MOOGO_STORAGE_SECRET_KEY!;
 
 // Slashes are meaningful in a key, so escape each segment and keep them.
 const encodeKey = (key: string) =>
@@ -250,11 +250,11 @@ MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
 MOOGO_SECRET_KEY=moogo_...
 
 # Frontend (bucket only) — safe to expose
-VITE_MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+VITE_MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 VITE_MOOGO_CDN_URL=https://cdn.moogo.dev
-VITE_MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
-VITE_MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
+VITE_MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
+VITE_MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 \`\`\`
 
 ---

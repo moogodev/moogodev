@@ -2553,7 +2553,7 @@ func parseIntParam(raw string, fallback int) int {
 
 // publicBaseURL returns the origin object URLs are built from.
 //
-// It is the API origin the deployment names in MOOGO_API_URL -- the data plane
+// It is the API origin the deployment names in MOOGO_BASE_URL -- the data plane
 // that actually serves /pub/ and the /p/ routes -- not the dashboard's. The
 // configured value wins when it is set, and only then are the forwarded headers
 // consulted. Trusting X-Forwarded-Host unconditionally would let any caller pass

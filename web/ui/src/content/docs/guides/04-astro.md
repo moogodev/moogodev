@@ -13,11 +13,11 @@ Works with SSR, static generation, and server endpoints (API routes).
 ```env
 MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
 MOOGO_SECRET_KEY=moogo_...
-MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 MOOGO_CDN_URL=https://cdn.moogo.dev
-MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
-MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
+MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
+MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 ```
 
 ## Client (`src/lib/moogo.ts`)
@@ -26,10 +26,10 @@ MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 // src/lib/moogo.ts
 const PROJECT_URL = import.meta.env.MOOGO_PROJECT_URL!;
 const SECRET_KEY = import.meta.env.MOOGO_SECRET_KEY!;
-const BUCKET_ENDPOINT = import.meta.env.MOOGO_BUCKET_ENDPOINT!;
+const BUCKET_ENDPOINT = import.meta.env.MOOGO_BASE_URL!;
 const CDN_URL = (import.meta.env.MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
-const BUCKET_ACCESS_KEY_ID = import.meta.env.MOOGO_BUCKET_ACCESS_KEY_ID!;
-const BUCKET_SECRET_KEY = import.meta.env.MOOGO_BUCKET_SECRET_KEY!;
+const BUCKET_ACCESS_KEY_ID = import.meta.env.MOOGO_STORAGE_ACCESS_KEY_ID!;
+const BUCKET_SECRET_KEY = import.meta.env.MOOGO_STORAGE_SECRET_KEY!;
 
 const SQL_HEADERS = {
   Authorization: `Bearer ${SECRET_KEY}`,

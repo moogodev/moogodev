@@ -57,7 +57,7 @@ export default function ProjectSettings({
   const envVars = [
     { name: "MOOGO_PROJECT_URL", value: projectUrl },
     { name: "MOOGO_PROJECT_ID", value: project.id },
-    { name: "MOOGO_BUCKET_ENDPOINT", value: `${projectUrl}/bucket` },
+    { name: "MOOGO_BASE_URL", value: `${projectUrl}/bucket` },
   ];
 
   // The docs page is the reference, so the button hands over its raw

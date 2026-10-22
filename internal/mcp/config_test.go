@@ -174,19 +174,19 @@ func TestParseEnvStorageCredentialPair(t *testing.T) {
 		{
 			name: "both",
 			value: map[string]string{
-				"MOOGO_BUCKET_ACCESS_KEY_ID": "moogo_ak_1",
-				"MOOGO_BUCKET_SECRET_KEY":    "moogo_sk_1",
+				"MOOGO_STORAGE_ACCESS_KEY_ID": "moogo_ak_1",
+				"MOOGO_STORAGE_SECRET_KEY":    "moogo_sk_1",
 			},
 			want: true,
 		},
 		{
 			name:    "access key id alone",
-			value:   map[string]string{"MOOGO_BUCKET_ACCESS_KEY_ID": "moogo_ak_1"},
+			value:   map[string]string{"MOOGO_STORAGE_ACCESS_KEY_ID": "moogo_ak_1"},
 			wantErr: true,
 		},
 		{
 			name:    "secret alone",
-			value:   map[string]string{"MOOGO_BUCKET_SECRET_KEY": "moogo_sk_1"},
+			value:   map[string]string{"MOOGO_STORAGE_SECRET_KEY": "moogo_sk_1"},
 			wantErr: true,
 		},
 	}
@@ -205,7 +205,7 @@ func TestParseEnvStorageCredentialPair(t *testing.T) {
 				if err == nil {
 					t.Fatal("ParseEnv() error = nil, want a half-set credential refused")
 				}
-				if !strings.Contains(err.Error(), "MOOGO_BUCKET_ACCESS_KEY_ID") {
+				if !strings.Contains(err.Error(), "MOOGO_STORAGE_ACCESS_KEY_ID") {
 					t.Errorf("ParseEnv() error = %q, want it to name the credential variables", err)
 				}
 				return

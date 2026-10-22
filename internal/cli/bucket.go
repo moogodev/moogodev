@@ -343,7 +343,7 @@ Usage:
   moogo bucket rm --prefix <dir>  delete everything under a prefix
 
 Bucket commands use a storage credential, not the project key:
-  MOOGO_BUCKET_ACCESS_KEY_ID and MOOGO_BUCKET_SECRET_KEY
+  MOOGO_STORAGE_ACCESS_KEY_ID and MOOGO_STORAGE_SECRET_KEY
   (make one under Buckets → Access keys in the dashboard)
 
 `)

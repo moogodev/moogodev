@@ -30,8 +30,8 @@ Authorization: Bearer moogo_sk_...
 export ENDPOINT="https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket"
 
 curl "$ENDPOINT/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 The project key does **not** work here, and a credential for one project does not
@@ -41,8 +41,8 @@ work against another's URL.
 
 ```bash
 curl -X POST "$ENDPOINT/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: image/png" \
   --data-binary @kit.png
 ```
@@ -54,8 +54,8 @@ put the object in a bucket of your own, add it:
 
 ```bash
 curl -X POST "$ENDPOINT/kit.png?bucket=avatars" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: image/png" \
   --data-binary @kit.png
 ```
@@ -142,8 +142,8 @@ You can override the default caching behavior for an object by sending a
 
 ```bash
 curl -X POST "$ENDPOINT/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: image/png" \
   -H "Cache-Control: public, max-age=31536000, immutable" \
   --data-binary @kit.png
@@ -174,8 +174,8 @@ A custom value replaces the default for that object entirely. Common patterns:
 
 ```bash
 curl "$ENDPOINT/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 `GET` returns the bytes with the object's `Content-Type`. `HEAD` returns the same
@@ -183,8 +183,8 @@ headers with no body — use it to check existence and size before downloading.
 
 ```bash
 curl -I "$ENDPOINT/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 ### Range requests (partial downloads)
@@ -194,8 +194,8 @@ Both `GET` and `HEAD` support the `Range` header for partial content:
 ```bash
 # Get bytes 0-999 (first 1 KB)
 curl -H "Range: bytes=0-999" "$ENDPOINT/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 - `206 Partial Content` with `Content-Range` header when range is valid
@@ -230,8 +230,8 @@ Mint one with the storage credential:
 
 ```bash
 curl -X POST "https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/sign" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"key": "avatars/kit.png", "expires_in": 900}'
 ```
@@ -279,8 +279,8 @@ Ask for `method: PUT` and the link writes instead of reading:
 
 ```bash
 curl -X POST "https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/sign" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"key": "avatars/kit.png", "method": "PUT", "bucket": "avatars", "expires_in": 300}'
 ```
@@ -318,8 +318,8 @@ until it expires.
 
 ```bash
 curl "$ENDPOINT/?bucket=avatars&limit=50&order=created&dir=desc" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 | Query parameter | Notes |
@@ -371,8 +371,8 @@ visibility. Send `new_key` to rename or move, `is_public` to publish or unpublis
 
 ```bash
 curl -X PATCH "$ENDPOINT/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"new_key": "avatars/2026/kit.png"}'
 ```
@@ -381,8 +381,8 @@ curl -X PATCH "$ENDPOINT/avatars/kit.png" \
 
 ```bash
 curl -X PATCH "$ENDPOINT/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"is_public": true}'
 ```
@@ -436,8 +436,8 @@ linking the old one.
 
 ```bash
 curl -X DELETE "$ENDPOINT/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 ```json
@@ -455,8 +455,8 @@ opt-in because it is not obviously destructive from the URL alone:
 
 ```bash
 curl -X DELETE "$ENDPOINT/avatars/?prefix=true" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 `?prefix=true` is required. Without it the same URL deletes nothing, so a routine
@@ -466,8 +466,8 @@ curl -X DELETE "$ENDPOINT/avatars/?prefix=true" \
 
 ```bash
 curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 ```json
@@ -504,8 +504,8 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
 
 ```bash
 curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 ```json
@@ -578,7 +578,7 @@ npm install @moogodev/client
 ```typescript
 import { MoogoClient, createClientFromEnv } from '@moogodev/client';
 
-// Reads from env: MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY
+// Reads from env: MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY
 const client = createClientFromEnv();
 
 // Upload with custom Cache-Control
@@ -615,11 +615,11 @@ If you need zero dependencies, here's a minimal wrapper:
 
 ```js
 // storage.js
-const root = process.env.MOOGO_BUCKET_ENDPOINT; // ends in /p/{project_id}/bucket
+const root = process.env.MOOGO_BASE_URL; // ends in /p/{project_id}/bucket
 
 const headers = {
-  "X-Moogo-Access-Key-Id": process.env.MOOGO_BUCKET_ACCESS_KEY_ID,
-  Authorization: `Bearer ${process.env.MOOGO_BUCKET_SECRET_KEY}`,
+  "X-Moogo-Access-Key-Id": process.env.MOOGO_STORAGE_ACCESS_KEY_ID,
+  Authorization: `Bearer ${process.env.MOOGO_STORAGE_SECRET_KEY}`,
 };
 
 async function storage(path = "", init = {}) {

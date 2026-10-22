@@ -17,10 +17,10 @@ puts the SQL key behind a proxy instead, see [React](/docs/guides/react).
 |----------|-------------|
 | `MOOGO_PROJECT_URL` | `https://api.moogo.dev/p/<project-id>` |
 | `MOOGO_SECRET_KEY` | `moogo_...` (SQL auth) |
-| `MOOGO_BUCKET_ENDPOINT` | `https://api.moogo.dev/p/<project-id>/bucket` |
+| `MOOGO_BASE_URL` | `https://api.moogo.dev/p/<project-id>/bucket` |
 | `MOOGO_CDN_URL` | Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty |
-| `MOOGO_BUCKET_ACCESS_KEY_ID` | `moogo_ak_...` |
-| `MOOGO_BUCKET_SECRET_KEY` | `moogo_sk_...` |
+| `MOOGO_STORAGE_ACCESS_KEY_ID` | `moogo_ak_...` |
+| `MOOGO_STORAGE_SECRET_KEY` | `moogo_sk_...` |
 
 `MOOGO_PROJECT_URL` and `MOOGO_SECRET_KEY` are on **Project → Settings**, shown
 once at creation. The three bucket variables come from **Project → Bucket →
@@ -33,10 +33,10 @@ immediately.
 // lib/moogo.ts
 const PROJECT_URL = process.env.MOOGO_PROJECT_URL!;
 const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
-const BUCKET_ENDPOINT = process.env.MOOGO_BUCKET_ENDPOINT!;
+const BUCKET_ENDPOINT = process.env.MOOGO_BASE_URL!;
 const CDN_URL = (process.env.MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
-const BUCKET_ACCESS_KEY_ID = process.env.MOOGO_BUCKET_ACCESS_KEY_ID!;
-const BUCKET_SECRET_KEY = process.env.MOOGO_BUCKET_SECRET_KEY!;
+const BUCKET_ACCESS_KEY_ID = process.env.MOOGO_STORAGE_ACCESS_KEY_ID!;
+const BUCKET_SECRET_KEY = process.env.MOOGO_STORAGE_SECRET_KEY!;
 
 const SQL_HEADERS = {
   Authorization: `Bearer ${SECRET_KEY}`,

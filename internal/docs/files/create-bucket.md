@@ -28,8 +28,8 @@ Or, using a [storage credential](/docs/credentials):
 
 ```bash
 curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"avatars"}'
 ```
@@ -108,8 +108,8 @@ dropped silently.
 
 ```bash
 curl -X PATCH https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"allowed_types":["image","video"],"max_object_size_bytes":2097152}'
 ```
@@ -150,8 +150,8 @@ Publish a single object with `PATCH` on its key:
 
 ```bash
 curl -X PATCH "https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"is_public": true}'
 ```
@@ -161,8 +161,8 @@ afterwards and flips every object already in it:
 
 ```bash
 curl -X POST https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/public \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"is_public":true}'
 ```
@@ -267,8 +267,8 @@ together overrun the quota.
 
 ```bash
 curl -X DELETE https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 This removes the bucket **and every object in it**, permanently. The response

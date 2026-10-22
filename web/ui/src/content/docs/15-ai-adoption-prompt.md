@@ -37,8 +37,8 @@ Read [Limits](/docs/limits) before designing around it.
 MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project_id>
 MOOGO_PROJECT_ID=<project_id>
 MOOGO_SECRET_KEY=...             # SQL only
-MOOGO_BUCKET_ACCESS_KEY_ID=...   # object storage only
-MOOGO_BUCKET_SECRET_KEY=...      # object storage only
+MOOGO_STORAGE_ACCESS_KEY_ID=...   # object storage only
+MOOGO_STORAGE_SECRET_KEY=...      # object storage only
 ```
 
 4. Call the APIs. Every JSON request must send
@@ -78,8 +78,8 @@ takes an optional `limit` (default 100, capped at 1000).
 | `MOOGO_SECRET_KEY` | yes | — | SQL credential (project secret) |
 | `MOOGO_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http` |
 | `MOOGO_MCP_ADDR` | no | `127.0.0.1:4618` | Only for `http` transport |
-| `MOOGO_BUCKET_ACCESS_KEY_ID` | no* | — | Bucket tools need **both** this and the secret |
-| `MOOGO_BUCKET_SECRET_KEY` | no* | — | Bucket tools need **both** this and the access key id |
+| `MOOGO_STORAGE_ACCESS_KEY_ID` | no* | — | Bucket tools need **both** this and the secret |
+| `MOOGO_STORAGE_SECRET_KEY` | no* | — | Bucket tools need **both** this and the access key id |
 
 \* Bucket tools are registered only when **both** bucket variables are set.
 When neither is set, the server exposes SQL tools only.
@@ -98,8 +98,8 @@ go build -o moogo-mcp ./cmd/mcp
       "env": {
         "MOOGO_PROJECT_URL": "https://api.moogo.dev/p/<project_id>",
         "MOOGO_SECRET_KEY": "...",
-        "MOOGO_BUCKET_ACCESS_KEY_ID": "...",   // optional
-        "MOOGO_BUCKET_SECRET_KEY": "..."       // optional
+        "MOOGO_STORAGE_ACCESS_KEY_ID": "...",   // optional
+        "MOOGO_STORAGE_SECRET_KEY": "..."       // optional
       }
     }
   }
@@ -274,8 +274,8 @@ moogo help
 |---|---|---|
 | `MOOGO_PROJECT_URL` | yes | e.g. `https://api.moogo.dev/p/<project_id>` |
 | `MOOGO_SECRET_KEY` | yes | Project secret key for SQL commands |
-| `MOOGO_BUCKET_ACCESS_KEY_ID` | for `bucket` commands | Storage credential |
-| `MOOGO_BUCKET_SECRET_KEY` | for `bucket` commands | Storage credential |
+| `MOOGO_STORAGE_ACCESS_KEY_ID` | for `bucket` commands | Storage credential |
+| `MOOGO_STORAGE_SECRET_KEY` | for `bucket` commands | Storage credential |
 
 Flags `--url`, `--key`, `--storage-key-id`, `--storage-key` override environment variables.
 
@@ -305,7 +305,7 @@ npm install @moogodev/client
 ```typescript
 import { MoogoClient, createClientFromEnv } from '@moogodev/client';
 
-// From env vars (MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY)
+// From env vars (MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY)
 const client = createClientFromEnv();
 
 // Upload with custom Cache-Control
@@ -340,8 +340,8 @@ interchangeable — the SQL key on a bucket request gets 401, and the storage
 credential on SQL gets 401. Two headers on every storage request:
 
 ```
-X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID
-Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY
+X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID
+Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY
 ```
 
 With `ENDPOINT=$MOOGO_PROJECT_URL/bucket`:

@@ -52,8 +52,8 @@ unsettling what the rest of your shell has exported.
 |---|---|---|
 | `MOOGO_PROJECT_URL` | `--url` | every command — the project URL the dashboard shows |
 | `MOOGO_SECRET_KEY` | `--key` | `db` commands |
-| `MOOGO_BUCKET_ACCESS_KEY_ID` | `--storage-key-id` | `bucket` commands |
-| `MOOGO_BUCKET_SECRET_KEY` | `--storage-key` | `bucket` commands |
+| `MOOGO_STORAGE_ACCESS_KEY_ID` | `--storage-key-id` | `bucket` commands |
+| `MOOGO_STORAGE_SECRET_KEY` | `--storage-key` | `bucket` commands |
 
 ```bash
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"

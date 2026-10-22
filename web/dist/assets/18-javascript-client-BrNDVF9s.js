@@ -1,6 +1,6 @@
 var e=`# JavaScript / TypeScript Client
 
-The official \`@moogodev/client\` package provides a type-safe, zero-dependency client for Moogo's object storage API.
+The official \`@moogodev/client\` package provides a type-safe, zero-dependency client for Moogo's object storage **and** SQL API.
 
 ## Install
 
@@ -10,17 +10,17 @@ npm install @moogodev/client
 
 Works in Node 18+, Deno, Bun, Cloudflare Workers, Vercel Edge, and browsers (via bundler).
 
-## Quick Start
+## Quick Start — Storage (upload, download, buckets)
 
 \`\`\`typescript
-import { MoogoClient, createClientFromEnv } from '@moogodev/client';
+import { createStorageClient } from '@moogodev/client';
 
 // Reads from environment variables:
-// MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY
-const client = createClientFromEnv();
+// MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY
+const storage = createStorageClient();
 
 // Upload a file with custom caching
-const response = await client.upload('avatars/user.png', fileBlob, {
+const response = await storage.upload('avatars/user.png', fileBlob, {
   contentType: 'image/png',
   cacheControl: 'public, max-age=31536000, immutable',
   onProgress: (loaded, total) => console.log(\`\${loaded}/\${total}\`),
@@ -29,19 +29,21 @@ const response = await client.upload('avatars/user.png', fileBlob, {
 console.log(response.object.public_url); // https://cdn.moogo.dev/pub/.../avatars/user.png
 \`\`\`
 
-### Environment Variables
+### Environment Variables (Storage)
 
 | Variable | Required | Description |
 |---|---|---|
-| \`MOOGO_API_URL\` | Yes | API base URL (e.g., \`https://api.moogo.dev\`) |
+| \`MOOGO_BASE_URL\` | Yes | API base URL (e.g., \`https://api.moogo.dev\`) |
 | \`MOOGO_PROJECT_ID\` | Yes | Your project UUID |
-| \`MOOGO_BUCKET_ACCESS_KEY_ID\` | Yes | Storage credential access key |
-| \`MOOGO_BUCKET_SECRET_KEY\` | Yes | Storage credential secret key |
+| \`MOOGO_STORAGE_ACCESS_KEY_ID\` | Yes | Storage credential access key |
+| \`MOOGO_STORAGE_SECRET_KEY\` | Yes | Storage credential secret key |
 
 Or pass config explicitly:
 
 \`\`\`typescript
-const client = new MoogoClient({
+import { createStorageClient } from '@moogodev/client';
+
+const storage = createStorageClient({
   baseUrl: 'https://api.moogo.dev',
   projectId: 'your-project-id',
   accessKeyId: 'your-access-key-id',
@@ -181,11 +183,11 @@ const bucket = await client.createBucket({
 
 // Update bucket settings
 await client.updateBucket('bucket-id', {
-  is_public: true,        // new uploads are public by default
+  is_public: true,        // also republishes every object already in the bucket
   quota_bytes: 100 * 1024 * 1024,
 });
 
-// Toggle bucket public/private (affects new uploads)
+// Publish or unpublish a whole bucket (bulk: rewrites every existing object)
 await client.setBucketPublic('bucket-id', true);
 
 // Delete bucket and all objects
@@ -325,10 +327,10 @@ In a browser, credentials **must not** be exposed in client-side code. Use a bac
 import { MoogoClient } from '@moogodev/client';
 
 const client = new MoogoClient({
-  baseUrl: process.env.MOOGO_API_URL!,
+  baseUrl: process.env.MOOGO_BASE_URL!,
   projectId: process.env.MOOGO_PROJECT_ID!,
-  accessKeyId: process.env.MOOGO_BUCKET_ACCESS_KEY_ID!,
-  secretKey: process.env.MOOGO_BUCKET_SECRET_KEY!,
+  accessKeyId: process.env.MOOGO_STORAGE_ACCESS_KEY_ID!,
+  secretKey: process.env.MOOGO_STORAGE_SECRET_KEY!,
 });
 
 export async function POST(req: Request) {
@@ -368,7 +370,62 @@ import type {
   SignedUploadResponse,
   StorageCredential,
   ClientConfig,
+  // SQL types
+  QueryRequest,
+  QueryResponse,
+  ExecRequest,
+  ExecResponse,
+  TransactionRequest,
+  TransactionResponse,
 } from '@moogodev/client';
+\`\`\`
+
+## Quick Start — SQL (query, exec, transaction)
+
+\`\`\`typescript
+import { createSQLClient } from '@moogodev/client';
+
+// Reads from environment variables:
+// MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_SQL_KEY
+const sql = createSQLClient();
+
+// Read query
+const { rows, columns } = await sql.query({ sql: 'SELECT * FROM users WHERE active = ?', args: [true] });
+
+// Write statement
+const { rows_affected } = await sql.exec({ sql: 'INSERT INTO users (name, email) VALUES (?, ?)', args: ['Ada', 'ada@example.com'] });
+
+// Transaction (multiple statements atomically)
+await sql.transaction({
+  statements: [
+    { sql: 'BEGIN' },
+    { sql: 'INSERT INTO logs (msg) VALUES (?)', args: ['tx started'] },
+    { sql: 'COMMIT' },
+  ],
+});
+
+// Maintenance (VACUUM, REINDEX, ANALYZE)
+await sql.maintenance();
+\`\`\`
+
+### Environment Variables (SQL)
+
+| Variable | Required | Description |
+|---|---|---|
+| \`MOOGO_BASE_URL\` | Yes | API base URL (e.g., \`https://api.moogo.dev\`) |
+| \`MOOGO_PROJECT_ID\` | Yes | Your project UUID |
+| \`MOOGO_SQL_KEY\` | Yes | Project secret key (from project settings) |
+
+Or pass config explicitly:
+
+\`\`\`typescript
+import { createSQLClient } from '@moogodev/client';
+
+const sql = createSQLClient({
+  baseUrl: 'https://api.moogo.dev',
+  projectId: 'your-project-id',
+  projectKey: 'your-project-secret-key',
+});
 \`\`\`
 
 ## Links

@@ -112,12 +112,12 @@ export default function StorageCredentials({ projectId }: StorageCredentialsProp
 
   const handleCopyRevealed = useCallback(async () => {
     if (!revealed) return;
-    const { MOOGO_BUCKET_ENDPOINT, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY } =
+    const { MOOGO_BASE_URL, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY } =
       revealed.env;
     const block = [
-      `MOOGO_BUCKET_ENDPOINT=${MOOGO_BUCKET_ENDPOINT}`,
-      `MOOGO_BUCKET_ACCESS_KEY_ID=${MOOGO_BUCKET_ACCESS_KEY_ID}`,
-      `MOOGO_BUCKET_SECRET_KEY=${MOOGO_BUCKET_SECRET_KEY}`,
+      `MOOGO_BASE_URL=${MOOGO_BASE_URL}`,
+      `MOOGO_STORAGE_ACCESS_KEY_ID=${MOOGO_STORAGE_ACCESS_KEY_ID}`,
+      `MOOGO_STORAGE_SECRET_KEY=${MOOGO_STORAGE_SECRET_KEY}`,
     ].join("\n");
     try {
       await navigator.clipboard.writeText(block);

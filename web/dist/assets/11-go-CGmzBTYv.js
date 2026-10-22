@@ -14,11 +14,11 @@ go mod init myapp
 \`\`\`bash
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
 export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
 # Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
-export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
-export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
+export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
+export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
 \`\`\`
 
 ## Client (\`moogo/moogo.go\`)
@@ -42,10 +42,10 @@ import (
 var (
 	projectURL        = os.Getenv("MOOGO_PROJECT_URL")
 	secretKey         = os.Getenv("MOOGO_SECRET_KEY")
-	bucketEndpoint    = os.Getenv("MOOGO_BUCKET_ENDPOINT")
+	bucketEndpoint    = os.Getenv("MOOGO_BASE_URL")
 	cdnURL            = strings.TrimRight(os.Getenv("MOOGO_CDN_URL"), "/")
-	bucketAccessKeyID = os.Getenv("MOOGO_BUCKET_ACCESS_KEY_ID")
-	bucketSecretKey   = os.Getenv("MOOGO_BUCKET_SECRET_KEY")
+	bucketAccessKeyID = os.Getenv("MOOGO_STORAGE_ACCESS_KEY_ID")
+	bucketSecretKey   = os.Getenv("MOOGO_STORAGE_SECRET_KEY")
 
 	// \`with\` covers CTE reads (WITH ... SELECT); a CTE that writes
 	// (WITH ... INSERT) must be sent to /exec directly.

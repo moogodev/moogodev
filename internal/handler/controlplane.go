@@ -675,7 +675,7 @@ func (handler *ControlPlane) CreateProject(w http.ResponseWriter, r *http.Reques
 			ctx := context.Background()
 			user, err := handler.store.UserByID(ctx, userID)
 			if err == nil && user.Email != "" {
-				if err := handler.mailer.SendProjectCreated(ctx, user.Email, result.Project.Name, result.Project.ID.String(), result.SecretKeyPlaintext, handler.cfg.APIURL); err != nil {
+				if err := handler.mailer.SendProjectCreated(ctx, user.Email, result.Project.Name, result.Project.ID.String(), result.SecretKeyPlaintext, handler.cfg.BaseURL); err != nil {
 					handler.log.Warn("send project created email", logger.Fields{
 						"project_id": result.Project.ID.String(),
 						"error":      err.Error(),

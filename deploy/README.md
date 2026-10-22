@@ -190,8 +190,8 @@ sudo editor /etc/moogo/mcp.env
 | `MOOGO_SECRET_KEY` | yes | — | SQL credential (project secret) |
 | `MOOGO_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http` |
 | `MOOGO_MCP_ADDR` | no | `127.0.0.1:4618` | Only used when `transport=http` |
-| `MOOGO_BUCKET_ACCESS_KEY_ID` | no* | — | Object tools need **both** this and the secret |
-| `MOOGO_BUCKET_SECRET_KEY` | no* | — | Object tools need **both** this and the access key id |
+| `MOOGO_STORAGE_ACCESS_KEY_ID` | no* | — | Object tools need **both** this and the secret |
+| `MOOGO_STORAGE_SECRET_KEY` | no* | — | Object tools need **both** this and the access key id |
 
 \* Bucket tools are registered only when **both** bucket variables are set.
 When neither is set, the server exposes SQL tools only.
@@ -375,8 +375,8 @@ MOOGO_SECRET_KEY=moogo_sk_...          # SQL credential
 MOOGO_MCP_TRANSPORT=http               # atau stdio (default)
 MOOGO_MCP_ADDR=127.0.0.1:4618          # default loopback — JANGAN 0.0.0.0
 # Opsional: object storage tools
-MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
-MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
+MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
+MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 EOF
 sudo chmod 0640 /etc/moogo/mcp.env
 sudo chown root:moogo /etc/moogo/mcp.env

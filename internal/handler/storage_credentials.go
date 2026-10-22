@@ -49,9 +49,9 @@ type StorageCredentialSecretResponse struct {
 
 // StorageCredentialEnv is the environment a client needs to use the credential.
 type StorageCredentialEnv struct {
-	Endpoint        string `json:"MOOGO_BUCKET_ENDPOINT"`
-	AccessKeyID     string `json:"MOOGO_BUCKET_ACCESS_KEY_ID"`
-	SecretAccessKey string `json:"MOOGO_BUCKET_SECRET_KEY"`
+	Endpoint        string `json:"MOOGO_BASE_URL"`
+	AccessKeyID     string `json:"MOOGO_STORAGE_ACCESS_KEY_ID"`
+	SecretAccessKey string `json:"MOOGO_STORAGE_SECRET_KEY"`
 }
 
 // StorageCredentialRequest is the body of credential creation.
@@ -230,11 +230,11 @@ func describeStorageCredential(credential *dbcontrol.StorageCredential) StorageC
 //     a different one, and an endpoint naming the dashboard sends every client
 //     application to the wrong surface.
 //
-// MOOGO_API_URL names the data plane's public origin. It falls back to
+// MOOGO_BASE_URL names the data plane's public origin. It falls back to
 // MOOGO_PUBLIC_URL and then to the request, so a single-host deployment and
 // the tests need no extra configuration.
 func (handler *ControlPlane) storageEndpoint(r *http.Request, projectID uuid.UUID) string {
-	base := handler.cfg.APIURL
+	base := handler.cfg.BaseURL
 	if base == "" {
 		base = handler.cfg.PublicURL
 	}

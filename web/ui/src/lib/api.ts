@@ -93,9 +93,9 @@ export interface StorageCredential {
 export interface StorageCredentialSecret extends StorageCredential {
   secret_access_key: string;
   env: {
-    MOOGO_BUCKET_ENDPOINT: string;
-    MOOGO_BUCKET_ACCESS_KEY_ID: string;
-    MOOGO_BUCKET_SECRET_KEY: string;
+    MOOGO_BASE_URL: string;
+    MOOGO_STORAGE_ACCESS_KEY_ID: string;
+    MOOGO_STORAGE_SECRET_KEY: string;
   };
 }
 

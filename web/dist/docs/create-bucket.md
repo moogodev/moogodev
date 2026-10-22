@@ -28,8 +28,8 @@ Or, using a [storage credential](/docs/credentials):
 
 ```bash
 curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"avatars"}'
 ```
@@ -108,8 +108,8 @@ dropped silently.
 
 ```bash
 curl -X PATCH https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"allowed_types":["image","video"],"max_object_size_bytes":2097152}'
 ```
@@ -150,8 +150,8 @@ Publish a single object with `PATCH` on its key:
 
 ```bash
 curl -X PATCH "https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png" \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"is_public": true}'
 ```
@@ -161,8 +161,8 @@ afterwards and flips every object already in it:
 
 ```bash
 curl -X POST https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/public \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"is_public":true}'
 ```
@@ -181,11 +181,13 @@ That URL works with no header, no cookie, and no session. You can put it in an
 with `Cross-Origin-Resource-Policy: cross-origin`, so a page on any other domain
 can embed them.
 
-> **Understand what publishing means.** A public URL is a bearer token. Anyone who
-> has the link has the file, and there is no way to make it private again without
-> changing the URL. Publish only what you intend to be public — avatars, public
-> assets, exported reports — and keep anything sensitive private behind a
-> credential.
+> **Understand what publishing means.** A public URL is a bearer token. Anyone
+> who has the link can read the file while the object is published, and anyone
+> who saved or re-shared the bytes keeps them after you unpublish. Unpublishing
+> stops new requests — a copy already held by a CDN or browser can linger until
+> its cache TTL expires — but it cannot recall a file that has been copied.
+> Publish only what you intend to be public — avatars, public assets, exported
+> reports — and keep anything sensitive private behind a credential.
 >
 > Private objects are **not** merely awkward to fetch: an unlisted object answers
 > `404` on the public route, so it is indistinguishable from one that does not
@@ -265,8 +267,8 @@ together overrun the quota.
 
 ```bash
 curl -X DELETE https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 ```
 
 This removes the bucket **and every object in it**, permanently. The response

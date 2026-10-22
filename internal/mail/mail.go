@@ -100,7 +100,7 @@ func (sender *Sender) SendEmailVerification(ctx context.Context, to, token strin
 //
 // Two origins go into the message and they are not interchangeable: the button
 // opens the dashboard, which the browser serves from PublicURL, while the API
-// rows describe the data plane, which lives at APIURL. Building both here keeps
+// rows describe the data plane, which lives at BaseURL. Building both here keeps
 // a split deployment correct; pointing the button at the API base, as it once
 // did, sent the owner to an authenticated endpoint that answers
 // "authentication required" rather than to a page.

@@ -109,8 +109,8 @@ Configuration, by environment or flag. The flag wins.
   MOOGO_PROJECT_URL            the project URL from the dashboard:
                                https://api.moogo.dev/p/<project-id>   --url
   MOOGO_SECRET_KEY             the project key, for db commands        --key
-  MOOGO_BUCKET_ACCESS_KEY_ID   a storage credential, for bucket commands
-  MOOGO_BUCKET_SECRET_KEY      its secret                       --storage-key
+  MOOGO_STORAGE_ACCESS_KEY_ID   a storage credential, for bucket commands
+  MOOGO_STORAGE_SECRET_KEY      its secret                       --storage-key
 
 Flags:
   --force           db seed: run even when this exact file is recorded

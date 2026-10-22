@@ -13,11 +13,11 @@ Works with Server Components, Server Actions, Route Handlers, and Edge Runtime.
 \`\`\`env
 MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
 MOOGO_SECRET_KEY=moogo_...
-NEXT_PUBLIC_MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+NEXT_PUBLIC_MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 NEXT_PUBLIC_MOOGO_CDN_URL=https://cdn.moogo.dev
-NEXT_PUBLIC_MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
-NEXT_PUBLIC_MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
+NEXT_PUBLIC_MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
+NEXT_PUBLIC_MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 \`\`\`
 
 ## Client (\`lib/moogo.ts\`)
@@ -26,10 +26,10 @@ NEXT_PUBLIC_MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
 // lib/moogo.ts
 const PROJECT_URL = process.env.MOOGO_PROJECT_URL!;
 const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
-const BUCKET_ENDPOINT = process.env.NEXT_PUBLIC_MOOGO_BUCKET_ENDPOINT!;
+const BUCKET_ENDPOINT = process.env.NEXT_PUBLIC_MOOGO_BASE_URL!;
 const CDN_URL = (process.env.NEXT_PUBLIC_MOOGO_CDN_URL ?? "").replace(/\\/+$/, "");
-const BUCKET_ACCESS_KEY_ID = process.env.NEXT_PUBLIC_MOOGO_BUCKET_ACCESS_KEY_ID!;
-const BUCKET_SECRET_KEY = process.env.NEXT_PUBLIC_MOOGO_BUCKET_SECRET_KEY!;
+const BUCKET_ACCESS_KEY_ID = process.env.NEXT_PUBLIC_MOOGO_STORAGE_ACCESS_KEY_ID!;
+const BUCKET_SECRET_KEY = process.env.NEXT_PUBLIC_MOOGO_STORAGE_SECRET_KEY!;
 
 const SQL_HEADERS = {
   Authorization: \`Bearer \${SECRET_KEY}\`,

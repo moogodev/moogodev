@@ -13,11 +13,11 @@ Works with stdlib only (Python 3.11+). No dependencies.
 \`\`\`bash
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
 export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
 # Optional: origin public objects are served from; falls back to the bucket endpoint origin when empty.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
-export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
-export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
+export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
+export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
 \`\`\`
 
 ## Client (\`moogo.py\`)
@@ -33,11 +33,11 @@ from urllib.parse import quote
 
 PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
 SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
-BUCKET_ENDPOINT = os.environ["MOOGO_BUCKET_ENDPOINT"]
+BUCKET_ENDPOINT = os.environ["MOOGO_BASE_URL"]
 # Optional CDN origin for public objects; falls back to the bucket endpoint origin when empty.
 CDN_URL = os.environ.get("MOOGO_CDN_URL", "").rstrip("/")
-BUCKET_ACCESS_KEY_ID = os.environ["MOOGO_BUCKET_ACCESS_KEY_ID"]
-BUCKET_SECRET_KEY = os.environ["MOOGO_BUCKET_SECRET_KEY"]
+BUCKET_ACCESS_KEY_ID = os.environ["MOOGO_STORAGE_ACCESS_KEY_ID"]
+BUCKET_SECRET_KEY = os.environ["MOOGO_STORAGE_SECRET_KEY"]
 
 SQL_HEADERS = {
     "Authorization": f"Bearer {SECRET_KEY}",

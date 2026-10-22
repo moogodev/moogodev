@@ -113,9 +113,9 @@ variables:
   "access_key_id": "moogo_ak_...",
   "secret_access_key": "moogo_sk_...",
   "env": {
-    "MOOGO_BUCKET_ENDPOINT": "https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/bucket",
-    "MOOGO_BUCKET_ACCESS_KEY_ID": "moogo_ak_...",
-    "MOOGO_BUCKET_SECRET_KEY": "moogo_sk_..."
+    "MOOGO_BASE_URL": "https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/bucket",
+    "MOOGO_STORAGE_ACCESS_KEY_ID": "moogo_ak_...",
+    "MOOGO_STORAGE_SECRET_KEY": "moogo_sk_..."
   }
 }
 \`\`\`
@@ -128,8 +128,8 @@ Two headers, on every storage request:
 
 \`\`\`bash
 curl https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 \`\`\`
 
 Not AWS Signature V4, deliberately. Signing exists so a client can prove

@@ -13,11 +13,11 @@ Expressive, elegant, full-stack framework with built-in HTTP client.
 ```env
 MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
 MOOGO_SECRET_KEY=moogo_...
-MOOGO_BUCKET_ENDPOINT=https://api.moogo.dev/p/<project-id>/bucket
+MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
 # Optional: origin public objects are served from (e.g. https://cdn.moogo.dev); empty falls back to the bucket endpoint origin.
 MOOGO_CDN_URL=
-MOOGO_BUCKET_ACCESS_KEY_ID=moogo_ak_...
-MOOGO_BUCKET_SECRET_KEY=moogo_sk_...
+MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
+MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 ```
 
 ```php
@@ -26,10 +26,10 @@ return [
     'moogo' => [
         'project_url' => env('MOOGO_PROJECT_URL'),
         'secret_key' => env('MOOGO_SECRET_KEY'),
-        'bucket_endpoint' => env('MOOGO_BUCKET_ENDPOINT'),
+        'bucket_endpoint' => env('MOOGO_BASE_URL'),
         'cdn_url' => env('MOOGO_CDN_URL'),
-        'bucket_access_key_id' => env('MOOGO_BUCKET_ACCESS_KEY_ID'),
-        'bucket_secret_key' => env('MOOGO_BUCKET_SECRET_KEY'),
+        'bucket_access_key_id' => env('MOOGO_STORAGE_ACCESS_KEY_ID'),
+        'bucket_secret_key' => env('MOOGO_STORAGE_SECRET_KEY'),
     ],
 ];
 ```

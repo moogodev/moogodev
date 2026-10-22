@@ -22,7 +22,7 @@ You only need three environment variables:
 |----------|---------|-------------|
 | `MOOGO_PROJECT_URL` | `https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0` | Base URL for all SQL requests |
 | `MOOGO_SECRET_KEY` | `moogo_...` | Secret key for SQL endpoint authentication |
-| `MOOGO_BUCKET_ENDPOINT` | `https://api.moogo.dev/p/<project-id>/bucket` | Base URL for object storage |
+| `MOOGO_BASE_URL` | `https://api.moogo.dev/p/<project-id>/bucket` | Base URL for object storage |
 
 Put these three variables into your application, and you can read and write data
 through HTTP requests.
@@ -154,7 +154,7 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 ## Next Steps After Understanding
 
 1. **Create project** via dashboard or `POST /api/projects`
-2. **Get 3 environment variables** (`MOOGO_PROJECT_URL`, `MOOGO_SECRET_KEY`, `MOOGO_BUCKET_ENDPOINT`)
+2. **Get 3 environment variables** (`MOOGO_PROJECT_URL`, `MOOGO_SECRET_KEY`, `MOOGO_BASE_URL`)
 3. **Read Production Readiness section** in your favorite framework guide (React, Python, Go, etc.)
 4. **Try first simple query:**
    ```bash
@@ -165,17 +165,17 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
    ```
 5. **Try first object upload:**
    ```bash
-   curl -X POST "$MOOGO_BUCKET_ENDPOINT/kit.png?bucket=avatars" \
-     -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-     -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+   curl -X POST "$MOOGO_BASE_URL/kit.png?bucket=avatars" \
+     -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+     -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
      -H "Content-Type: image/png" \
      --data-binary @kit.png
    ```
 6. **Publish if you want to share without credentials:**
    ```bash
-   curl -X PATCH "$MOOGO_BUCKET_ENDPOINT/avatars/kit.png" \
-     -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \
-     -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \
+   curl -X PATCH "$MOOGO_BASE_URL/avatars/kit.png" \
+     -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+     -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
      -H "Content-Type: application/json" \
      -d '{"is_public": true}'
    ```

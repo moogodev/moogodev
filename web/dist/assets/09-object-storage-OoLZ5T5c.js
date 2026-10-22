@@ -30,8 +30,8 @@ Authorization: Bearer moogo_sk_...
 export ENDPOINT="https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket"
 
 curl "$ENDPOINT/avatars/kit.png" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 \`\`\`
 
 The project key does **not** work here, and a credential for one project does not
@@ -41,8 +41,8 @@ work against another's URL.
 
 \`\`\`bash
 curl -X POST "$ENDPOINT/avatars/kit.png" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \\
   -H "Content-Type: image/png" \\
   --data-binary @kit.png
 \`\`\`
@@ -54,8 +54,8 @@ put the object in a bucket of your own, add it:
 
 \`\`\`bash
 curl -X POST "$ENDPOINT/kit.png?bucket=avatars" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \\
   -H "Content-Type: image/png" \\
   --data-binary @kit.png
 \`\`\`
@@ -142,8 +142,8 @@ You can override the default caching behavior for an object by sending a
 
 \`\`\`bash
 curl -X POST "$ENDPOINT/avatars/kit.png" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \\
   -H "Content-Type: image/png" \\
   -H "Cache-Control: public, max-age=31536000, immutable" \\
   --data-binary @kit.png
@@ -174,8 +174,8 @@ A custom value replaces the default for that object entirely. Common patterns:
 
 \`\`\`bash
 curl "$ENDPOINT/avatars/kit.png" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 \`\`\`
 
 \`GET\` returns the bytes with the object's \`Content-Type\`. \`HEAD\` returns the same
@@ -183,8 +183,8 @@ headers with no body — use it to check existence and size before downloading.
 
 \`\`\`bash
 curl -I "$ENDPOINT/avatars/kit.png" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 \`\`\`
 
 ### Range requests (partial downloads)
@@ -194,8 +194,8 @@ Both \`GET\` and \`HEAD\` support the \`Range\` header for partial content:
 \`\`\`bash
 # Get bytes 0-999 (first 1 KB)
 curl -H "Range: bytes=0-999" "$ENDPOINT/avatars/kit.png" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 \`\`\`
 
 - \`206 Partial Content\` with \`Content-Range\` header when range is valid
@@ -230,8 +230,8 @@ Mint one with the storage credential:
 
 \`\`\`bash
 curl -X POST "https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/sign" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"key": "avatars/kit.png", "expires_in": 900}'
 \`\`\`
@@ -279,8 +279,8 @@ Ask for \`method: PUT\` and the link writes instead of reading:
 
 \`\`\`bash
 curl -X POST "https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/sign" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"key": "avatars/kit.png", "method": "PUT", "bucket": "avatars", "expires_in": 300}'
 \`\`\`
@@ -318,8 +318,8 @@ until it expires.
 
 \`\`\`bash
 curl "$ENDPOINT/?bucket=avatars&limit=50&order=created&dir=desc" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 \`\`\`
 
 | Query parameter | Notes |
@@ -371,8 +371,8 @@ visibility. Send \`new_key\` to rename or move, \`is_public\` to publish or unpu
 
 \`\`\`bash
 curl -X PATCH "$ENDPOINT/avatars/kit.png" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"new_key": "avatars/2026/kit.png"}'
 \`\`\`
@@ -381,8 +381,8 @@ curl -X PATCH "$ENDPOINT/avatars/kit.png" \\
 
 \`\`\`bash
 curl -X PATCH "$ENDPOINT/avatars/kit.png" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY" \\
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"is_public": true}'
 \`\`\`
@@ -395,9 +395,40 @@ and \`id\`. A rename never changes visibility — if a body carries both \`new_k
 
 ## Publishing vs bucket visibility
 
-Publishing is **per-object**. An object is only accessible via \`/pub/{project_id}/{key}\` if **\`is_public\` is true on that specific object**. Setting a bucket to public in the dashboard or via \`POST /buckets/{project_id}/{bucket_id}/public\` affects the bucket's default behavior for future uploads and can apply visibility to existing objects in that bucket — but the canonical rule is: **public URLs work only for objects with \`is_public: true\`**. 
+There are two switches, and they do different things.
 
-If a public URL was requested while the object was not published (or didn't exist), CDNs and browsers may cache the **404 response** with a long TTL. After you publish the object (or make the bucket public), that previously-cached 404 may persist until the cache expires. See [Troubleshooting](#troubleshooting) for ways to work around this.
+**Per object** — \`PATCH /p/{project_id}/bucket/{key}\` with \`{"is_public": true}\`. This
+publishes or unpublishes a single object, and it is the normal way to share a
+file. Only objects with \`is_public: true\` answer on \`/pub/{project_id}/{key}\`.
+
+**Per bucket** — \`POST /buckets/{project_id}/{bucket_id}/public\` with
+\`{"is_public": true|false}\`. This is a bulk operation, not a default for new
+uploads alone: it sets the visibility new uploads inherit **and rewrites
+\`is_public\` on every object already in the bucket**. The response's \`affected\`
+field is the number of objects it changed. Making a bucket private therefore
+takes every object in it off \`/pub/\` immediately; making it public puts every
+object back.
+
+The dashboard states this before saving a bucket visibility change, and the
+bucket list labels the state as "every object is public" rather than "new
+uploads are public", because that is what the toggle does.
+
+Overwriting a key (\`PUT\` on an existing key) never changes visibility in either
+direction: it is a storage operation, not a publishing one.
+
+### Caching and unpublishing
+
+A published object is served with \`Cache-Control: public, max-age=300,
+must-revalidate\`, so a CDN or browser holds the bytes for at most five minutes.
+A \`404\` on the public route is sent with \`Cache-Control: no-store\`, so a missing
+or unpublished object is never cached negatively: publishing it is visible on
+the next request.
+
+Unpublishing stops new requests, but it cannot recall a copy that a CDN, a
+browser, or another user already stored. Treat "publish" as "hand out this
+file", not as a grant you can revoke after the fact. If you need a URL that can
+be withdrawn cleanly, publish under a versioned key (\`avatar-v2.png\`) and stop
+linking the old one.
 
 ## Delete
 
@@ -405,8 +436,8 @@ If a public URL was requested while the object was not published (or didn't exis
 
 \`\`\`bash
 curl -X DELETE "$ENDPOINT/avatars/kit.png" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 \`\`\`
 
 \`\`\`json
@@ -424,8 +455,8 @@ opt-in because it is not obviously destructive from the URL alone:
 
 \`\`\`bash
 curl -X DELETE "$ENDPOINT/avatars/?prefix=true" \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 \`\`\`
 
 \`?prefix=true\` is required. Without it the same URL deletes nothing, so a routine
@@ -435,8 +466,8 @@ curl -X DELETE "$ENDPOINT/avatars/?prefix=true" \\
 
 \`\`\`bash
 curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 \`\`\`
 
 \`\`\`json
@@ -467,14 +498,41 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \\
 | \`POST\` | \`/buckets/{project_id}\` | Create a bucket. |
 | \`PATCH\` | \`/buckets/{project_id}/{bucket_id}\` | Update visibility, upload policy, and quota. |
 | \`DELETE\` | \`/buckets/{project_id}/{bucket_id}\` | Delete a bucket and its objects. |
-| \`POST\` | \`/buckets/{project_id}/{bucket_id}/public\` | Publish or unpublish the bucket. |
+| \`POST\` | \`/buckets/{project_id}/{bucket_id}/public\` | Publish or unpublish the bucket — sets the upload default and rewrites every existing object. |
+| \`POST\` | \`/buckets/{project_id}/{bucket_id}/purge-cache\` | List all public URLs in the bucket for CDN cache purging. |
+
+### Purge CDN cache
+
+\`\`\`bash
+curl -X POST https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/purge-cache \\
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
+\`\`\`
+
+\`\`\`json
+{
+  "success": true,
+  "bucket_id": "3f8a...",
+  "bucket_name": "avatars",
+  "purged_count": 42,
+  "urls": [
+    "https://cdn.moogo.dev/pub/8f3c.../avatars/kit.png",
+    "https://cdn.moogo.dev/pub/8f3c.../avatars/logo.png"
+  ],
+  "note": "These URLs should be purged from your CDN. If using Cloudflare, call the Purge Cache API with these URLs. For manual purge, use the dashboard or Cloudflare API with your zone ID and API token."
+}
+\`\`\`
+
+Use this to enumerate every public URL in a bucket so you can issue a cache purge to your CDN
+(Cloudflare, CloudFront, Fastly, etc.). The response includes all currently-public object URLs.
+Future versions may call the CDN API directly when credentials are configured.
 
 ### Get bucket info
 
 \`\`\`bash
 curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \\
-  -H "X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID" \\
-  -H "Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY"
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \\
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
 \`\`\`
 
 \`\`\`json
@@ -492,11 +550,17 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \\
     "quota_bytes": 247463936
   },
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000
+  "quota_bytes": 262144000,
+  "public_url_base": "https://cdn.moogo.dev",
+  "url_base": "https://api.moogo.dev"
 }
 \`\`\`
 
-Use this to inspect a bucket's config and usage without listing its objects.
+Use this to inspect a bucket's config and usage without listing its objects. The
+two bases in the response are the same ones an object response carries, so a
+client can construct public and authenticated URLs from the bucket alone:
+\`{public_url_base}/pub/{project_id}/{key}\` and
+\`{url_base}/p/{project_id}/bucket/{key}\`.
 
 The catalog lives on its own \`/buckets\` prefix rather than under
 \`/bucket/{bucket_id}/\`. Folding it in would have meant reserving the key \`bucket\`,
@@ -539,10 +603,10 @@ npm install @moogodev/client
 \`\`\`
 
 \`\`\`typescript
-import { MoogoClient, createClientFromEnv } from '@moogodev/client';
+import { createStorageClient } from '@moogodev/client';
 
-// Reads from env: MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY
-const client = createClientFromEnv();
+// Reads from env: MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY
+const client = createStorageClient();
 
 // Upload with custom Cache-Control
 await client.upload('avatars/user.png', fileBlob, {
@@ -570,7 +634,7 @@ const buckets = await client.listBuckets();
 const info = await client.getBucketInfo('bucket-id');
 \`\`\`
 
-See [JavaScript Client](/docs/javascript-client) for full API reference, error handling, browser usage, and TypeScript types.
+See [JavaScript Client](/docs/javascript-client) for full API reference, SQL client, error handling, browser usage, and TypeScript types.
 
 ### Minimal fetch wrapper (if you prefer no dependency)
 
@@ -578,11 +642,11 @@ If you need zero dependencies, here's a minimal wrapper:
 
 \`\`\`js
 // storage.js
-const root = process.env.MOOGO_BUCKET_ENDPOINT; // ends in /p/{project_id}/bucket
+const root = process.env.MOOGO_BASE_URL; // ends in /p/{project_id}/bucket
 
 const headers = {
-  "X-Moogo-Access-Key-Id": process.env.MOOGO_BUCKET_ACCESS_KEY_ID,
-  Authorization: \`Bearer \${process.env.MOOGO_BUCKET_SECRET_KEY}\`,
+  "X-Moogo-Access-Key-Id": process.env.MOOGO_STORAGE_ACCESS_KEY_ID,
+  Authorization: \`Bearer \${process.env.MOOGO_STORAGE_SECRET_KEY}\`,
 };
 
 async function storage(path = "", init = {}) {
@@ -624,7 +688,7 @@ const encodeKey = (key) =>
 - **415 unsupported_media_type** — you're missing or wrong \`Content-Type\`. On JSON endpoints it must be \`application/json\`. On an object upload it must be the file's type (never JSON-wrapped).
 - **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need \`Authorization: Bearer $MOOGO_SECRET_KEY\`. The types are not interchangeable.
 - **404 on an object you just uploaded** — check the key case and the bucket (\`?bucket=\`). The path is \`/bucket/{key}\`, not \`/buckets/\`.
-- **Object 404s on \`/pub/\` right after making it public** — when an object is requested while it isn't published, the CDN can cache that 404 (negative caching). After publishing it, the cached 404 can persist until the cache TTL expires. To fix: wait for expiration, use a new key (versioning, e.g. \`image-v2.png\`), or request a cache purge if your deployment supports it. For mutable assets, consider versioning keys instead of relying on cache invalidation.
+- **Object 404s on \`/pub/\` right after making it public** — check that the object is actually published: make the bucket public, or \`PATCH\` the object with \`{"is_public": true}\`, and read \`is_public\` back. Missing and unpublished objects answer \`404\` by design, and those responses are \`no-store\`, so a fresh publish shows up on the next request. If the URL was fetched while an older deployment was live, an edge copy of that 404 can linger until its TTL expires — use a new key or purge your CDN. For mutable assets, versioning keys (\`image-v2.png\`) is more reliable than cache invalidation.
 - **object_too_large** — above the bucket's \`max_object_size_bytes\` (or 250 MB). Shrink the file, raise the cap, or split it.
 - **quota_exceeded** — project or bucket storage would go over its limit. Delete some objects or increase quota.
 - **truncated: true** — your listing is capped at \`limit\` rows. Send the \`next_cursor\` to fetch the next page, or increase \`limit\` up to 1000.

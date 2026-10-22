@@ -19,11 +19,11 @@ Works with Java 17+ (HttpClient), Spring Boot, Quarkus, Micronaut, or Kotlin cor
 ```bash
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
 export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
 # Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
-export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
-export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
+export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
+export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
 ```
 
 ## Java Client (Vanilla)
@@ -44,10 +44,10 @@ public class Moogo {
     // Not final: a test can point the client at a mock server before first use.
     static String PROJECT_URL = System.getenv("MOOGO_PROJECT_URL");
     private static final String SECRET_KEY = System.getenv("MOOGO_SECRET_KEY");
-    private static final String BUCKET_ENDPOINT = System.getenv("MOOGO_BUCKET_ENDPOINT");
+    private static final String BUCKET_ENDPOINT = System.getenv("MOOGO_BASE_URL");
     private static final String CDN_URL = System.getenv("MOOGO_CDN_URL") == null ? "" : System.getenv("MOOGO_CDN_URL").replaceAll("/+$", "");
-    private static final String BUCKET_ACCESS_KEY_ID = System.getenv("MOOGO_BUCKET_ACCESS_KEY_ID");
-    private static final String BUCKET_SECRET_KEY = System.getenv("MOOGO_BUCKET_SECRET_KEY");
+    private static final String BUCKET_ACCESS_KEY_ID = System.getenv("MOOGO_STORAGE_ACCESS_KEY_ID");
+    private static final String BUCKET_SECRET_KEY = System.getenv("MOOGO_STORAGE_SECRET_KEY");
 
     private static final HttpClient HTTP = HttpClient.newHttpClient();
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -252,10 +252,10 @@ public class Main {
 moogo:
   project-url: ${MOOGO_PROJECT_URL}
   secret-key: ${MOOGO_SECRET_KEY}
-  bucket-endpoint: ${MOOGO_BUCKET_ENDPOINT}
+  bucket-endpoint: ${MOOGO_BASE_URL}
   cdn-url: ${MOOGO_CDN_URL}
-  bucket-access-key-id: ${MOOGO_BUCKET_ACCESS_KEY_ID}
-  bucket-secret-key: ${MOOGO_BUCKET_SECRET_KEY}
+  bucket-access-key-id: ${MOOGO_STORAGE_ACCESS_KEY_ID}
+  bucket-secret-key: ${MOOGO_STORAGE_SECRET_KEY}
 ```
 
 ### Client Bean (`MoogoClient.java`)
@@ -353,10 +353,10 @@ import com.fasterxml.jackson.module.kotlin.readValue
 object Moogo {
     private val PROJECT_URL = System.getenv("MOOGO_PROJECT_URL")!!
     private val SECRET_KEY = System.getenv("MOOGO_SECRET_KEY")!!
-    private val BUCKET_ENDPOINT = System.getenv("MOOGO_BUCKET_ENDPOINT")!!
+    private val BUCKET_ENDPOINT = System.getenv("MOOGO_BASE_URL")!!
     private val CDN_URL = System.getenv("MOOGO_CDN_URL").orEmpty().trimEnd('/')
-    private val BUCKET_ACCESS_KEY_ID = System.getenv("MOOGO_BUCKET_ACCESS_KEY_ID")!!
-    private val BUCKET_SECRET_KEY = System.getenv("MOOGO_BUCKET_SECRET_KEY")!!
+    private val BUCKET_ACCESS_KEY_ID = System.getenv("MOOGO_STORAGE_ACCESS_KEY_ID")!!
+    private val BUCKET_SECRET_KEY = System.getenv("MOOGO_STORAGE_SECRET_KEY")!!
 
     private val HTTP = HttpClient.newHttpClient()
     private val MAPPER = jacksonObjectMapper()

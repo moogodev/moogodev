@@ -14,7 +14,7 @@ npm install @moogodev/client
 import { MoogoClient, createClientFromEnv } from '@moogodev/client';
 
 // Reads from environment variables:
-// MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY
+// MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY
 const client = createClientFromEnv();
 
 // Upload with custom Cache-Control

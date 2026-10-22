@@ -327,10 +327,10 @@ In a browser, credentials **must not** be exposed in client-side code. Use a bac
 import { MoogoClient } from '@moogodev/client';
 
 const client = new MoogoClient({
-  baseUrl: process.env.MOOGO_API_URL!,
+  baseUrl: process.env.MOOGO_BASE_URL!,
   projectId: process.env.MOOGO_PROJECT_ID!,
-  accessKeyId: process.env.MOOGO_BUCKET_ACCESS_KEY_ID!,
-  secretKey: process.env.MOOGO_BUCKET_SECRET_KEY!,
+  accessKeyId: process.env.MOOGO_STORAGE_ACCESS_KEY_ID!,
+  secretKey: process.env.MOOGO_STORAGE_SECRET_KEY!,
 });
 
 export async function POST(req: Request) {

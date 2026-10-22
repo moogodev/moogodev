@@ -305,7 +305,7 @@ npm install @moogodev/client
 ```typescript
 import { MoogoClient, createClientFromEnv } from '@moogodev/client';
 
-// From env vars (MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY)
+// From env vars (MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY)
 const client = createClientFromEnv();
 
 // Upload with custom Cache-Control

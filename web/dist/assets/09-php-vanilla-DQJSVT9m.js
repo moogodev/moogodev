@@ -13,11 +13,11 @@ Works with PHP 8.1+, no framework required.
 \`\`\`bash
 export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
 export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BUCKET_ENDPOINT="https://api.moogo.dev/p/<project-id>/bucket"
+export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
 # Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
-export MOOGO_BUCKET_ACCESS_KEY_ID="moogo_ak_..."
-export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
+export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
+export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
 \`\`\`
 
 ## Client (\`moogo.php\`)
@@ -28,10 +28,10 @@ export MOOGO_BUCKET_SECRET_KEY="moogo_sk_..."
 
 $projectUrl = $_ENV['MOOGO_PROJECT_URL'] ?? getenv('MOOGO_PROJECT_URL');
 $secretKey = $_ENV['MOOGO_SECRET_KEY'] ?? getenv('MOOGO_SECRET_KEY');
-$bucketEndpoint = $_ENV['MOOGO_BUCKET_ENDPOINT'] ?? getenv('MOOGO_BUCKET_ENDPOINT');
+$bucketEndpoint = $_ENV['MOOGO_BASE_URL'] ?? getenv('MOOGO_BASE_URL');
 $cdnUrl = rtrim($_ENV['MOOGO_CDN_URL'] ?? getenv('MOOGO_CDN_URL') ?: '', '/');
-$bucketAccessKeyId = $_ENV['MOOGO_BUCKET_ACCESS_KEY_ID'] ?? getenv('MOOGO_BUCKET_ACCESS_KEY_ID');
-$bucketSecretKey = $_ENV['MOOGO_BUCKET_SECRET_KEY'] ?? getenv('MOOGO_BUCKET_SECRET_KEY');
+$bucketAccessKeyId = $_ENV['MOOGO_STORAGE_ACCESS_KEY_ID'] ?? getenv('MOOGO_STORAGE_ACCESS_KEY_ID');
+$bucketSecretKey = $_ENV['MOOGO_STORAGE_SECRET_KEY'] ?? getenv('MOOGO_STORAGE_SECRET_KEY');
 
 function moogoRequest(string $path, string $sql, array $args = []): array {
     global $projectUrl, $secretKey;

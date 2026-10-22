@@ -37,8 +37,8 @@ Read [Limits](/docs/limits) before designing around it.
 MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project_id>
 MOOGO_PROJECT_ID=<project_id>
 MOOGO_SECRET_KEY=...             # SQL only
-MOOGO_BUCKET_ACCESS_KEY_ID=...   # object storage only
-MOOGO_BUCKET_SECRET_KEY=...      # object storage only
+MOOGO_STORAGE_ACCESS_KEY_ID=...   # object storage only
+MOOGO_STORAGE_SECRET_KEY=...      # object storage only
 ```
 
 4. Call the APIs. Every JSON request must send
@@ -78,8 +78,8 @@ takes an optional `limit` (default 100, capped at 1000).
 | `MOOGO_SECRET_KEY` | yes | — | SQL credential (project secret) |
 | `MOOGO_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http` |
 | `MOOGO_MCP_ADDR` | no | `127.0.0.1:4618` | Only for `http` transport |
-| `MOOGO_BUCKET_ACCESS_KEY_ID` | no* | — | Bucket tools need **both** this and the secret |
-| `MOOGO_BUCKET_SECRET_KEY` | no* | — | Bucket tools need **both** this and the access key id |
+| `MOOGO_STORAGE_ACCESS_KEY_ID` | no* | — | Bucket tools need **both** this and the secret |
+| `MOOGO_STORAGE_SECRET_KEY` | no* | — | Bucket tools need **both** this and the access key id |
 
 \* Bucket tools are registered only when **both** bucket variables are set.
 When neither is set, the server exposes SQL tools only.
@@ -98,8 +98,8 @@ go build -o moogo-mcp ./cmd/mcp
       "env": {
         "MOOGO_PROJECT_URL": "https://api.moogo.dev/p/<project_id>",
         "MOOGO_SECRET_KEY": "...",
-        "MOOGO_BUCKET_ACCESS_KEY_ID": "...",   // optional
-        "MOOGO_BUCKET_SECRET_KEY": "..."       // optional
+        "MOOGO_STORAGE_ACCESS_KEY_ID": "...",   // optional
+        "MOOGO_STORAGE_SECRET_KEY": "..."       // optional
       }
     }
   }
@@ -274,8 +274,8 @@ moogo help
 |---|---|---|
 | `MOOGO_PROJECT_URL` | yes | e.g. `https://api.moogo.dev/p/<project_id>` |
 | `MOOGO_SECRET_KEY` | yes | Project secret key for SQL commands |
-| `MOOGO_BUCKET_ACCESS_KEY_ID` | for `bucket` commands | Storage credential |
-| `MOOGO_BUCKET_SECRET_KEY` | for `bucket` commands | Storage credential |
+| `MOOGO_STORAGE_ACCESS_KEY_ID` | for `bucket` commands | Storage credential |
+| `MOOGO_STORAGE_SECRET_KEY` | for `bucket` commands | Storage credential |
 
 Flags `--url`, `--key`, `--storage-key-id`, `--storage-key` override environment variables.
 
@@ -305,7 +305,7 @@ npm install @moogodev/client
 ```typescript
 import { MoogoClient, createClientFromEnv } from '@moogodev/client';
 
-// From env vars (MOOGO_API_URL, MOOGO_PROJECT_ID, MOOGO_BUCKET_ACCESS_KEY_ID, MOOGO_BUCKET_SECRET_KEY)
+// From env vars (MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY)
 const client = createClientFromEnv();
 
 // Upload with custom Cache-Control
@@ -340,8 +340,8 @@ interchangeable — the SQL key on a bucket request gets 401, and the storage
 credential on SQL gets 401. Two headers on every storage request:
 
 ```
-X-Moogo-Access-Key-Id: $MOOGO_BUCKET_ACCESS_KEY_ID
-Authorization: Bearer $MOOGO_BUCKET_SECRET_KEY
+X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID
+Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY
 ```
 
 With `ENDPOINT=$MOOGO_PROJECT_URL/bucket`:
@@ -379,18 +379,20 @@ Stored with object, used for all subsequent downloads. Defaults:
 | Published (`/pub/`) | `public, max-age=300, must-revalidate` |
 | Private / Signed | `private, no-cache` |
 
-### Publishing — per-object, not global
+### Publishing — per object, and the bucket toggle is bulk
 
-**Publishing is per-object.** Setting a bucket to public (`PATCH /buckets/{id}` with `is_public: true`) only affects **new uploads** — it fans out the default visibility to future objects. Existing objects keep their individual `is_public` state. To publish an existing object, PATCH it directly.
+**A bucket toggle is bulk, not "new uploads only".** `POST /buckets/{project_id}/{bucket_id}/public` — or `PATCH` on the bucket with `is_public` — sets the visibility new uploads inherit **and rewrites `is_public` on every object already in the bucket**. The response reports `affected`, the number of objects it changed. Making a bucket private therefore takes every object in it off `/pub/` immediately; making it public puts every object back.
+
+To change one file only, PATCH that object. Overwriting a key never changes its visibility in either direction.
 
 ```bash
-# Publish a single object
+# Publish one object
 curl -X PATCH "$ENDPOINT/avatars/kit.png" \
   -H "Content-Type: application/json" \
   -d '{"is_public": true}'
 
-# Set bucket default for new uploads
-curl -X PATCH "$CATALOG/bucket-id" \
+# Publish a whole bucket — this also publishes everything already in it
+curl -X POST "$CATALOG/bucket-id/public" \
   -H "Content-Type: application/json" \
   -d '{"is_public": true}'
 ```
@@ -401,15 +403,13 @@ curl -X PATCH "$CATALOG/bucket-id" \
 GET /buckets/{project_id}/{bucket_id}
 ```
 
-Returns bucket config (`is_public`, `allowed_types`, `max_object_size_bytes`, `quota_bytes`) plus `storage_used_bytes` and project `quota_bytes`.
+Returns bucket config (`is_public`, `allowed_types`, `max_object_size_bytes`, `quota_bytes`) plus `storage_used_bytes`, project `quota_bytes`, and the two URL origins: `public_url_base` and `url_base`.
 
 ### 404 shape and CDN negative caching
 
 All errors use the same envelope: `{"error":{"code":"...","message":"...","detail":"..."}}`.
 
-On `/pub/*` (public route), missing or unpublished objects return `404 not_found` with that envelope. These responses are sent with `Cache-Control: no-store, no-cache, must-revalidate, private` to avoid CDN negative caching. The shape is identical to authenticated routes.
-
-If a published object was previously accessed while unpublished, a CDN may have cached the 404. To purge: re-upload the object (changes ETag), or wait for the negative cache TTL to expire.
+On `/pub/*` (public route), missing or unpublished objects return `404 not_found` with that envelope. These responses are sent with `Cache-Control: no-store, no-cache, must-revalidate, private`, so they are not cached negatively. A published object is cached for at most five minutes (`max-age=300`). If a URL was fetched while an older deployment was live, an edge copy of that 404 can still linger until its TTL expires — use a new key or purge your CDN.
 
 ## Limits
 
