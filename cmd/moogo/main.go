@@ -16,7 +16,18 @@ import (
 	"github.com/moogodev/moogodev/internal/cli"
 )
 
+// version is injected at build time:
+//
+//	go build -ldflags "-X main.version=$(git describe --tags --always --dirty)"
+//
+// A build that omits it keeps Go's embedded module information instead.
+var version string
+
 func main() {
+	if version != "" {
+		cli.Version = version
+	}
+
 	// Ctrl-C cancels the context, so a request in flight is abandoned rather
 	// than waited out, and the terminal returns.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

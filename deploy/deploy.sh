@@ -407,9 +407,14 @@ echo "==> gates: go vet and go test -race"
 echo "==> building binaries"
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
+# Stamp the CLI with the same kind of description a release reports, instead of
+# letting Go derive a pseudo-version from the working tree. Tag builds get the
+# tag; anything else gets the tag, distance and revision, plus -dirty.
+build_version="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)"
+build_version="${build_version#v}"
 (cd "$REPO_ROOT" &&
 	go build -trimpath -o "$STAGE_DIR/moogo-api" ./cmd/api &&
-	go build -trimpath -o "$STAGE_DIR/moogo-cli" ./cmd/moogo &&
+	go build -trimpath -ldflags "-X main.version=$build_version" -o "$STAGE_DIR/moogo-cli" ./cmd/moogo &&
 	go build -trimpath -o "$STAGE_DIR/moogo-news" ./cmd/news)
 if [[ $mcp_enabled -eq 1 ]]; then
 	(cd "$REPO_ROOT" && go build -trimpath -o "$STAGE_DIR/moogo-mcp" ./cmd/mcp)

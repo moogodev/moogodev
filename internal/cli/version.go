@@ -5,6 +5,11 @@ import (
 	"strings"
 )
 
+// Version is the version reported by `moogo version`. A build that knows its
+// git description (deploy.sh, for example) sets it through -ldflags; an empty
+// value falls back to the module information Go embeds in the binary.
+var Version string
+
 // buildVersion names this client.
 //
 // A build from a tagged release reports that tag. Everything else reports the
@@ -12,6 +17,10 @@ import (
 // identifies every build ever made from a working tree, while "dev+40f25b5"
 // identifies one.
 func buildVersion() string {
+	if Version != "" {
+		return Version
+	}
+
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		return "dev"
