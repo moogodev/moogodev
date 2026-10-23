@@ -12,6 +12,8 @@ so multi-node stays possible later.
 
 - A Linux VPS with a domain pointing at it, and ports 80 and 443 open.
 - PostgreSQL reachable from the VPS.
+- **Node.js ≥ 22.23.4** (pinned in `.nvmrc`) and `npm`, to rebuild the embedded
+  frontends. `deploy.sh` refuses an older Node before it builds anything.
 - A Google OAuth client **or** a Resend API key. Not both, but one of them:
   without a way to confirm an address, registration creates accounts that can
   never be signed in, and the service now refuses to start rather than do that.

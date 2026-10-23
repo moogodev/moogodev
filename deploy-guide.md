@@ -58,12 +58,16 @@ until you know why.
 # (nginx only when the machine is not behind a Cloudflare Tunnel)
 command -v go nginx systemctl curl gcc
 
+# needed to rebuild the embedded frontends (web/ui, news); version in .nvmrc
+command -v node npm
+
 # needed for trustworthy backups, see §9
 command -v sqlite3 pg_dump pg_restore
 ```
 
 | Package | Why it is not optional |
 |---|---|
+| `node` / `npm` | Rebuilds the embedded frontends during the build phase. **Node ≥ 22.23.4** (pinned in `.nvmrc`, targeted by CI); `deploy.sh` refuses an older runtime before building. |
 | `sqlite3` | Without it, backups fall back to `cp`, which can capture a torn SQLite file. The script warns and exits non-zero. |
 | `nginx` | TLS terminator; `deploy.sh` writes the site config, tests it and reloads. Skipped on a machine behind a Cloudflare Tunnel |
 | `postgresql-client` | `pg_dump`/`pg_restore` for backup and restore |

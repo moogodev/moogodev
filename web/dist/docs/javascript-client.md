@@ -8,7 +8,7 @@ The official `@moogodev/client` package provides a type-safe, zero-dependency cl
 npm install @moogodev/client
 ```
 
-Works in Node 18+, Deno, Bun, Cloudflare Workers, Vercel Edge, and browsers (via bundler).
+Works in Node 22+, Deno, Bun, Cloudflare Workers, Vercel Edge, and browsers (via bundler).
 
 ## Quick Start — Storage (upload, download, buckets)
 

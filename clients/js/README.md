@@ -39,8 +39,8 @@ console.log(response.object.public_url);
 - **Credential management** — list, create, rotate, revoke storage credentials
 - **Rate-limit handling** — `X-RateLimit-Reset` header parsing, `RateLimitedError` with `retryAfter`/`resetAt`
 - **Typed errors** — all API error codes as distinct classes
-- **Zero dependencies** — uses Web Crypto API (native in Node 18+, browsers, edge runtimes)
-- **Works everywhere** — Node 18+, Deno, Bun, Cloudflare Workers, Vercel Edge, browsers (via bundler)
+- **Zero dependencies** — uses Web Crypto API (native in Node 22+, browsers, edge runtimes)
+- **Works everywhere** — Node 22+, Deno, Bun, Cloudflare Workers, Vercel Edge, browsers (via bundler)
 
 ## Documentation
 

@@ -14,23 +14,25 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Test against different API versions + auth modes
+        # Test against different API versions + auth modes.
+        # Node 22 (maintenance LTS, EOL 2027-04-30) is the floor; 24 (active
+        # LTS, EOL 2028-04-30) proves there is no drift toward the next major.
         include:
           # Current API + latest SDK (Bearer) - PRIMARY
           - name: "current-api + bearer"
             api_base: "https://api.moogo.dev"
             auth_mode: "bearer"
-            node_version: "20"
+            node_version: "22"
           # Legacy API simulation + latest SDK (HMAC) - should fail gracefully
           - name: "legacy-api + hmac"
             api_base: "https://api.moogo.dev"
             auth_mode: "hmac"
-            node_version: "20"
+            node_version: "22"
           # Current API + old SDK (simulate via Bearer)
           - name: "current-api + old-sdk-bearer"
             api_base: "https://api.moogo.dev"
             auth_mode: "bearer"
-            node_version: "18"
+            node_version: "24"
 
     steps:
       - uses: actions/checkout@v4

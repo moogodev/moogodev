@@ -61,12 +61,17 @@ fi
 echo "==> checking prerequisites"
 # gcc because the gates below run go test -race, which needs a C compiler;
 # curl because the readiness loop and the post-deploy checks use it. nginx is
-# only required when this machine's nginx will actually be managed.
+# only required when this machine's nginx will actually be managed. node and
+# npm are needed only when the embedded frontends are present, since the build
+# phase rebuilds them.
 if [[ -f /etc/cloudflared/config.yml ]]; then
 	BEHIND_TUNNEL=1
 fi
 missing=()
 tools=(go systemctl curl gcc)
+if [[ -d "$REPO_ROOT/web/dist" || -d "$REPO_ROOT/news/dist" ]]; then
+	tools+=(node npm)
+fi
 if [[ $BEHIND_TUNNEL -eq 0 ]]; then
 	tools+=(nginx)
 fi
@@ -75,8 +80,31 @@ for tool in "${tools[@]}"; do
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
 	echo "missing: ${missing[*]}" >&2
-	echo "gcc is needed for 'go test -race'; curl for the readiness checks." >&2
+	echo "gcc is needed for 'go test -race'; curl for the readiness checks;" >&2
+	echo "node/npm for rebuilding the embedded frontends (see .nvmrc)." >&2
 	exit 1
+fi
+
+# Refuse a Node older than the one the SDK and CI target (22.23.4). npm ci on an
+# old runtime can resolve or build a tree that passes locally yet fails in CI,
+# and the failure surfaces only after the frontends are half-rebuilt -- so the
+# version is asserted here, before anything is built or installed.
+if command -v node >/dev/null 2>&1; then
+	node_version="$(node --version 2>/dev/null | sed 's/^v//')"
+	required_node="22.23.4"
+	if [[ -z "$node_version" ]] ||
+		[[ "$(printf '%s\n' "$required_node" "$node_version" | sort -V | head -n 1)" != "$required_node" ]]; then
+		echo >&2
+		echo "!! Node ${node_version:-unknown} is too old; ${required_node} or newer is required." >&2
+		echo "!! The version is pinned in .nvmrc and targeted by CI (Node 22 LTS," >&2
+		echo "!! EOL 2027-04-30). Install it, e.g.:" >&2
+		echo "!!   nvm install && nvm use      # reads .nvmrc" >&2
+		echo "!! or from NodeSource:" >&2
+		echo "!!   curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt install -y nodejs" >&2
+		echo "!! Nothing has been changed." >&2
+		exit 1
+	fi
+	echo "    node $node_version (>= $required_node required)"
 fi
 
 # --- Helpers used by the failure paths ---
