@@ -5,8 +5,6 @@ interface ObjectPreviewProps {
   object: BucketObject;
   onClose: () => void;
   onOpenPublic: () => void;
-  onTogglePublic: () => void;
-  busy: boolean;
 }
 
 // ObjectPreview is the detail drawer for one object: a large preview on the left,
@@ -21,8 +19,6 @@ export default function ObjectPreview({
   object,
   onClose,
   onOpenPublic,
-  onTogglePublic,
-  busy,
 }: ObjectPreviewProps) {
   const [text, setText] = useState<string | null>(null);
   const [textError, setTextError] = useState<string | null>(null);

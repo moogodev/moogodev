@@ -789,8 +789,6 @@ export default function BucketView({
           object={preview}
           onClose={() => setPreview(null)}
           onOpenPublic={() => preview.public_url && window.open(preview.public_url, "_blank")}
-          onTogglePublic={() => void togglePublic(preview)}
-          busy={busy === preview.id}
         />
       )}
     </div>
