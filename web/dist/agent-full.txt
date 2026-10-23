@@ -60,7 +60,7 @@ This is the fundamental difference you must understand before starting:
   - **Data plane:** SQLite per-project, storing your actual data
   - **The two planes never mix** — a bug in the control plane cannot reach data plane data
 - **Physical isolation:** Each project has its own `.db` file at `/data/dbs/{project_id}.db`. No shared tables, no shared buffer pool.
-- **Activity reported** — every limit (250 MB, 15 seconds, 1 MB request body) returned in API response, not "hanged tab" or "surprise bill"
+- **Activity reported** — every limit (256 MB, 15 seconds, 1 MB request body) returned in API response, not "hanged tab" or "surprise bill"
 - **No SDK needed** — just `curl` with header `Authorization: Bearer ...` and `Content-Type: application/json`
 - **Honest limits** — every limit reported by API, so you know when you exceed limits
 - **Managed infrastructure** — all infrastructure handled by Moogo
@@ -116,8 +116,8 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 | **Publish** | Mechanism to change object from private to publicly readable (no credentials). Set `is_public: true` via PATCH request or dashboard. After publishing, `public_url` is populated with `https://cdn.moogo.dev/pub/{project_id}/{key}` (if CDN enabled) or `https://api.moogo.dev/pub/{project_id}/{key}`. |
 | **Public URL** | URL shareable by anyone without credentials. **IMPORTANT:** `public_url` is a **bearer token** — it is a URL that can be shared with anyone and **cannot be revoked** without rotating the key or unpublishing the object. If you share `public_url`, as long as object remains published, anyone with the URL can access it. **Recommended workflow:** after upload, do `PATCH is_public: true` if you want object readable without credentials. |
 | **`/pub/{project_id}/{key}`** | Public path for published objects. **`project_id` is required** in this path. **Never use `/pub/{key}` alone**, because `project_id` is required to identify the project. |
-| **`max_object_size_bytes`** | Maximum object size per bucket. If bucket doesn't set size, project ceiling of 250 MB applies. |
-| **Storage Quota** | Total storage limit per project: **250 MB** across all buckets. Monitor daily usage, and migrate to a new project before reaching 250 MB. Database does not auto-shrink when data is deleted — requires VACUUM (blocked on Moogo) or progressive row deletion. |
+| **`max_object_size_bytes`** | Maximum object size per bucket. If bucket doesn't set size, project ceiling of 256 MB applies. |
+| **Storage Quota** | Total storage limit per project: **256 MB** across all buckets. Monitor daily usage, and migrate to a new project before reaching 256 MB. Database does not auto-shrink when data is deleted — requires VACUUM (blocked on Moogo) or progressive row deletion. |
 
 ---
 
@@ -136,10 +136,10 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 
 | Term | Limit | Description |
 |------|-------|-------------|
-| **Database size** | 250 MB per project | Measured before every write. Calculated as `(page_count - freelist_count) * page_size`. |
+| **Database size** | 256 MB per project | Measured before every write. Calculated as `(page_count - freelist_count) * page_size`. |
 | **Statement timeout** | 15 seconds | Exceeding causes `500 timeout`. |
 | **Max statements per transaction** | 100 statements | Exceeding causes `too_many_statements` error. |
-| **Max object size** | Bucket's `max_object_size_bytes` or 250 MB | If bucket sets its own size, that limit applies. |
+| **Max object size** | Bucket's `max_object_size_bytes` or 256 MB | If bucket sets its own size, that limit applies. |
 | **Max request body** | 1 MB | JSON request body limit for SQL endpoints. |
 | **Projects per account** | 2 projects | `POST /api/projects` responds `429 quota_exceeded` for third project. |
 | **Rows per read response** | Max 1000 rows or 16 MB | If data exceeds, truncated and marked `truncated: true`. |
@@ -153,8 +153,8 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 | **Check `error.code` before `error.message`** | Error envelope is consistent, but code is more stable for branching logic |
 | **Use `LIMIT/OFFSET` for paging** | For datasets > 100 rows, use small pages (example: 50 rows per page) instead of `SELECT *` entirely |
 | **Avoid `SELECT *`** | Schema changes break clients without migration. Always specify needed columns. |
-| **Database does not auto-shrink** | `DELETE` frees pages, but physical space (250 MB) doesn't shrink until `VACUUM` executes (blocked on Moogo). |
-| **Monitor Daily Usage** | If approaching 230 MB, migrate to a new project before reaching the 250 MB ceiling. |
+| **Database does not auto-shrink** | `DELETE` frees pages, but physical space (256 MB) doesn't shrink until `VACUUM` executes (blocked on Moogo). |
+| **Monitor Daily Usage** | If approaching 256 MB, migrate to a new project before reaching the 256 MB ceiling. |
 | **Session cookie has HttpOnly + Secure + SameSite=Lax** | Prevents XSS from stealing session and cross-site CSRF. |
 | **SQL key never sent to browser** | Dashboard uses session cookie, but SQL API needs secret key stored server-side. |
 | **Public URL requires publish first** | Private objects have empty `public_url`. Ensure object is published (`PATCH is_public: true`) before sharing URL. |
@@ -453,11 +453,11 @@ account answers `404`, not `403`, so an id cannot even be probed for existence.
 
 - **A real SQLite database.** Full SQLite, the engine you already know, with
   `WAL` journaling and foreign keys enabled on every connection.
-- **Object storage per project.** Up to 250 MB of files, organized into buckets,
+- **Object storage per project.** Up to 256 MB of files, organized into buckets,
   with public URLs you can put in an `<img>` tag.
 - **A dashboard.** Browse your tables as a spreadsheet, run SQL in a console, and
   watch the activity log. It needs no secret key from you.
-- **Honest limits.** 250 MB per database, 15 seconds per statement, 1 MB per
+- **Honest limits.** 256 MB per database, 15 seconds per statement, 1 MB per
   request body. Every one of them is reported in the response, so you find out
   from the API rather than from a hung tab.
 
@@ -587,12 +587,12 @@ your time.
 | You need `PostGIS` or spatial queries | SQLite has `R-Tree`, but it is not PostGIS |
 | You need cross-region replicas | One project is one file on one host |
 | You need concurrent analytical scans | SQLite is a single-writer engine |
-| You need a database larger than 250 MB | That is the ceiling, and it is enforced |
+| You need a database larger than 256 MB | That is the ceiling, and it is enforced |
 | You need row-level security across tenants | You do not need it; you get file isolation instead |
 | You need `GRANT` / `REVOKE` and multiple roles | Moogo has one role per project key |
 
-On the free tier you also get **2 projects per account**, 250 MB per database,
-and 250 MB of storage per project. There is no billing in the current version, so
+On the free tier you also get **2 projects per account**, 256 MB per database,
+and 256 MB of storage per project. There is no billing in the current version, so
 every account is on the same plan. If you need more than that, the constraint is
 a real one and you should know about it before you build.
 
@@ -632,8 +632,8 @@ right tool rather than the fashionable one.
 | Connection | HTTP, no driver | Postgres wire protocol + REST/GraphQL | libSQL client (HTTP or WebSocket) |
 | Serverless fit | Built for it, stateless, no pool | Pooling required, proxy adds latency | Edge replicas, sync complexity |
 | Free tier pause | **Never pauses** | Pauses after 1 week inactive | Varies by plan |
-| Max database size | 250 MB per project | Much larger | Larger than Moogo |
-| Object storage | 250 MB per project, included | Separate, billed | Not included on lower tiers |
+| Max database size | 256 MB per project | Much larger | Larger than Moogo |
+| Object storage | 256 MB per project, included | Separate, billed | Not included on lower tiers |
 | AI context file | `moogo.md` for assistants | No standard format | No standard format |
 | Licence | MIT | Apache 2 / MIT, varies by component | MPL 2.0 (the libSQL fork) |
 
@@ -674,13 +674,13 @@ not.
 
 This is the clearest tradeoff, and you should check it first.
 
-Moogo caps a database at **250 MB**. That is generous for an application and
+Moogo caps a database at **256 MB**. That is generous for an application and
 small for a dataset. If you are storing user records, sessions, and a few
 thousand uploads, you will never notice. If you are ingesting events, storing
 media metadata at volume, or building a data warehouse, you should stop reading
 this documentation and use a database sized for that.
 
-Supabase and Turso both scale past 250 MB comfortably. They also cost more, and
+Supabase and Turso both scale past 256 MB comfortably. They also cost more, and
 they ask you to manage a connection from code that runs to completion.
 
 ## When to choose something else
@@ -688,7 +688,7 @@ they ask you to manage a connection from code that runs to completion.
 Choose another tool if any of these are true:
 
 - You need `PostGIS`, or Postgres extensions generally.
-- You need a database larger than 250 MB per logical unit of data.
+- You need a database larger than 256 MB per logical unit of data.
 - You need many concurrent writers to the same tables. SQLite serialises writes
   per database; this is a property of the engine, not a Moogo setting.
 - You need cross-region replicas or a multi-region write path.
@@ -1067,7 +1067,7 @@ moogo db vacuum
 ```
 
 Runs `REINDEX` → `ANALYZE` → `VACUUM` → `WAL checkpoint`. Size limits remain
-enforced (250 MB/project).
+enforced (256 MB/project).
 
 ## Transactions
 
@@ -1300,9 +1300,9 @@ Every limit is enforced by the server, and most come back in the response.
 | What | Limit |
 |---|---|
 | Projects per account | 2 |
-| Database size | 250 MB per project; the file never shrinks on its own |
-| Storage | 250 MB per project, summed across all buckets |
-| Object size | The bucket's `max_object_size_bytes`, or 250 MB |
+| Database size | 256 MB per project; the file never shrinks on its own |
+| Storage | 256 MB per project, summed across all buckets |
+| Object size | The bucket's `max_object_size_bytes`, or 256 MB |
 | JSON request body | 1 MB (`body_too_large`) |
 | Statement | 64 KB (`sql_too_long`), 15 seconds (`statement_timeout`) |
 | Storage credentials | 5 per project (`credential_limit`) |
@@ -2211,7 +2211,7 @@ schema inspector needs.
 | Statement length | 64 KB | `sql_too_long` |
 | Request body | 1 MB | `body_too_large` |
 | Execution time | 15 seconds | `statement_timeout` |
-| Database size | 250 MB | `database_too_large` |
+| Database size | 256 MB | `database_too_large` |
 
 The statement length limit bounds tokenizer work and error-message size. It is not
 a substitute for the body limit, which is enforced while reading.
@@ -2610,7 +2610,7 @@ Every error has the same shape, so you can branch on `code` instead of parsing
 |---|---|---|
 | `sql_error` | 400 | SQLite rejected the statement. Check `detail`. |
 | `database_not_found` | 404 | The project database does not exist. |
-| `database_too_large` | 413 | The database is at its 250 MB ceiling. |
+| `database_too_large` | 413 | The database is at its 256 MB ceiling. |
 | `statement_timeout` | 504 | The statement passed 15 seconds and was cancelled. |
 | `quota_exceeded` | 429 | An account quota was reached. |
 | `project_paused` | 403 | The project is paused. |
@@ -2641,8 +2641,8 @@ From `/docs/limits.md`, limits are already transparent, but some practical patte
 - **Paging vs reading all**: For datasets over 100 rows, use `LIMIT/OFFSET` with small pages (e.g., 50 rows per page) instead of `SELECT *` entirely. Using large `OFFSET` gets slower because SQLite must skip preceding rows.
 - **CTE vs subquery**: For complex queries, CTE is generally more readable and sometimes performs better, but avoid recursive CTEs in the same transaction as write operations, because SQLite may lock pages.
 - **Avoid `SELECT *`**: Column names change will break clients without migration. Always specify needed columns.
-- **Database does not auto-shrink**: `DELETE` frees pages immediately, but physical space (`250 MB` ceiling) does not decrease until `VACUUM` executes (blocked on Moogo). If project approaches the limit, delete rows progressively rather than one large deletion.
-- **Performance Anomalies Near the 250 MB Limit**: As usage approaches the ceiling, SQLite adds a small overhead to check the limit before every write. It is recommended to monitor daily usage and migrate to a new project before reaching 230 MB.
+- **Database does not auto-shrink**: `DELETE` frees pages immediately, but physical space (`256 MB` ceiling) does not decrease until `VACUUM` executes (blocked on Moogo). If project approaches the limit, delete rows progressively rather than one large deletion.
+- **Performance Anomalies Near the 256 MB Limit**: As usage approaches the ceiling, SQLite adds a small overhead to check the limit before every write. It is recommended to monitor daily usage and migrate to a new project before reaching 256 MB.
 
 ## SQL Security
 
@@ -2709,7 +2709,7 @@ try {
 
 # Create a bucket
 
-Every project has **250 MB of object storage**. A bucket is a named namespace
+Every project has **256 MB of object storage**. A bucket is a named namespace
 inside that quota, so you can keep `avatars` separate from `exports` without
 either one colliding.
 
@@ -2757,7 +2757,7 @@ Response:
     "is_public": false,
     "allowed_types": ["any"],
     "max_object_size_bytes": 0,
-    "quota_bytes": 247463936
+    "quota_bytes": 268435456
   }
 }
 ```
@@ -2830,11 +2830,11 @@ of zero bytes — so `0` disables the cap rather than refusing everything.
 
 ### `quota_bytes`
 
-This bucket's own storage ceiling, **236 MB** by default. Uploads past it are
+This bucket's own storage ceiling, **256 MB** by default. Uploads past it are
 refused with `507 bucket_quota_exceeded` even when the project still has room, so
 one bucket cannot starve the others.
 
-It cannot exceed the project's 250 MB total, and it cannot be set below what the
+It cannot exceed the project's 256 MB total, and it cannot be set below what the
 bucket already holds — a quota under its current usage would leave every later
 upload refused for a reason that looks like a full project.
 
@@ -2950,14 +2950,14 @@ characters**.
 
 ## Quota
 
-**250 MB per project**, counted across all buckets — not per bucket. Two buckets
+**256 MB per project**, counted across all buckets — not per bucket. Two buckets
 do not give you 512 MB.
 
 Every response that touches storage reports both numbers so you can see where you
 stand:
 
 ```json
-{ "storage_used_bytes": 10485760, "quota_bytes": 262144000 }
+{ "storage_used_bytes": 10485760, "quota_bytes": 268435456 }
 ```
 
 If you need space back:
@@ -2969,7 +2969,7 @@ If you need space back:
 
 A quota check happens against the declared `Content-Length` before a byte is
 written, and again against the bytes actually received. Uploads for one project
-are serialised so two concurrent large uploads cannot both see room for 250 MB and
+are serialised so two concurrent large uploads cannot both see room for 256 MB and
 together overrun the quota.
 
 ## Delete a bucket
@@ -2988,7 +2988,7 @@ reports how many objects were deleted:
   "success": true,
   "deleted_objects": 42,
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000
+  "quota_bytes": 268435456
 }
 ```
 
@@ -3095,7 +3095,7 @@ Response, for the first upload:
     "last_modified": "2026-10-01T09:20:11Z"
   },
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000
+  "quota_bytes": 268435456
 }
 ```
 
@@ -3129,9 +3129,9 @@ without hardcoding origins.
 
 - **Per object:** the bucket's `max_object_size_bytes`, or the project ceiling if
   the bucket sets none.
-- **Per project:** 250 MB total, across all buckets.
+- **Per project:** 256 MB total, across all buckets.
 - **Per request:** the same object cap. The JSON endpoints are capped at 1 MB, but
-  storage is not — a 1 MB cap on a 250 MB project would mean nobody could ever
+  storage is not — a 1 MB cap on a 256 MB project would mean nobody could ever
   fill their bucket.
 
 Failures are distinguishable:
@@ -3349,7 +3349,7 @@ Response:
   "limit": 50,
   "next_cursor": "eyJzIjoiYWZiM2Yw...",
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000
+  "quota_bytes": 268435456
 }
 ```
 
@@ -3452,7 +3452,7 @@ curl -X DELETE "$ENDPOINT/avatars/kit.png" \
   "deleted": 1,
   "freed_bytes": 24576,
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000
+  "quota_bytes": 268435456
 }
 ```
 
@@ -3489,11 +3489,11 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
       "is_public": false,
       "allowed_types": ["image"],
       "max_object_size_bytes": 2097152,
-      "quota_bytes": 247463936
+      "quota_bytes": 268435456
     }
   ],
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000
+  "quota_bytes": 268435456
 }
 ```
 
@@ -3553,10 +3553,10 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \
     "is_public": false,
     "allowed_types": ["image"],
     "max_object_size_bytes": 2097152,
-    "quota_bytes": 247463936
+    "quota_bytes": 268435456
   },
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000,
+  "quota_bytes": 268435456,
   "public_url_base": "https://cdn.moogo.dev",
   "url_base": "https://api.moogo.dev"
 }
@@ -3696,7 +3696,7 @@ const encodeKey = (key) =>
 - **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need `Authorization: Bearer $MOOGO_SQL_KEY`. The types are not interchangeable.
 - **404 on an object you just uploaded** — check the key case and the bucket (`?bucket=`). The path is `/bucket/{key}`, not `/buckets/`.
 - **Object 404s on `/pub/` right after making it public** — check that the object is actually published: make the bucket public, or `PATCH` the object with `{"is_public": true}`, and read `is_public` back. Missing and unpublished objects answer `404` by design, and those responses are `no-store`, so a fresh publish shows up on the next request. If the URL was fetched while an older deployment was live, an edge copy of that 404 can linger until its TTL expires — use a new key or purge your CDN. For mutable assets, versioning keys (`image-v2.png`) is more reliable than cache invalidation.
-- **object_too_large** — above the bucket's `max_object_size_bytes` (or 250 MB). Shrink the file, raise the cap, or split it.
+- **object_too_large** — above the bucket's `max_object_size_bytes` (or 256 MB). Shrink the file, raise the cap, or split it.
 - **quota_exceeded** — project or bucket storage would go over its limit. Delete some objects or increase quota.
 - **truncated: true** — your listing is capped at `limit` rows. Send the `next_cursor` to fetch the next page, or increase `limit` up to 1000.
 - **invalid_cursor** — the cursor belongs to a different listing (different bucket/filters/order). Drop it and start from page 1.
@@ -4651,7 +4651,7 @@ Runs `REINDEX` → `ANALYZE` → `VACUUM` → `WAL checkpoint` on the project's
 database to reclaim physical space after large deletes or drops. The database
 file never shrinks on its own; this command reclaims the freed pages.
 
-Size limits remain enforced (250 MB/project). Equivalent to:
+Size limits remain enforced (256 MB/project). Equivalent to:
 
 ```bash
 curl -X POST "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/maintenance" \
@@ -4959,7 +4959,7 @@ try {
   if (err.code === "sql_error") {
     console.log("SQLite error:", err.detail);
   } else if (err.code === "database_too_large") {
-    console.log("Project hit 250 MB limit");
+    console.log("Project hit 256 MB limit");
   } else if (err.status === 401) {
     console.log("Invalid or rotated secret key");
   }
@@ -4970,7 +4970,7 @@ try {
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -5303,7 +5303,7 @@ The [Next.js guide](/docs/guides/nextjs) covers Server Components, Server Action
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -5665,7 +5665,7 @@ declare namespace Moogo {
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -5983,7 +5983,7 @@ export default defineNuxtConfig({
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -6251,7 +6251,7 @@ export const useMoogoStore = defineStore("moogo", () => {
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -6550,7 +6550,7 @@ The `fetch`-based client works in all Astro adapters (Node, Edge, Deno, Bun).
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -6781,7 +6781,7 @@ except MoogoError as e:
     if e.code == "sql_error":
         print("SQLite error:", e.detail)
     elif e.code == "database_too_large":
-        print("Project hit 250 MB limit")
+        print("Project hit 256 MB limit")
     elif hasattr(e, 'status') and e.status == 401:
         print("Invalid or rotated secret key")
     raise
@@ -6831,7 +6831,7 @@ asyncio.run(main())
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -7098,7 +7098,7 @@ async def test_create_user():
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -7343,7 +7343,7 @@ def handle_moogo_error(e):
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -7690,7 +7690,7 @@ gunicorn myproject.wsgi:application -w 4 -b 0.0.0.0:8000
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -7931,7 +7931,7 @@ try {
     if ($e->errorCode === 'sql_error') {
         echo "SQLite error: {$e->detail}\n";
     } elseif ($e->errorCode === 'database_too_large') {
-        echo "Project hit 250 MB limit\n";
+        echo "Project hit 256 MB limit\n";
     }
     throw $e;
 }
@@ -7975,7 +7975,7 @@ class MoogoClient {
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -8362,7 +8362,7 @@ The `Http` facade works natively with Octane/Swoole.
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -8797,7 +8797,7 @@ GOOS=windows GOARCH=amd64 go build -o myapp.exe
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -9258,7 +9258,7 @@ end
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -9809,7 +9809,7 @@ The `java.net.http.HttpClient` works in native images (since Java 17).
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -10410,7 +10410,7 @@ For simple schemas, use the **Dashboard Table Builder** (`/app/projects/{id}/dat
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
@@ -10438,9 +10438,9 @@ you find out from the API rather than from a hung tab or a surprise bill.
 | Limit | Value | Enforced |
 |---|---|---|
 | Projects per account | **2** | Checked inside the transaction that creates a project. |
-| Database size | **250 MB** per project | Before every write; SQLite itself refuses page growth past the ceiling. |
-| Storage | **250 MB** per project | On upload, against usage plus declared size. |
-| Object size | Bucket's `max_object_size_bytes`, or 250 MB | On upload. |
+| Database size | **256 MB** per project | Before every write; SQLite itself refuses page growth past the ceiling. |
+| Storage | **256 MB** per project | On upload, against usage plus declared size. |
+| Object size | Bucket's `max_object_size_bytes`, or 256 MB | On upload. |
 
 Automatic database backups are stored **separately** and do **not** count
 against a project's storage quota — that quota is for the objects you serve. See
@@ -10454,7 +10454,7 @@ The check happens **inside the transaction** that creates the project, not befor
 
 ### Database size
 
-250 MB, measured as `(page_count - freelist_count) * page_size` — the data pages, so space freed by a DELETE starts counting as free immediately.
+256 MB, measured as `(page_count - freelist_count) * page_size` — the data pages, so space freed by a DELETE starts counting as free immediately.
 
 The check runs **before** the write, and SQLite refuses the page growth that would cross the ceiling, so a write that would overrun is refused; it is not partially applied and it is not silently truncated.
 
@@ -10699,7 +10699,7 @@ with the position — `statement 2: ...`.
 | `sql_error` | 400 | SQLite rejected the statement. `detail` has the driver's message. |
 | `database_not_found` | 404 | The project database does not exist. |
 | `statement_timeout` | 504 | Passed 15 seconds and was cancelled. |
-| `database_too_large` | 413 | The database is at its 250 MB ceiling. |
+| `database_too_large` | 413 | The database is at its 256 MB ceiling. |
 | `result_too_large` | 413 | The result set passed the 16 MB response cap. |
 | `database_busy` | 503 | The project hit its concurrency limit — waiting on a slot or the previous writer. Comes with `Retry-After: 1`. |
 | `service_unavailable` | 503 | The service is restarting. Retry shortly. |
@@ -10859,7 +10859,7 @@ something about.
 | `invalid_bucket_name` | 400 | The name is empty or not 2–63 characters of lowercase letters, digits, `_`, `-`. |
 | `invalid_allowed_types` | 400 | The upload policy names an unknown type, or combines `any` with a specific one. |
 | `invalid_max_object_size` | 400 | `max_object_size_bytes` is negative. `0` means no limit. |
-| `invalid_quota_bytes` | 400 | `quota_bytes` is negative or over the project's 250 MB. |
+| `invalid_quota_bytes` | 400 | `quota_bytes` is negative or over the project's 256 MB. |
 | `signing_unavailable` | 503 | The deployment has no signer configured, so it cannot mint signed URLs. |
 | `storage_error` | 500 | The request could not be completed. |
 

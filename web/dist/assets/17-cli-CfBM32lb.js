@@ -133,7 +133,7 @@ Runs \`REINDEX\` → \`ANALYZE\` → \`VACUUM\` → \`WAL checkpoint\` on the pr
 database to reclaim physical space after large deletes or drops. The database
 file never shrinks on its own; this command reclaims the freed pages.
 
-Size limits remain enforced (250 MB/project). Equivalent to:
+Size limits remain enforced (256 MB/project). Equivalent to:
 
 \`\`\`bash
 curl -X POST "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/maintenance" \\

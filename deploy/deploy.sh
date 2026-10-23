@@ -35,7 +35,12 @@ SERVICE_USER=moogo
 DATA_DIR=/var/lib/moogo
 BACKUP_DIR=/var/backups/moogo
 BINARY_BACKUP_DIR=/var/backups/moogo-binaries
-BIN_PATH=/usr/local/bin/moogo
+BIN_PATH=/usr/local/bin/moogo-api
+# Before this rename the API occupied /usr/local/bin/moogo, the name the CLI
+# owns. A deployment from that era has no moogo-api yet, so the install below
+# moves it instead of leaving a server binary where `moogo doctor` is expected.
+LEGACY_BIN_PATH=/usr/local/bin/moogo
+CLI_BIN_PATH=/usr/local/bin/moogo
 NEWS_BIN_PATH=/usr/local/bin/moogo-news
 MCP_BIN_PATH=/usr/local/bin/moogo-mcp
 INSTALL_DIR=/opt/moogo
@@ -113,6 +118,7 @@ fi
 binary_dest() {
 	case "$1" in
 	moogo) printf '%s' "$BIN_PATH" ;;
+	moogo-cli) printf '%s' "$CLI_BIN_PATH" ;;
 	moogo-news) printf '%s' "$NEWS_BIN_PATH" ;;
 	moogo-mcp) printf '%s' "$MCP_BIN_PATH" ;;
 	*) return 1 ;;
@@ -121,7 +127,10 @@ binary_dest() {
 
 # newest_backup NAME -- the newest backup file for that binary, or empty.
 newest_backup() {
-	ls -1t "$BINARY_BACKUP_DIR/$1-"* 2>/dev/null | head -n 1 || true
+	# The timestamp is part of the pattern so "moogo" cannot match the backups
+	# of "moogo-news" or "moogo-mcp" -- restoring the wrong binary during a
+	# rollback is worse than having no backup at all.
+	ls -1t "$BINARY_BACKUP_DIR/$1-"[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-* 2>/dev/null | head -n 1 || true
 }
 
 # die_rolledback MESSAGE RESTART NAME... -- put the newest backup of each named
@@ -148,7 +157,8 @@ die_rolledback() {
 		fi
 		install -m 0755 "$newest" "$dest"
 		echo "    restored $dest from $newest" >&2
-		if [[ "$do_restart" == "1" ]]; then
+		# The CLI is not a service; restoring the file is the whole rollback.
+		if [[ "$do_restart" == "1" && "$name" != "moogo-cli" ]]; then
 			echo "    restarting $name on the restored binary" >&2
 			if ! systemctl restart "$name"; then
 				echo "!! restart of $name failed; see 'systemctl status $name'" >&2
@@ -398,7 +408,8 @@ echo "==> building binaries"
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 (cd "$REPO_ROOT" &&
-	go build -trimpath -o "$STAGE_DIR/moogo" ./cmd/api &&
+	go build -trimpath -o "$STAGE_DIR/moogo-api" ./cmd/api &&
+	go build -trimpath -o "$STAGE_DIR/moogo-cli" ./cmd/moogo &&
 	go build -trimpath -o "$STAGE_DIR/moogo-news" ./cmd/news)
 if [[ $mcp_enabled -eq 1 ]]; then
 	(cd "$REPO_ROOT" && go build -trimpath -o "$STAGE_DIR/moogo-mcp" ./cmd/mcp)
@@ -434,11 +445,36 @@ install_binary() {
 	echo "    installed $dest"
 	# Keep the last ten backups of each binary: enough for a rollback,
 	# bounded disk on a machine that re-runs this script every deploy.
-	(ls -1t "$BINARY_BACKUP_DIR/$name-"* 2>/dev/null || true) |
+	(ls -1t "$BINARY_BACKUP_DIR/$name-"[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-* 2>/dev/null || true) |
 		tail -n +11 |
 		while IFS= read -r old; do rm -f "$old"; done
 }
-install_binary moogo "$STAGE_DIR/moogo" "$BIN_PATH"
+
+# A pre-rename deployment keeps its API at LEGACY_BIN_PATH. If that file is
+# what the running unit executes, back it up under the new name first: a later
+# rollback installs that backup at BIN_PATH, which is where the updated unit
+# will look. Anything else at the legacy path is left alone -- it may be a CLI
+# the operator installed, and deleting it would take away their tool.
+legacy_is_server=0
+if [[ -f "$LEGACY_BIN_PATH" && ! -f "$BIN_PATH" ]]; then
+	legacy_pid="$(systemctl show -p MainPID --value moogo 2>/dev/null || true)"
+	if [[ -n "$legacy_pid" && "$legacy_pid" != "0" ]]; then
+		legacy_exe="$(readlink -f "/proc/$legacy_pid/exe" 2>/dev/null || true)"
+		if [[ -n "$legacy_exe" && "$legacy_exe" == "$(readlink -f "$LEGACY_BIN_PATH")" ]]; then
+			legacy_is_server=1
+			legacy_hash="$(md5sum "$LEGACY_BIN_PATH" | cut -c1-8)"
+			cp -p "$LEGACY_BIN_PATH" "$BINARY_BACKUP_DIR/moogo-$STAMP-$legacy_hash"
+			echo "    backed up legacy server $LEGACY_BIN_PATH -> $BINARY_BACKUP_DIR/moogo-$STAMP-$legacy_hash"
+		fi
+	fi
+fi
+
+install_binary moogo "$STAGE_DIR/moogo-api" "$BIN_PATH"
+if [[ $legacy_is_server -eq 1 ]]; then
+	rm -f "$LEGACY_BIN_PATH"
+	echo "    removed legacy $LEGACY_BIN_PATH; the API is $BIN_PATH and the name 'moogo' is the CLI's"
+fi
+install_binary moogo-cli "$STAGE_DIR/moogo-cli" "$CLI_BIN_PATH"
 install_binary moogo-news "$STAGE_DIR/moogo-news" "$NEWS_BIN_PATH"
 if [[ $mcp_enabled -eq 1 ]]; then
 	install_binary moogo-mcp "$STAGE_DIR/moogo-mcp" "$MCP_BIN_PATH"
@@ -453,7 +489,7 @@ if ! systemd-run --wait --pipe --quiet \
 	--property=EnvironmentFile="$ENV_FILE" \
 	--setenv=MOOGO_ADDR=127.0.0.1:0 \
 	"$BIN_PATH" --check-config; then
-	die_rolledback "the service refused its configuration; the previous binary has been put back." 0 moogo
+	die_rolledback "the service refused its configuration; the previous binary has been put back." 0 moogo moogo-cli
 fi
 if [[ $mcp_enabled -eq 1 ]]; then
 	# MCP validates at startup; static check that required vars are present.
@@ -461,7 +497,7 @@ if [[ $mcp_enabled -eq 1 ]]; then
 	if ! grep -qE '^MOOGO_BASE_URL=' "$MCP_ENV_FILE" || \
 	   ! grep -qE '^MOOGO_PROJECT_ID=' "$MCP_ENV_FILE" || \
 	   ! grep -qE '^MOOGO_SQL_KEY=' "$MCP_ENV_FILE"; then
-		die_rolledback "mcp.env missing MOOGO_BASE_URL, MOOGO_PROJECT_ID or MOOGO_SQL_KEY." 0 moogo
+		die_rolledback "mcp.env missing MOOGO_BASE_URL, MOOGO_PROJECT_ID or MOOGO_SQL_KEY." 0 moogo moogo-cli
 	fi
 fi
 
@@ -495,7 +531,7 @@ if [[ $BEHIND_TUNNEL -eq 0 ]]; then
 		proxy_set_header X-Forwarded-For $remote_addr;
 		proxy_set_header X-Forwarded-Proto $scheme;
 		# Stream uploads instead of buffering them to disk first: an object
-		# can be as large as the 250 MB storage ceiling.
+		# can be as large as the 256 MB storage ceiling.
 		proxy_request_buffering off;
 EOF
 	}
@@ -513,7 +549,7 @@ EOF
 		printf '	server_name %s;\n' "$name"
 		printf '	access_log %s;\n' "$logfile"
 		cat <<'EOF'
-	client_max_body_size 250m;
+	client_max_body_size 256m;
 	server_tokens off;
 
 	# Timeouts that bound the connection, not the work. client_body_timeout
@@ -600,8 +636,8 @@ EOF
 	add_header Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=()" always;
 	add_header X-Permitted-Cross-Origin-Policies "none" always;
 
-	# 250 MB is StorageCeilingBytes, the largest upload the app itself allows.
-	client_max_body_size 250m;
+	# 256 MB is StorageCeilingBytes, the largest upload the app itself allows.
+	client_max_body_size 256m;
 	server_tokens off;
 
 	# Gap-based timeouts, same rationale as the port-80 block: a transfer in
@@ -1004,7 +1040,7 @@ echo "==> restarting the services onto the new binary"
 # persistence, then the restart, then proof the restart happened.
 systemctl enable moogo
 if ! restart_and_verify moogo; then
-	die_rolledback "moogo did not come back cleanly on the new binary." 1 moogo
+	die_rolledback "moogo did not come back cleanly on the new binary." 1 moogo moogo-cli
 fi
 if [[ $news_enabled -eq 1 ]]; then
 	systemctl enable moogo-news
@@ -1036,7 +1072,7 @@ done
 if [[ $ready -ne 1 ]]; then
 	echo "service did not become ready; last log lines:" >&2
 	journalctl -u moogo -n 40 --no-pager >&2 || true
-	die_rolledback "moogo did not become ready within 60 seconds on the new binary." 1 moogo
+	die_rolledback "moogo did not become ready within 60 seconds on the new binary." 1 moogo moogo-cli
 fi
 
 # The proxy path is only proven from outside. A failure here does not undo a
@@ -1121,15 +1157,15 @@ if [[ $mcp_enabled -eq 1 ]]; then
 	fi
 fi
 if [[ $main_failed -eq 1 && $news_failed -eq 1 && $mcp_failed -eq 1 ]]; then
-	die_rolledback "post-deploy verification failed (see above)." 1 moogo moogo-news moogo-mcp
+	die_rolledback "post-deploy verification failed (see above)." 1 moogo moogo-cli moogo-news moogo-mcp
 elif [[ $main_failed -eq 1 && $news_failed -eq 1 ]]; then
-	die_rolledback "post-deploy verification failed (see above)." 1 moogo moogo-news
+	die_rolledback "post-deploy verification failed (see above)." 1 moogo moogo-cli moogo-news
 elif [[ $main_failed -eq 1 && $mcp_failed -eq 1 ]]; then
-	die_rolledback "post-deploy verification failed (see above)." 1 moogo moogo-mcp
+	die_rolledback "post-deploy verification failed (see above)." 1 moogo moogo-cli moogo-mcp
 elif [[ $news_failed -eq 1 && $mcp_failed -eq 1 ]]; then
 	die_rolledback "post-deploy verification failed (see above)." 1 moogo-news moogo-mcp
 elif [[ $main_failed -eq 1 ]]; then
-	die_rolledback "post-deploy verification failed (see above)." 1 moogo
+	die_rolledback "post-deploy verification failed (see above)." 1 moogo moogo-cli
 elif [[ $news_failed -eq 1 ]]; then
 	die_rolledback "post-deploy verification failed (see above)." 1 moogo-news
 elif [[ $mcp_failed -eq 1 ]]; then

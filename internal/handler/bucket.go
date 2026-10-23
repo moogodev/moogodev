@@ -128,7 +128,7 @@ type BucketPlane struct {
 	// Reading the usage total and writing the object cannot be one atomic
 	// operation across Postgres and the filesystem, so without a lock two
 	// concurrent uploads both see room for 100 MB and together land 180 MB
-	// in a 250 MB bucket. The lock spans only those fast Postgres round
+	// in a 256 MB bucket. The lock spans only those fast Postgres round
 	// trips -- never the client's body -- so a slow upload cannot stall
 	// everyone else's.
 	projectLocks lockMap
@@ -342,12 +342,12 @@ type ObjectResponse struct {
 	PreviewURL string `json:"preview_url"`
 	// PublicURL is set only for published objects; it is empty otherwise rather
 	// than pointing at a route that would 404.
-	PublicURL      string    `json:"public_url"`
-	PublicURLBase  string    `json:"public_url_base,omitempty"`
-	URLBase        string    `json:"url_base,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	LastModified   time.Time `json:"last_modified"`
+	PublicURL     string    `json:"public_url"`
+	PublicURLBase string    `json:"public_url_base,omitempty"`
+	URLBase       string    `json:"url_base,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	LastModified  time.Time `json:"last_modified"`
 }
 
 // Upload handles POST /bucket/{project_id}/* and the dashboard's equivalent.
@@ -417,7 +417,7 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 
 	// The bucket's per-object cap is a separate ceiling from the project quota.
 	// All three apply: a bucket can be stricter than the project (an image bucket
-	// capped at 5 MB inside a 250 MB bucket) and the project can be stricter
+	// capped at 5 MB inside a 256 MB bucket) and the project can be stricter
 	// than the bucket (a 200 MB file into the last 10 MB of a project).
 	//
 	// Whichever is smallest is the budget the body is measured against, so the
@@ -478,7 +478,7 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 	// The three failures are reported separately, because the fixes are different:
 	// one means the project is full, one means this bucket is full, the other means
 	// this bucket wants smaller files. Collapsing them into one "too large" message
-	// leaves a user who set a 5 MB cap with a 250 MB project looking for space that
+	// leaves a user who set a 5 MB cap with a 256 MB project looking for space that
 	// does not exist.
 	if objectCap > 0 && size > objectCap {
 		_ = handler.fs.DeleteObject(projectID, key)
@@ -1682,7 +1682,7 @@ func validateMaxObjectSize(size int64) error {
 // projectQuota is the ceiling above it. A bucket may not promise more room than
 // the project has, because such a number is never reachable and reads on the
 // settings page as storage that does not exist -- the figure would promise 300 MB
-// and every upload past 250 MB would still be refused by the project quota.
+// and every upload past 256 MB would still be refused by the project quota.
 func validateBucketQuota(size int64, projectQuota int64) error {
 	if size <= 0 {
 		return errors.New("quota_bytes must be a positive number of bytes")
@@ -1828,12 +1828,12 @@ func (handler *BucketPlane) PurgeCache(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"success":       true,
-		"bucket_id":     bucketID,
-		"bucket_name":   bucket.Name,
-		"purged_count":  len(urls),
-		"urls":          urls,
-		"note":          "These URLs should be purged from your CDN. If using Cloudflare, call the Purge Cache API with these URLs. For manual purge, use the dashboard or Cloudflare API with your zone ID and API token.",
+		"success":      true,
+		"bucket_id":    bucketID,
+		"bucket_name":  bucket.Name,
+		"purged_count": len(urls),
+		"urls":         urls,
+		"note":         "These URLs should be purged from your CDN. If using Cloudflare, call the Purge Cache API with these URLs. For manual purge, use the dashboard or Cloudflare API with your zone ID and API token.",
 	})
 }
 

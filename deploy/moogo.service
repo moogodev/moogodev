@@ -25,7 +25,7 @@ EnvironmentFile=/etc/moogo/moogo.env
 # the current directory. Keeping it out of the deployment means a stray .env
 # left behind by a developer cannot override what systemd passes in.
 WorkingDirectory=/opt/moogo
-ExecStart=/usr/local/bin/moogo
+ExecStart=/usr/local/bin/moogo-api
 
 # The process shuts down gracefully and waits up to 30s for in-flight
 # requests. systemd has to outlive that, or it SIGKILLs a query that was about

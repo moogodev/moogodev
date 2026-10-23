@@ -388,7 +388,7 @@ func databaseSize(ctx context.Context, database *sql.DB) (int64, error) {
 // maxValueBytes caps a single string or BLOB value SQLite will build or return.
 //
 // It is deliberately its own constant rather than the project's database limit.
-// The database limit used to be applied here as well, and it grew to 250 MB --
+// The database limit used to be applied here as well, and it grew to 256 MB --
 // but a statement like "SELECT zeroblob(250000000)" synthesises a value out of
 // two words, so nothing about the file says one is coming and the check that
 // guards the file never runs. Pinning the value limit to the database limit
@@ -409,7 +409,7 @@ const maxValueBytes = defaultMaxResultBytes
 func applyValueLimit(connection *sql.Conn, maxDBBytes int64) error {
 	// The smaller of the two ceilings. A value bigger than the database it
 	// would live in has no business existing either -- the ceiling keeps that
-	// answer for a small database, where a value limit chosen for a 250 MB
+	// answer for a small database, where a value limit chosen for a 256 MB
 	// one would be nonsense. In production the constant binds, and the
 	// database limit governs the file alone.
 	limit := int64(maxValueBytes)

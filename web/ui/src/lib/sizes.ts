@@ -2,7 +2,7 @@
 // holds.
 //
 // The form stores the two apart because the user's answer is in the unit they
-// think in: a quota of "250 MB" and a quota of "262144000 bytes" are the same
+// think in: a quota of "256 MB" and a quota of "268435456 bytes" are the same
 // number, and only one of them can be typed without arithmetic. Everything
 // downstream -- the API, the progress bars, the rejection messages -- works in
 // bytes, because that is what the server counts.
@@ -21,8 +21,8 @@ export interface SizeParts {
 
 // sizeToParts splits a byte count into a form-friendly amount and unit.
 //
-// It picks the larger of the two units when the value fills it, so a 250 MB quota
-// reads as "250 MB" rather than "256000 KB", and 0 stays "0 KB" instead of
+// It picks the larger of the two units when the value fills it, so a 256 MB quota
+// reads as "256 MB" rather than "256000 KB", and 0 stays "0 KB" instead of
 // becoming an empty string that would have to be special-cased on save.
 export function sizeToParts(bytes: number): SizeParts {
   if (bytes >= UNIT_BYTES.MB && bytes % UNIT_BYTES.MB === 0) {

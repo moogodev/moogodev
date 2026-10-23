@@ -212,7 +212,7 @@ except MoogoError as e:
     if e.code == "sql_error":
         print("SQLite error:", e.detail)
     elif e.code == "database_too_large":
-        print("Project hit 250 MB limit")
+        print("Project hit 256 MB limit")
     elif hasattr(e, 'status') and e.status == 401:
         print("Invalid or rotated secret key")
     raise
@@ -262,7 +262,7 @@ asyncio.run(main())
 ## Production Readiness ⚠️
 
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
-- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
 - **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).

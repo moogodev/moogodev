@@ -89,7 +89,7 @@ Response, for the first upload:
     "last_modified": "2026-10-01T09:20:11Z"
   },
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000
+  "quota_bytes": 268435456
 }
 \`\`\`
 
@@ -123,9 +123,9 @@ without hardcoding origins.
 
 - **Per object:** the bucket's \`max_object_size_bytes\`, or the project ceiling if
   the bucket sets none.
-- **Per project:** 250 MB total, across all buckets.
+- **Per project:** 256 MB total, across all buckets.
 - **Per request:** the same object cap. The JSON endpoints are capped at 1 MB, but
-  storage is not — a 1 MB cap on a 250 MB project would mean nobody could ever
+  storage is not — a 1 MB cap on a 256 MB project would mean nobody could ever
   fill their bucket.
 
 Failures are distinguishable:
@@ -343,7 +343,7 @@ Response:
   "limit": 50,
   "next_cursor": "eyJzIjoiYWZiM2Yw...",
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000
+  "quota_bytes": 268435456
 }
 \`\`\`
 
@@ -446,7 +446,7 @@ curl -X DELETE "$ENDPOINT/avatars/kit.png" \\
   "deleted": 1,
   "freed_bytes": 24576,
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000
+  "quota_bytes": 268435456
 }
 \`\`\`
 
@@ -483,11 +483,11 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \\
       "is_public": false,
       "allowed_types": ["image"],
       "max_object_size_bytes": 2097152,
-      "quota_bytes": 247463936
+      "quota_bytes": 268435456
     }
   ],
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000
+  "quota_bytes": 268435456
 }
 \`\`\`
 
@@ -547,10 +547,10 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID \\
     "is_public": false,
     "allowed_types": ["image"],
     "max_object_size_bytes": 2097152,
-    "quota_bytes": 247463936
+    "quota_bytes": 268435456
   },
   "storage_used_bytes": 10485760,
-  "quota_bytes": 262144000,
+  "quota_bytes": 268435456,
   "public_url_base": "https://cdn.moogo.dev",
   "url_base": "https://api.moogo.dev"
 }
@@ -690,7 +690,7 @@ const encodeKey = (key) =>
 - **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need \`Authorization: Bearer $MOOGO_SQL_KEY\`. The types are not interchangeable.
 - **404 on an object you just uploaded** — check the key case and the bucket (\`?bucket=\`). The path is \`/bucket/{key}\`, not \`/buckets/\`.
 - **Object 404s on \`/pub/\` right after making it public** — check that the object is actually published: make the bucket public, or \`PATCH\` the object with \`{"is_public": true}\`, and read \`is_public\` back. Missing and unpublished objects answer \`404\` by design, and those responses are \`no-store\`, so a fresh publish shows up on the next request. If the URL was fetched while an older deployment was live, an edge copy of that 404 can linger until its TTL expires — use a new key or purge your CDN. For mutable assets, versioning keys (\`image-v2.png\`) is more reliable than cache invalidation.
-- **object_too_large** — above the bucket's \`max_object_size_bytes\` (or 250 MB). Shrink the file, raise the cap, or split it.
+- **object_too_large** — above the bucket's \`max_object_size_bytes\` (or 256 MB). Shrink the file, raise the cap, or split it.
 - **quota_exceeded** — project or bucket storage would go over its limit. Delete some objects or increase quota.
 - **truncated: true** — your listing is capped at \`limit\` rows. Send the \`next_cursor\` to fetch the next page, or increase \`limit\` up to 1000.
 - **invalid_cursor** — the cursor belongs to a different listing (different bucket/filters/order). Drop it and start from page 1.

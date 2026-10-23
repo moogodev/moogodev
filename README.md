@@ -22,7 +22,7 @@ update feed.
   prepared statements only and a tokenizing sanitizer that runs before anything
   touches the database.
 - **One database per project** — a real SQLite file you can back up, with its
-  own secret key and its own quota (250 MB per database, 15 seconds per
+  own secret key and its own quota (256 MB per database, 15 seconds per
   statement, 64 KB per statement text).
 - **Object storage** — buckets under the same project, with their own storage
   credential: upload, preview, public/private objects.
@@ -57,7 +57,7 @@ Moogo is built for applications that want **simplicity, isolation, and speed** o
 | **AI agents / LLM tools** | Native MCP server (`cmd/mcp`) exposes SQL + object storage as tools. No HTTP client to write. |
 | **Internal tools / Admin panels** | Dashboard included — table browser, SQL console, schema visualizer, bucket browser. |
 | **Prototypes → Production** | Same API from day one. No migration to "real" database needed. |
-| **Apps ≤ 250 MB data / project** | Honest ceiling, reported in every response. |
+| **Apps ≤ 256 MB data / project** | Honest ceiling, reported in every response. |
 
 **The pattern:** a few tables, a handful of queries, a few MB of files, and you want zero operational overhead.
 
@@ -68,7 +68,7 @@ Moogo is built for applications that want **simplicity, isolation, and speed** o
 | `PostGIS` / spatial queries | PostGIS on Postgres |
 | Cross-region read replicas | Managed Postgres (Supabase, Neon, RDS) |
 | Concurrent analytical scans (OLAP) | ClickHouse, DuckDB, BigQuery |
-| Database > 250 MB per project | Postgres, MySQL, or a larger SQLite host |
+| Database > 256 MB per project | Postgres, MySQL, or a larger SQLite host |
 | Row-level security across tenants | You get file isolation — RLS not needed |
 | `GRANT`/`REVOKE`, multiple DB roles | Moogo has one key per project |
 | Triggers, `ATTACH`, `load_extension` | Not supported (security design) |

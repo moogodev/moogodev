@@ -57,12 +57,12 @@ Check it before restarting:
 
 ```bash
 sudo -u moogo env $(grep -v '^#' /etc/moogo/moogo.env | xargs) \
-  /usr/local/bin/moogo --check-config
+  /usr/local/bin/moogo-api --check-config
 sudo systemctl restart moogo
 ```
 
 Re-run `deploy.sh` with the same domain to deploy an update. A re-run backs up
-both current binaries into `/var/backups/moogo-binaries` (the newest ten of
+the binaries it manages into `/var/backups/moogo-binaries` (the newest ten of
 each are kept), installs, restarts and verifies — a running process never picks
 up a replaced file by itself, so without the restart an update would not happen
 at all. It never rewrites the environment file, because doing so would change
@@ -72,7 +72,7 @@ Any failure after the install rolls the binaries back automatically. To roll
 back later by hand:
 
 ```bash
-sudo install -m 0755 /var/backups/moogo-binaries/<file> /usr/local/bin/moogo
+sudo install -m 0755 /var/backups/moogo-binaries/<file> /usr/local/bin/moogo-api
 sudo systemctl restart moogo
 ```
 
@@ -80,7 +80,8 @@ sudo systemctl restart moogo
 
 | Piece | Where |
 |---|---|
-| Binary | `/usr/local/bin/moogo`, plain HTTP on `127.0.0.1:8080` |
+| Binary | `/usr/local/bin/moogo-api`, plain HTTP on `127.0.0.1:8080` |
+| CLI | `/usr/local/bin/moogo` (built and installed by `deploy.sh`; the API never uses this name) |
 | Previous binaries | `/var/backups/moogo-binaries`, newest ten of each, for rollback |
 | What's-new binary (optional) | `/usr/local/bin/moogo-news`, plain HTTP on `127.0.0.1:8081` |
 | TLS, certificates | nginx in front; certbot obtains and renews |
@@ -476,7 +477,7 @@ Check config before restart:
 
 ```bash
 sudo -u moogo env $(grep -v '^#' /etc/moogo/moogo.env | xargs) \
-  /usr/local/bin/moogo --check-config
+  /usr/local/bin/moogo-api --check-config
 sudo systemctl restart moogo
 ```
 

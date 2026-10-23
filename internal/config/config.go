@@ -79,7 +79,7 @@ type Config struct {
 	// It is separate from MaxBodyBytes because the two guard different things.
 	// MaxBodyBytes bounds a JSON request -- a statement, a settings body -- where
 	// anything past a megabyte is a mistake. An upload is a file, so the same
-	// limit would cap a project that has 250 MB of storage at 1 MB per upload,
+	// limit would cap a project that has 256 MB of storage at 1 MB per upload,
 	// and the bucket would then be a quota nobody can ever fill.
 	MaxObjectBytes int64
 
@@ -189,9 +189,31 @@ type Config struct {
 // the first.
 type envReader struct {
 	problems []string
+	// known is every MOOGO_* name this loader actually reads, recorded by the
+	// getters below. The unknown-variable warning is derived from it rather
+	// than from a second hand-maintained list, so a new setting cannot be
+	// added here and then be reported as a typo on every start.
+	known map[string]bool
+}
+
+// newEnvReader returns a reader that already accepts the deprecated names the
+// server no longer reads on every path. They stay accepted so an older
+// environment file keeps starting without a warning that looks like a typo.
+func newEnvReader() *envReader {
+	reader := &envReader{known: make(map[string]bool, 64)}
+	for key := range acceptedMoogoEnv {
+		reader.known[key] = true
+	}
+	return reader
+}
+
+// mark records a key the loader read.
+func (reader *envReader) mark(key string) {
+	reader.known[key] = true
 }
 
 func (reader *envReader) string(key, fallback string) string {
+	reader.mark(key)
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return value
 	}
@@ -199,6 +221,7 @@ func (reader *envReader) string(key, fallback string) string {
 }
 
 func (reader *envReader) requiredString(key string) string {
+	reader.mark(key)
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
 		reader.problems = append(reader.problems, key+" is required")
@@ -207,6 +230,7 @@ func (reader *envReader) requiredString(key string) string {
 }
 
 func (reader *envReader) int(key string, fallback int) int {
+	reader.mark(key)
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
 		return fallback
@@ -220,6 +244,7 @@ func (reader *envReader) int(key string, fallback int) int {
 }
 
 func (reader *envReader) int64(key string, fallback int64) int64 {
+	reader.mark(key)
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
 		return fallback
@@ -233,6 +258,7 @@ func (reader *envReader) int64(key string, fallback int64) int64 {
 }
 
 func (reader *envReader) duration(key string, fallback time.Duration) time.Duration {
+	reader.mark(key)
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
 		return fallback
@@ -246,6 +272,7 @@ func (reader *envReader) duration(key string, fallback time.Duration) time.Durat
 }
 
 func (reader *envReader) bool(key string, fallback bool) bool {
+	reader.mark(key)
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
 		return fallback
@@ -267,14 +294,17 @@ func (reader *envReader) bool(key string, fallback bool) bool {
 // never overwritten by the file.
 func Load() (Config, error) {
 	loadDotenv(".env")
-	warnUnknownMoogoEnv()
 
-	reader := &envReader{}
+	reader := newEnvReader()
+	// Warn once the loader knows which names it actually read. Doing this at
+	// the start against a separate list is what made a valid setting look like
+	// a typo whenever the two drifted.
+	defer warnUnknownMoogoEnv(reader.known)
 
 	cfg := Config{
 		Addr:            reader.string("MOOGO_ADDR", "127.0.0.1:8080"),
 		PublicURL:       strings.TrimRight(reader.string("MOOGO_PUBLIC_URL", "http://localhost:8080"), "/"),
-		BaseURL:          strings.TrimRight(reader.string("MOOGO_BASE_URL", ""), "/"),
+		BaseURL:         strings.TrimRight(reader.string("MOOGO_BASE_URL", ""), "/"),
 		CDNURL:          strings.TrimRight(reader.string("MOOGO_CDN_URL", ""), "/"),
 		NewsURL:         strings.TrimRight(reader.string("MOOGO_NEWS_URL", "http://127.0.0.1:8081"), "/"),
 		ReadTimeout:     reader.duration("MOOGO_READ_TIMEOUT", 15*time.Second),
@@ -287,8 +317,8 @@ func Load() (Config, error) {
 		DBConnectTimeout: reader.duration("MOOGO_DB_CONNECT_TIMEOUT", 10*time.Second),
 
 		DataDir:           reader.string("MOOGO_DATA_DIR", "/data"),
-		MaxDBBytes:        reader.int64("MOOGO_MAX_DB_BYTES", 250*1024*1024),
-		MaxStorageBytes:   reader.int64("MOOGO_MAX_STORAGE_BYTES", 250*1024*1024),
+		MaxDBBytes:        reader.int64("MOOGO_MAX_DB_BYTES", 256*1024*1024),
+		MaxStorageBytes:   reader.int64("MOOGO_MAX_STORAGE_BYTES", 256*1024*1024),
 		QueryTimeout:      reader.duration("MOOGO_QUERY_TIMEOUT", 15*time.Second),
 		MaxBodyBytes:      reader.int64("MOOGO_MAX_BODY_BYTES", 1*1024*1024),
 		MaxObjectBytes:    reader.int64("MOOGO_MAX_OBJECT_BYTES", StorageCeilingBytes),
@@ -317,7 +347,7 @@ func Load() (Config, error) {
 		// fetched, because a limit a visitor cannot see reads as a bug when they
 		// hit it: the create button simply stops working.
 		DefaultMaxProjects:       reader.int("MOOGO_DEFAULT_MAX_PROJECTS", 2),
-		DefaultMaxDBBytes:        reader.int64("MOOGO_DEFAULT_MAX_DB_BYTES", 250*1024*1024),
+		DefaultMaxDBBytes:        reader.int64("MOOGO_DEFAULT_MAX_DB_BYTES", 256*1024*1024),
 		DefaultMaxStorageBytes:   reader.int64("MOOGO_DEFAULT_MAX_STORAGE_BYTES", StorageCeilingBytes),
 		ActivityLogRetentionDays: reader.int("MOOGO_ACTIVITY_LOG_RETENTION_DAYS", 7),
 
@@ -373,7 +403,7 @@ func Load() (Config, error) {
 	if base == "" {
 		if cfg.Environment == "production" {
 			return Config{}, fmt.Errorf(
-				"MOOGO_BASE_URL is required in production: it is the origin of the data plane " +
+				"MOOGO_BASE_URL is required in production: it is the origin of the data plane "+
 					"(e.g. https://api.example.com), not the dashboard. MOOGO_PUBLIC_URL is %q.",
 				cfg.PublicURL)
 		}
@@ -466,7 +496,7 @@ func (cfg Config) validate() error {
 		problems = append(problems, "MOOGO_MAX_BODY_BYTES must be at least 1 KB")
 	}
 
-	// The 250 MB ceiling is a product decision, not a tuning knob: it is what a
+	// The 256 MB ceiling is a product decision, not a tuning knob: it is what a
 	// project is promised, and it is what the UI and the pricing page say. A
 	// larger value is rejected rather than quietly clamped, because a
 	// configuration that appears to work and does not is the one nobody can
@@ -652,7 +682,12 @@ func stripQuotes(value string) string {
 	return value
 }
 
-var knownMoogoEnv = map[string]bool{
+// acceptedMoogoEnv seeds the names a deployment may keep even though the
+// server does not read them through a typed getter: deprecated aliases the
+// CLI still tells people to rename, and settings accepted for compatibility.
+// Every name the server actually reads is added by envReader.mark, so this
+// list only has to cover what the readers cannot see.
+var acceptedMoogoEnv = map[string]bool{
 	"MOOGO_ACTIVITY_LOG_RETENTION_DAYS": true,
 	"MOOGO_ADDR":                        true,
 	"MOOGO_API_URL":                     true, // deprecated, accepted
@@ -717,14 +752,14 @@ const (
 	minimumSessionSecretLength = 32
 )
 
-func warnUnknownMoogoEnv() {
+func warnUnknownMoogoEnv(known map[string]bool) {
 	for _, env := range os.Environ() {
 		parts := strings.SplitN(env, "=", 2)
 		if len(parts) != 2 {
 			continue
 		}
 		key := parts[0]
-		if strings.HasPrefix(key, "MOOGO_") && !knownMoogoEnv[key] {
+		if strings.HasPrefix(key, "MOOGO_") && !known[key] {
 			log.Printf("[WARN] unknown MOOGO_* environment variable: %s (check for typos)", key)
 		}
 	}
@@ -759,7 +794,7 @@ func isKnownSessionSecret(secret string) bool {
 // "why did my upload fail", and each of those has to be the same number. Making
 // it configurable in one direction only would reintroduce exactly the drift this
 // prevents.
-const StorageCeilingBytes int64 = 250 * 1024 * 1024
+const StorageCeilingBytes int64 = 256 * 1024 * 1024
 
 // validateAbsoluteURL checks that a string is a valid absolute URL with scheme and host,
 // no path, query, or fragment.

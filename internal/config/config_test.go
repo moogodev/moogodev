@@ -1,6 +1,10 @@
 package config
 
 import (
+	"bytes"
+	"log"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +27,98 @@ func loadWith(t *testing.T, overrides map[string]string) (Config, error) {
 	}
 
 	return Load()
+}
+
+// captureLog redirects the standard logger for the duration of one test, so a
+// warning's presence or absence can be asserted instead of read by eye.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buffer bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&buffer)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	return &buffer
+}
+
+// TestKnownServerVariablesDoNotWarn pins the bug where the unknown-variable
+// warning used a list that had drifted from the reader: these five are read on
+// every start and were each reported as a typo.
+func TestKnownServerVariablesDoNotWarn(t *testing.T) {
+	logged := captureLog(t)
+
+	if _, err := loadWith(t, map[string]string{
+		"MOOGO_TRUSTED_PROXIES":    "127.0.0.1",
+		"MOOGO_QUERY_TIMEOUT":      "15s",
+		"MOOGO_SESSION_TTL":        "24h",
+		"MOOGO_PASSWORD_RESET_TTL": "1h",
+		"MOOGO_VERIFICATION_TTL":   "24h",
+	}); err != nil {
+		t.Fatalf("known settings should be valid: %v", err)
+	}
+
+	if strings.Contains(logged.String(), "unknown MOOGO_*") {
+		t.Errorf("known settings produced an unknown-variable warning:\n%s", logged.String())
+	}
+}
+
+// TestEveryServerEnvironmentReadIsRegistered is the structural guard: every
+// reader call in this file must mark its key, so adding a setting cannot
+// reintroduce the false-positive warning by forgetting a second list.
+func TestEveryServerEnvironmentReadIsRegistered(t *testing.T) {
+	source, err := os.ReadFile("config.go")
+	if err != nil {
+		t.Fatalf("read config.go: %v", err)
+	}
+
+	pattern := regexp.MustCompile(`reader\.(string|requiredString|int|int64|duration|bool)\("(MOOGO_[A-Z0-9_]+)"`)
+	matches := pattern.FindAllStringSubmatch(string(source), -1)
+	if len(matches) == 0 {
+		t.Fatal("no reader calls found; the pattern no longer matches the code")
+	}
+
+	reader := newEnvReader()
+	for _, match := range matches {
+		key := match[2]
+		switch match[1] {
+		case "string":
+			reader.string(key, "")
+		case "requiredString":
+			reader.requiredString(key)
+		case "int":
+			reader.int(key, 0)
+		case "int64":
+			reader.int64(key, 0)
+		case "duration":
+			reader.duration(key, 0)
+		case "bool":
+			reader.bool(key, false)
+		default:
+			t.Fatalf("unhandled reader method %q", match[1])
+		}
+	}
+
+	for _, match := range matches {
+		if !reader.known[match[2]] {
+			t.Errorf("reader call for %s does not register the key", match[2])
+		}
+	}
+}
+
+// TestUnknownServerVariableWarns is the other side: the warning still catches a
+// genuine typo rather than being silently removed to make the false positive
+// go away.
+func TestUnknownServerVariableWarns(t *testing.T) {
+	logged := captureLog(t)
+
+	if _, err := loadWith(t, map[string]string{
+		"MOOGO_NOT_A_REAL_SETTING": "1",
+	}); err != nil {
+		t.Fatalf("an unknown variable should not invalidate the configuration: %v", err)
+	}
+
+	if !strings.Contains(logged.String(), "MOOGO_NOT_A_REAL_SETTING") {
+		t.Errorf("unknown variable was not reported:\n%s", logged.String())
+	}
 }
 
 func TestBackupsAreOffByDefault(t *testing.T) {
@@ -97,11 +193,20 @@ func TestDefaultsPutAProjectAt256MB(t *testing.T) {
 		t.Fatalf("defaults should be valid: %v", err)
 	}
 
-	if cfg.MaxStorageBytes != 250*1024*1024 {
-		t.Errorf("MaxStorageBytes = %d, want 250 MiB", cfg.MaxStorageBytes)
+	if cfg.MaxStorageBytes != 256*1024*1024 {
+		t.Errorf("MaxStorageBytes = %d, want 256 MiB", cfg.MaxStorageBytes)
 	}
-	if cfg.MaxObjectBytes != 250*1024*1024 {
-		t.Errorf("MaxObjectBytes = %d, want 250 MiB", cfg.MaxObjectBytes)
+	if cfg.MaxObjectBytes != 256*1024*1024 {
+		t.Errorf("MaxObjectBytes = %d, want 256 MiB", cfg.MaxObjectBytes)
+	}
+	if cfg.MaxDBBytes != 256*1024*1024 {
+		t.Errorf("MaxDBBytes = %d, want 256 MiB", cfg.MaxDBBytes)
+	}
+	if cfg.DefaultMaxDBBytes != 256*1024*1024 {
+		t.Errorf("DefaultMaxDBBytes = %d, want 256 MiB", cfg.DefaultMaxDBBytes)
+	}
+	if cfg.DefaultMaxStorageBytes != 256*1024*1024 {
+		t.Errorf("DefaultMaxStorageBytes = %d, want 256 MiB", cfg.DefaultMaxStorageBytes)
 	}
 }
 
@@ -171,7 +276,7 @@ func TestObjectCapIsSeparateFromTheJSONBodyCap(t *testing.T) {
 
 func TestAQuotaAboveTheCeilingIsRejected(t *testing.T) {
 	// Silently clamping would leave an operator believing they provisioned 1 GB
-	// per project while uploads fail at 250 MB for reasons the config does not
+	// per project while uploads fail at 256 MB for reasons the config does not
 	// mention. Failing to start says what is wrong.
 	_, err := loadWith(t, map[string]string{
 		"MOOGO_MAX_STORAGE_BYTES":         "1073741824",
@@ -179,7 +284,7 @@ func TestAQuotaAboveTheCeilingIsRejected(t *testing.T) {
 		"MOOGO_MAX_OBJECT_BYTES":          "1073741824",
 	})
 	if err == nil {
-		t.Fatal("a 1 GB quota should be rejected, the ceiling is 250 MB")
+		t.Fatal("a 1 GB quota should be rejected, the ceiling is 256 MB")
 	}
 	for _, want := range []string{
 		"MOOGO_MAX_STORAGE_BYTES",
@@ -306,9 +411,9 @@ func TestProductionAcceptsAGeneratedSecret(t *testing.T) {
 // therefore cannot open a single account, and must not boot into it.
 func TestProductionRefusesToBootWithNoSignInPath(t *testing.T) {
 	_, err := loadWith(t, map[string]string{
-		"MOOGO_ENV":            "production",
-		"MOOGO_BASE_URL":       "https://api.example.com",
-		"MOOGO_COOKIE_SECURE":  "true",
+		"MOOGO_ENV":           "production",
+		"MOOGO_BASE_URL":      "https://api.example.com",
+		"MOOGO_COOKIE_SECURE": "true",
 	})
 
 	if err == nil {

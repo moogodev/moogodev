@@ -38,7 +38,7 @@ const (
 
 // Download caps for download_object.
 //
-// An object can be 250 MB and a tool result is a JSON string in a transcript,
+// An object can be 256 MB and a tool result is a JSON string in a transcript,
 // so a download is capped rather than serialised whole.
 const (
 	defaultDownloadBytes = 1 << 20

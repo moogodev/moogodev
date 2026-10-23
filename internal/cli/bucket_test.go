@@ -56,7 +56,7 @@ func TestBucketListJSONPrintsWhatTheAPISent(t *testing.T) {
 	if code != ExitOK {
 		t.Fatalf("exit = %d, out=%s err=%s", code, out, errOut)
 	}
-	if !strings.Contains(out, `"quota_bytes": 262144000`) {
+	if !strings.Contains(out, `"quota_bytes": 268435456`) {
 		t.Errorf("--json dropped a field the client does not model:\n%s", out)
 	}
 	if !strings.Contains(out, "\n  \"success\"") {
@@ -97,11 +97,11 @@ func TestBucketListFollowsTheCursor(t *testing.T) {
 			return 200, `{"success":true,"bucket":{"name":"avatars"},"objects":[
 				{"key":"avatars/a.png","size_bytes":1,"content_type":"image/png","updated_at":"2026-10-18T09:12:44Z"},
 				{"key":"avatars/b.png","size_bytes":2,"content_type":"image/png","updated_at":"2026-10-18T09:12:45Z"}],
-				"total":3,"limit":2,"next_cursor":"tok_2","storage_used_bytes":6,"quota_bytes":262144000}`
+				"total":3,"limit":2,"next_cursor":"tok_2","storage_used_bytes":6,"quota_bytes":268435456}`
 		}
 		return 200, `{"success":true,"bucket":{"name":"avatars"},"objects":[
 			{"key":"avatars/c.png","size_bytes":3,"content_type":"image/png","updated_at":"2026-10-18T09:12:46Z"}],
-			"total":3,"limit":2,"next_cursor":"","storage_used_bytes":6,"quota_bytes":262144000}`
+			"total":3,"limit":2,"next_cursor":"","storage_used_bytes":6,"quota_bytes":268435456}`
 	})
 
 	code, out, errOut := api.run("bucket", "ls")
@@ -144,7 +144,7 @@ func TestBucketListStopsAtTheLimitAndNamesTheCursor(t *testing.T) {
 		return 200, `{"success":true,"bucket":{"name":"avatars"},"objects":[
 			{"key":"avatars/a.png","size_bytes":1,"content_type":"image/png","updated_at":"2026-10-18T09:12:44Z"},
 			{"key":"avatars/b.png","size_bytes":2,"content_type":"image/png","updated_at":"2026-10-18T09:12:45Z"}],
-			"total":5,"limit":2,"next_cursor":"tok_more","storage_used_bytes":9,"quota_bytes":262144000}`
+			"total":5,"limit":2,"next_cursor":"tok_more","storage_used_bytes":9,"quota_bytes":268435456}`
 	})
 
 	code, out, errOut := api.run("bucket", "ls", "--limit", "2")
@@ -169,11 +169,11 @@ func TestBucketListJSONFoldsThePagesTogether(t *testing.T) {
 		if call.Query.Get("cursor") == "" {
 			return 200, `{"success":true,"bucket":{"name":"avatars"},"objects":[
 				{"key":"avatars/a.png","size_bytes":1}],
-				"total":3,"limit":2,"next_cursor":"tok_2","storage_used_bytes":6,"quota_bytes":262144000}`
+				"total":3,"limit":2,"next_cursor":"tok_2","storage_used_bytes":6,"quota_bytes":268435456}`
 		}
 		return 200, `{"success":true,"bucket":{"name":"avatars"},"objects":[
 			{"key":"avatars/b.png","size_bytes":2},{"key":"avatars/c.png","size_bytes":3}],
-			"total":3,"limit":2,"next_cursor":"","storage_used_bytes":6,"quota_bytes":262144000}`
+			"total":3,"limit":2,"next_cursor":"","storage_used_bytes":6,"quota_bytes":268435456}`
 	})
 
 	code, out, errOut := api.run("bucket", "ls", "--json")
@@ -183,7 +183,7 @@ func TestBucketListJSONFoldsThePagesTogether(t *testing.T) {
 	if strings.Count(out, `"key"`) != 3 {
 		t.Errorf("--json should carry every page's objects once:\n%s", out)
 	}
-	if !strings.Contains(out, `"quota_bytes": 262144000`) {
+	if !strings.Contains(out, `"quota_bytes": 268435456`) {
 		t.Errorf("--json dropped a field the client does not model:\n%s", out)
 	}
 	if !strings.Contains(out, `"next_cursor": ""`) {
@@ -219,7 +219,7 @@ func TestBucketListNeedsAStorageCredential(t *testing.T) {
 func TestBucketListSaysSoWhenABucketIsEmpty(t *testing.T) {
 	api := newFakeAPI(t, func(call apiCall) (int, string) {
 		return 200, `{"success": true, "bucket": {"name": "avatars"}, "objects": [], "total": 0,
-			"limit": 100, "next_cursor": "", "storage_used_bytes": 0, "quota_bytes": 262144000}`
+			"limit": 100, "next_cursor": "", "storage_used_bytes": 0, "quota_bytes": 268435456}`
 	})
 
 	code, out, errOut := api.run("bucket", "ls")
@@ -244,7 +244,7 @@ func TestBucketRemoveDeletesEachKey(t *testing.T) {
 		}
 		deleted = append(deleted, call.Path)
 		return 200, `{"success": true, "deleted": 1, "freed_bytes": 1024,
-			"storage_used_bytes": 0, "quota_bytes": 262144000}`
+			"storage_used_bytes": 0, "quota_bytes": 268435456}`
 	})
 
 	code, out, errOut := api.run("bucket", "rm", "avatars/ada.png", "a b.png")
@@ -277,7 +277,7 @@ func TestBucketRemoveMarksAPrefixDelete(t *testing.T) {
 		if got := call.Query.Get("prefix"); got != "true" {
 			t.Errorf("prefix = %q, want true", got)
 		}
-		return 200, `{"success": true, "deleted_objects": 7, "storage_used_bytes": 0, "quota_bytes": 262144000}`
+		return 200, `{"success": true, "deleted_objects": 7, "storage_used_bytes": 0, "quota_bytes": 268435456}`
 	})
 
 	code, out, errOut := api.run("bucket", "rm", "--prefix", "photos")
@@ -297,7 +297,7 @@ func TestBucketRemoveNamesTheKeyThatFailed(t *testing.T) {
 			return 404, errorBody(http.StatusNotFound, "not_found", "object not found")
 		}
 		return 200, `{"success": true, "deleted": 1, "freed_bytes": 0,
-			"storage_used_bytes": 0, "quota_bytes": 262144000}`
+			"storage_used_bytes": 0, "quota_bytes": 268435456}`
 	})
 
 	code, _, errOut := api.run("bucket", "rm", "here.png", "missing.png")
@@ -325,5 +325,5 @@ const objectPageJSON = `{
 	"limit": 100,
 	"next_cursor": "",
 	"storage_used_bytes": 10905190,
-	"quota_bytes": 262144000
+	"quota_bytes": 268435456
 }`

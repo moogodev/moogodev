@@ -17,7 +17,7 @@
 - [Create your first project](/docs/create-project.md): A project is one SQLite database, one object storage namespace, and one set of credentials. Creating it takes a few seconds and gives you everything you need to make your first query.
 - [Credentials](/docs/credentials.md): Moogo uses different credentials for different things, on purpose. This page covers what each one authorises, how to send it, and what happens if it leaks.
 - [SQL API](/docs/sql-api.md): Three endpoints. One runs reads, one runs writes, and one runs several writes as a single unit. All three take a project key, and all three validate your SQL before it touches the database.
-- [Create a bucket](/docs/create-bucket.md): Every project has 250 MB of object storage. A bucket is a named namespace inside that quota, so you can keep avatars separate from exports without either one colliding.
+- [Create a bucket](/docs/create-bucket.md): Every project has 256 MB of object storage. A bucket is a named namespace inside that quota, so you can keep avatars separate from exports without either one colliding.
 - [Object storage](/docs/object-storage.md): Files live under your project with a storage credential — not the SQL project key. This page is the full reference.
 - [JavaScript / TypeScript Client](/docs/javascript-client.md): The official @moogodev/client package provides a type-safe, zero-dependency client for Moogo's object storage and SQL API.
 - [Dashboard](/docs/dashboard.md): The dashboard is a full studio for your database: browse and edit rows as a spreadsheet, build tables without writing migrations, run SQL in a console, and watch what every request did.

@@ -81,7 +81,7 @@ export class BodyTooLargeError extends MoogoError {
 }
 export class ObjectTooLargeError extends MoogoError {
     constructor(detail) {
-        super('object_too_large', 'Object over the bucket max size. Check bucket max_object_size_bytes (default 250 MB). Use `PATCH /buckets/{id}` to increase, or split the file.', 413, detail);
+        super('object_too_large', 'Object over the bucket max size. Check bucket max_object_size_bytes (default 256 MB). Use `PATCH /buckets/{id}` to increase, or split the file.', 413, detail);
         this.name = 'ObjectTooLargeError';
         Object.setPrototypeOf(this, ObjectTooLargeError.prototype);
     }

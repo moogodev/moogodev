@@ -465,7 +465,7 @@ schema inspector needs.
 | Statement length | 64 KB | `sql_too_long` |
 | Request body | 1 MB | `body_too_large` |
 | Execution time | 15 seconds | `statement_timeout` |
-| Database size | 250 MB | `database_too_large` |
+| Database size | 256 MB | `database_too_large` |
 
 The statement length limit bounds tokenizer work and error-message size. It is not
 a substitute for the body limit, which is enforced while reading.
@@ -864,7 +864,7 @@ Every error has the same shape, so you can branch on `code` instead of parsing
 |---|---|---|
 | `sql_error` | 400 | SQLite rejected the statement. Check `detail`. |
 | `database_not_found` | 404 | The project database does not exist. |
-| `database_too_large` | 413 | The database is at its 250 MB ceiling. |
+| `database_too_large` | 413 | The database is at its 256 MB ceiling. |
 | `statement_timeout` | 504 | The statement passed 15 seconds and was cancelled. |
 | `quota_exceeded` | 429 | An account quota was reached. |
 | `project_paused` | 403 | The project is paused. |
@@ -895,8 +895,8 @@ From `/docs/limits.md`, limits are already transparent, but some practical patte
 - **Paging vs reading all**: For datasets over 100 rows, use `LIMIT/OFFSET` with small pages (e.g., 50 rows per page) instead of `SELECT *` entirely. Using large `OFFSET` gets slower because SQLite must skip preceding rows.
 - **CTE vs subquery**: For complex queries, CTE is generally more readable and sometimes performs better, but avoid recursive CTEs in the same transaction as write operations, because SQLite may lock pages.
 - **Avoid `SELECT *`**: Column names change will break clients without migration. Always specify needed columns.
-- **Database does not auto-shrink**: `DELETE` frees pages immediately, but physical space (`250 MB` ceiling) does not decrease until `VACUUM` executes (blocked on Moogo). If project approaches the limit, delete rows progressively rather than one large deletion.
-- **Performance Anomalies Near the 250 MB Limit**: As usage approaches the ceiling, SQLite adds a small overhead to check the limit before every write. It is recommended to monitor daily usage and migrate to a new project before reaching 230 MB.
+- **Database does not auto-shrink**: `DELETE` frees pages immediately, but physical space (`256 MB` ceiling) does not decrease until `VACUUM` executes (blocked on Moogo). If project approaches the limit, delete rows progressively rather than one large deletion.
+- **Performance Anomalies Near the 256 MB Limit**: As usage approaches the ceiling, SQLite adds a small overhead to check the limit before every write. It is recommended to monitor daily usage and migrate to a new project before reaching 256 MB.
 
 ## SQL Security
 

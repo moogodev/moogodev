@@ -8,9 +8,9 @@ you find out from the API rather than from a hung tab or a surprise bill.
 | Limit | Value | Enforced |
 |---|---|---|
 | Projects per account | **2** | Checked inside the transaction that creates a project. |
-| Database size | **250 MB** per project | Before every write; SQLite itself refuses page growth past the ceiling. |
-| Storage | **250 MB** per project | On upload, against usage plus declared size. |
-| Object size | Bucket's `max_object_size_bytes`, or 250 MB | On upload. |
+| Database size | **256 MB** per project | Before every write; SQLite itself refuses page growth past the ceiling. |
+| Storage | **256 MB** per project | On upload, against usage plus declared size. |
+| Object size | Bucket's `max_object_size_bytes`, or 256 MB | On upload. |
 
 Automatic database backups are stored **separately** and do **not** count
 against a project's storage quota — that quota is for the objects you serve. See
@@ -24,7 +24,7 @@ The check happens **inside the transaction** that creates the project, not befor
 
 ### Database size
 
-250 MB, measured as `(page_count - freelist_count) * page_size` — the data pages, so space freed by a DELETE starts counting as free immediately.
+256 MB, measured as `(page_count - freelist_count) * page_size` — the data pages, so space freed by a DELETE starts counting as free immediately.
 
 The check runs **before** the write, and SQLite refuses the page growth that would cross the ceiling, so a write that would overrun is refused; it is not partially applied and it is not silently truncated.
 

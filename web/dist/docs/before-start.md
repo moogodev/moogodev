@@ -52,7 +52,7 @@ This is the fundamental difference you must understand before starting:
   - **Data plane:** SQLite per-project, storing your actual data
   - **The two planes never mix** — a bug in the control plane cannot reach data plane data
 - **Physical isolation:** Each project has its own `.db` file at `/data/dbs/{project_id}.db`. No shared tables, no shared buffer pool.
-- **Activity reported** — every limit (250 MB, 15 seconds, 1 MB request body) returned in API response, not "hanged tab" or "surprise bill"
+- **Activity reported** — every limit (256 MB, 15 seconds, 1 MB request body) returned in API response, not "hanged tab" or "surprise bill"
 - **No SDK needed** — just `curl` with header `Authorization: Bearer ...` and `Content-Type: application/json`
 - **Honest limits** — every limit reported by API, so you know when you exceed limits
 - **Managed infrastructure** — all infrastructure handled by Moogo
@@ -108,8 +108,8 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 | **Publish** | Mechanism to change object from private to publicly readable (no credentials). Set `is_public: true` via PATCH request or dashboard. After publishing, `public_url` is populated with `https://cdn.moogo.dev/pub/{project_id}/{key}` (if CDN enabled) or `https://api.moogo.dev/pub/{project_id}/{key}`. |
 | **Public URL** | URL shareable by anyone without credentials. **IMPORTANT:** `public_url` is a **bearer token** — it is a URL that can be shared with anyone and **cannot be revoked** without rotating the key or unpublishing the object. If you share `public_url`, as long as object remains published, anyone with the URL can access it. **Recommended workflow:** after upload, do `PATCH is_public: true` if you want object readable without credentials. |
 | **`/pub/{project_id}/{key}`** | Public path for published objects. **`project_id` is required** in this path. **Never use `/pub/{key}` alone**, because `project_id` is required to identify the project. |
-| **`max_object_size_bytes`** | Maximum object size per bucket. If bucket doesn't set size, project ceiling of 250 MB applies. |
-| **Storage Quota** | Total storage limit per project: **250 MB** across all buckets. Monitor daily usage, and migrate to a new project before reaching 250 MB. Database does not auto-shrink when data is deleted — requires VACUUM (blocked on Moogo) or progressive row deletion. |
+| **`max_object_size_bytes`** | Maximum object size per bucket. If bucket doesn't set size, project ceiling of 256 MB applies. |
+| **Storage Quota** | Total storage limit per project: **256 MB** across all buckets. Monitor daily usage, and migrate to a new project before reaching 256 MB. Database does not auto-shrink when data is deleted — requires VACUUM (blocked on Moogo) or progressive row deletion. |
 
 ---
 
@@ -128,10 +128,10 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 
 | Term | Limit | Description |
 |------|-------|-------------|
-| **Database size** | 250 MB per project | Measured before every write. Calculated as `(page_count - freelist_count) * page_size`. |
+| **Database size** | 256 MB per project | Measured before every write. Calculated as `(page_count - freelist_count) * page_size`. |
 | **Statement timeout** | 15 seconds | Exceeding causes `500 timeout`. |
 | **Max statements per transaction** | 100 statements | Exceeding causes `too_many_statements` error. |
-| **Max object size** | Bucket's `max_object_size_bytes` or 250 MB | If bucket sets its own size, that limit applies. |
+| **Max object size** | Bucket's `max_object_size_bytes` or 256 MB | If bucket sets its own size, that limit applies. |
 | **Max request body** | 1 MB | JSON request body limit for SQL endpoints. |
 | **Projects per account** | 2 projects | `POST /api/projects` responds `429 quota_exceeded` for third project. |
 | **Rows per read response** | Max 1000 rows or 16 MB | If data exceeds, truncated and marked `truncated: true`. |
@@ -145,8 +145,8 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 | **Check `error.code` before `error.message`** | Error envelope is consistent, but code is more stable for branching logic |
 | **Use `LIMIT/OFFSET` for paging** | For datasets > 100 rows, use small pages (example: 50 rows per page) instead of `SELECT *` entirely |
 | **Avoid `SELECT *`** | Schema changes break clients without migration. Always specify needed columns. |
-| **Database does not auto-shrink** | `DELETE` frees pages, but physical space (250 MB) doesn't shrink until `VACUUM` executes (blocked on Moogo). |
-| **Monitor Daily Usage** | If approaching 230 MB, migrate to a new project before reaching the 250 MB ceiling. |
+| **Database does not auto-shrink** | `DELETE` frees pages, but physical space (256 MB) doesn't shrink until `VACUUM` executes (blocked on Moogo). |
+| **Monitor Daily Usage** | If approaching 256 MB, migrate to a new project before reaching the 256 MB ceiling. |
 | **Session cookie has HttpOnly + Secure + SameSite=Lax** | Prevents XSS from stealing session and cross-site CSRF. |
 | **SQL key never sent to browser** | Dashboard uses session cookie, but SQL API needs secret key stored server-side. |
 | **Public URL requires publish first** | Private objects have empty `public_url`. Ensure object is published (`PATCH is_public: true`) before sharing URL. |

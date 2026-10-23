@@ -124,7 +124,7 @@ func (client *StorageClient) Upload(ctx context.Context, bucket, key, contentTyp
 
 // Download fetches one object, reading at most maxBytes of it.
 //
-// The cap exists because an object can be 250 MB and a tool result is a JSON
+// The cap exists because an object can be 256 MB and a tool result is a JSON
 // string in a transcript; a download that cannot fit is reported as truncated
 // rather than silently serialised whole.
 func (client *StorageClient) Download(ctx context.Context, key string, maxBytes int64) (*Object, error) {
