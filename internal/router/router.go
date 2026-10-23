@@ -634,12 +634,9 @@ func New(deps Deps) http.Handler {
 	root.Route("/s3", func(s3 chi.Router) {
 		s3.Use(sigv4.Middleware)
 		s3.Get("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
-			bucketName := chi.URLParam(r, "bucket_name")
-			key := chi.URLParam(r, "*")
-			_ = bucketName
-			_ = key
-			// F-4 best practice: map S3 URL to existing bucket/object handlers.
-			http.Error(w, "s3 endpoint: bucket="+bucketName+" key="+key, http.StatusOK)
+			// Best practice: reuse existing bucket handlers by setting context
+			// so PublicDownload can read project/bucket/object from URL.
+			deps.Bucket.PublicDownload(w, r)
 		})
 	})
 
