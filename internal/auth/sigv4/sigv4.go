@@ -4,6 +4,7 @@
 package sigv4
 
 import (
+	"context"
 	"net/http"
 	"strings"
 )
@@ -16,8 +17,12 @@ func Middleware(next http.Handler) http.Handler {
 			http.Error(w, "missing authorization", http.StatusUnauthorized)
 			return
 		}
-		// Best practice: extract credential, signed headers, and signature.
-		// Full verification against storage keys is done by the controller.
+		key, region, ok := Verify(r)
+		if !ok || key == "" || region == "" {
+			http.Error(w, "bad authorization", http.StatusUnauthorized)
+			return
+		}
+		r = r.WithContext(context.WithValue(r.Context(), "sigv4_access_key", key))
 		next.ServeHTTP(w, r)
 	})
 }
