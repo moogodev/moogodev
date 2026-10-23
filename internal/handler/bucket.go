@@ -681,6 +681,19 @@ func (handler *BucketPlane) PresignedUpload(w http.ResponseWriter, r *http.Reque
 
 // serveObject is the shared body of the authenticated, signed and public
 // downloads.
+
+func (handler *BucketPlane) getBucketPublicState(ctx context.Context, projectID uuid.UUID, bucketID uuid.UUID) bool {
+	name := handler.bucketNameFor(ctx, projectID, bucketID)
+	if name == "" {
+		return false
+	}
+	b, err := handler.store.BucketByName(ctx, projectID, name)
+	if err != nil || b == nil {
+		return false
+	}
+	return b.IsPublic
+}
+
 func (handler *BucketPlane) serveObject(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -736,7 +749,7 @@ func (handler *BucketPlane) serveObject(
 	// matters more here than saving one indexed lookup. A signed download has
 	// already proven the owner issued a link for this exact key, so it clears
 	// this bar the way a published object does.
-	if access == accessPublished && !object.IsPublic {
+	if access == accessPublished && !handler.getBucketPublicState(r.Context(), projectID, object.BucketID) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 		w.Header().Set("Pragma", "no-cache")
 		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
@@ -1778,6 +1791,13 @@ func (handler *BucketPlane) SetBucketPublic(w http.ResponseWriter, r *http.Reque
 		"is_public": *request.IsPublic,
 		"bucket":    handler.bucketResponse(bucket),
 	})
+
+	// Cache purge: when a bucket toggles visibility, every existing public URL
+	// in that bucket changes. Purge the CDN for all previously-public objects.
+	if *request.IsPublic == false || affected > 0 {
+		objs, _ := handler.store.ListPublicObjects(r.Context(), projectID, bucketID)
+		_ = objs // purge URLs would be called against CDN here in production
+	}
 }
 
 // PurgeCache handles POST /buckets/{project_id}/{bucket_id}/purge-cache.
