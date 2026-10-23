@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/auth/sigv4"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
 	"github.com/moogodev/moogodev/internal/idempotency"
 	"github.com/moogodev/moogodev/internal/ratelimit"
@@ -627,6 +628,13 @@ func New(deps Deps) http.Handler {
 			bucket.Delete("/", deps.Bucket.DeleteBucket)
 			// Toggle and purge are dashboard-only (session cookie), not storage-credential.
 		})
+	})
+
+	// --- S3-compatible endpoint (R2 wire-compat) ---
+	root.Route("/s3", func(s3 chi.Router) {
+		s3.Use(sigv4.Middleware)
+		s3.Get("/{bucket_id}/*", deps.Bucket.PublicDownload)
+		s3.Put("/{bucket_id}/*", deps.Bucket.PresignedUpload)
 	})
 
 	// --- Data plane: project-scoped, for the developer's own application ---
