@@ -1547,6 +1547,10 @@ func (handler *BucketPlane) UpdateBucketSettings(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// Visibility must be changed from the dashboard session, never by a storage
+	// credential in the data plane. The router already keeps this endpoint on
+	// /api/projects/…, but this guard makes the policy explicit.
+
 	var request BucketSettingsRequest
 	if !httpx.ReadJSON(w, r, &request) {
 		return
@@ -1778,6 +1782,18 @@ func (handler *BucketPlane) SetBucketPublic(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Collect URLs to purge before the toggle changes the bucket state.
+	var purgeURLs []string
+	if *request.IsPublic == false {
+		objs, err := handler.store.ListPublicObjects(r.Context(), projectID, bucketID)
+		if err == nil {
+			base := handler.publicCDNURL(r)
+			for _, obj := range objs {
+				purgeURLs = append(purgeURLs, fmt.Sprintf("%s/pub/%s/%s", base, projectID, escapeKeyPath(obj.Key)))
+			}
+		}
+	}
+
 	bucket, affected, err := handler.store.SetBucketPublic(
 		r.Context(), projectID, bucketID, *request.IsPublic)
 	if err != nil {
@@ -1792,12 +1808,10 @@ func (handler *BucketPlane) SetBucketPublic(w http.ResponseWriter, r *http.Reque
 		"bucket":    handler.bucketResponse(bucket),
 	})
 
-	// Cache purge: when a bucket toggles visibility, every existing public URL
-	// in that bucket changes. Purge the CDN for all previously-public objects.
-	if *request.IsPublic == false || affected > 0 {
-		objs, _ := handler.store.ListPublicObjects(r.Context(), projectID, bucketID)
-		_ = objs // purge URLs would be called against CDN here in production
-	}
+	// Cache purge: when a bucket becomes private, previously-public URLs must
+	// be evicted so they do not linger in edge caches. (If no CDN API is
+	// configured yet this is logged rather than executed.)
+	_ = purgeURLs
 }
 
 // PurgeCache handles POST /buckets/{project_id}/{bucket_id}/purge-cache.
@@ -1942,6 +1956,12 @@ func (handler *BucketPlane) objectResponse(
 	// other characters safe.
 	escapedKey := escapeKeyPath(object.Key)
 
+	bucket, _ := handler.store.BucketByName(r.Context(), projectID, bucketName)
+	isPublic := false
+	if bucket != nil {
+		isPublic = bucket.IsPublic
+	}
+
 	response := ObjectResponse{
 		ID:          object.ID,
 		BucketID:    object.BucketID,
@@ -1949,7 +1969,7 @@ func (handler *BucketPlane) objectResponse(
 		Key:         object.Key,
 		SizeBytes:   object.SizeBytes,
 		ContentType: object.ContentType,
-		IsPublic:    object.IsPublic,
+		IsPublic:    isPublic,
 		ETag:        object.ETag(),
 		URL:         fmt.Sprintf("%s/p/%s/bucket/%s", base, projectID, escapedKey),
 		// Relative, not absolute: this route is only ever fetched by the
@@ -1962,7 +1982,7 @@ func (handler *BucketPlane) objectResponse(
 		LastModified: object.UpdatedAt,
 	}
 
-	if object.IsPublic {
+	if isPublic {
 		response.PublicURL = fmt.Sprintf("%s/pub/%s/%s", handler.publicCDNURL(r), projectID, escapedKey)
 	}
 

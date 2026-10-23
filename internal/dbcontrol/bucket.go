@@ -284,7 +284,7 @@ func (store *Store) PutObject(
 				$1, $2, $3, $4, $5, $6,
 				CASE WHEN $6 THEN gen_random_uuid()::text ELSE NULL END,
 				gen_random_uuid(),
-				NULLIF($7, '')
+				COALESCE(NULLIF($7, ''), NULL)
 			)
 			ON CONFLICT (project_id, key) DO UPDATE
 			   SET size_bytes   = EXCLUDED.size_bytes,
@@ -357,7 +357,8 @@ func (store *Store) ObjectByKey(ctx context.Context, projectID uuid.UUID, key st
 		&object.UpdatedAt,
 	)
 	if cacheControl != nil {
-		object.CacheControl = *cacheControl
+		val := *cacheControl
+		object.CacheControl = &val
 	}
 	if err != nil {
 		if isNoRows(err) {
@@ -893,7 +894,8 @@ func (store *Store) ListObjects(
 			return empty, fmt.Errorf("scan object: %w", err)
 		}
 		if cacheControl != nil {
-			object.CacheControl = *cacheControl
+			val := *cacheControl
+			object.CacheControl = &val
 		}
 		objects = append(objects, object)
 		// Every row carries the same count, so assigning it repeatedly is

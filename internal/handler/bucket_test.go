@@ -895,8 +895,8 @@ func TestPublicDownloadServesAPublishedObject(t *testing.T) {
 	bucket := store.addBucket("default")
 	object := store.addObject(bucket, "logo.png", 4, "image/png")
 	fs.contents["logo.png"] = []byte("PNG!")
-	if _, err := store.SetObjectPublic(context.Background(), store.projectID, "logo.png", true); err != nil {
-		t.Fatalf("publish: %v", err)
+	if _, _, err := store.SetBucketPublic(context.Background(), store.projectID, bucket.ID, true); err != nil {
+		t.Fatalf("publish bucket: %v", err)
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/pub/x/logo.png", nil).WithContext(
@@ -1700,7 +1700,7 @@ func TestUploadIntoANamedBucket(t *testing.T) {
 
 // --- visibility ---
 
-func TestSetPublicTogglesTheObjectAndReportsTheURL(t *testing.T) {
+func TestUpdateRejectsPerObjectVisibility(t *testing.T) {
 	plane, store, _ := testBucketPlane(t, 1<<20)
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "logo.png", 4, "image/png")
@@ -1712,27 +1712,12 @@ func TestSetPublicTogglesTheObjectAndReportsTheURL(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	plane.Update(recorder, request)
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (body %q)", recorder.Code, recorder.Body.String())
-	}
-
-	var response struct {
-		Object struct {
-			IsPublic  bool   `json:"is_public"`
-			PublicURL string `json:"public_url"`
-		} `json:"object"`
-	}
-	decodeBody(t, recorder, &response)
-	if !response.Object.IsPublic {
-		t.Fatal("is_public = false after publishing")
-	}
-	// The published URL is the one a user pastes into their own site.
-	if !strings.Contains(response.Object.PublicURL, "/pub/") {
-		t.Fatalf("public_url = %q, want a /pub/ path", response.Object.PublicURL)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (object visibility must be bucket-level)", recorder.Code)
 	}
 }
 
-func TestSetPublicRequiresTheField(t *testing.T) {
+func TestUpdateRequiresNewKey(t *testing.T) {
 	plane, store, _ := testBucketPlane(t, 1<<20)
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "logo.png", 4, "image/png")
@@ -1750,7 +1735,7 @@ func TestSetPublicRequiresTheField(t *testing.T) {
 	}
 }
 
-func TestSetPublicRefusesAnUnknownField(t *testing.T) {
+func TestUpdateRejectsUnknownField(t *testing.T) {
 	plane, store, _ := testBucketPlane(t, 1<<20)
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "logo.png", 4, "image/png")

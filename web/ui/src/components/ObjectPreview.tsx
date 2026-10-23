@@ -140,8 +140,8 @@ export default function ObjectPreview({
                 Public URL
               </dt>
               <dd className="mt-1.5">
-                {object.is_public ? (
-                  <>
+                <div className="mt-1.5 space-y-2">
+                  {object.public_url ? (
                     <button
                       type="button"
                       onClick={onOpenPublic}
@@ -152,31 +152,13 @@ export default function ObjectPreview({
                         click to open in a new tab
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={onTogglePublic}
-                      disabled={busy}
-                      className="mt-2 cursor-pointer text-xs text-muted underline decoration-dotted underline-offset-2 transition-colors hover:text-foreground disabled:opacity-50"
-                    >
-                      Unpublish this object
-                    </button>
-                  </>
-                ) : (
-                  <>
+                  ) : (
                     <p className="text-xs text-muted">
-                      This object is private. Publish it to get a link you can use on
-                      your own site.
+                      Public only when the bucket is public (set in{" "}
+                      <span className="font-medium text-foreground">Bucket Settings</span>).
                     </p>
-                    <button
-                      type="button"
-                      onClick={onTogglePublic}
-                      disabled={busy}
-                      className="mt-2 cursor-pointer rounded-md bg-accent-strong px-2.5 py-1.5 text-xs font-semibold text-accent-ink transition-colors hover:bg-accent disabled:opacity-50"
-                    >
-                      {busy ? "Publishing…" : "Publish this object"}
-                    </button>
-                  </>
-                )}
+                  )}
+                </div>
               </dd>
             </div>
 
