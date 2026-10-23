@@ -306,7 +306,7 @@ func (store *fakeBucketStore) PutObject(
 	sizeBytes int64,
 	contentType string,
 	isPublic bool,
-	cacheControl string,
+	cacheControl *string,
 ) (*dbcontrol.BucketObject, int64, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -327,7 +327,7 @@ func (store *fakeBucketStore) PutObject(
 		existing.ContentType = contentType
 		existing.BucketID = bucketID
 		existing.Version = uuid.New()
-		existing.CacheControl = cacheControl
+		if cacheControl != nil { val := *cacheControl; existing.CacheControl = &val }
 		// A copy, not the stored pointer: a caller that captured the previous
 		// response must not see it change underneath.
 		replaced := *existing
@@ -1408,7 +1408,7 @@ func TestDownloadChangesETagAfterTheObjectIsReplaced(t *testing.T) {
 	fs.contents["logo.png"] = []byte("NEW!")
 	if _, _, err := store.PutObject(
 		context.Background(), store.projectID, bucket.ID, "logo.png", 4, "image/png",
-		bucket.IsPublic, "",
+		bucket.IsPublic, nil,
 	); err != nil {
 		t.Fatalf("re-upload: %v", err)
 	}
@@ -3213,4 +3213,40 @@ func TestConcurrentUploadsToTheSameKeyKeepOneWholeObject(t *testing.T) {
 		t.Errorf("catalog size = %d, file size = %d; they must describe the same object",
 			object.SizeBytes, len(content))
 	}
+}
+
+func TestBucketPublicServesObjectEvenIfLegacyFlagFalse(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	bucket := store.addBucket("default")
+	store.addObject(bucket, "a.png", 4, "image/png")
+	store.SetBucketPublic(context.Background(), store.projectID, bucket.ID, true)
+
+	req := httptest.NewRequest(http.MethodGet, "/pub/x/a.png", nil).WithContext(requestContext(store.projectID, "a.png"))
+	rec := httptest.NewRecorder()
+	plane.PublicDownload(rec, req)
+	if rec.Code != http.StatusOK { t.Fatalf("expected 200 for bucket-public object, got %d", rec.Code) }
+}
+
+func TestBucketPrivateBlocksPublicDownloadEvenIfLegacyFlagTrue(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	bucket := store.addBucket("default")
+	store.addObject(bucket, "b.png", 4, "image/png")
+	store.SetObjectPublic(context.Background(), store.projectID, "b.png", true)
+
+	req := httptest.NewRequest(http.MethodGet, "/pub/x/b.png", nil).WithContext(requestContext(store.projectID, "b.png"))
+	rec := httptest.NewRecorder()
+	plane.PublicDownload(rec, req)
+	if rec.Code != http.StatusNotFound { t.Fatalf("expected 404 for private-bucket legacy-public object, got %d", rec.Code) }
+}
+
+func TestDataPlanePatchRejectsVisibility(t *testing.T) {
+	plane, store, _ := testBucketPlane(t, 1<<20)
+	bucket := store.addBucket("default")
+	store.addObject(bucket, "c.png", 4, "image/png")
+
+	req := httptest.NewRequest(http.MethodPatch, "/bucket/x/c.png", strings.NewReader(`{"is_public":true}`)).WithContext(requestContext(store.projectID, "c.png"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	plane.Update(rec, req)
+	if rec.Code != 400 { t.Fatalf("expected 400, got %d", rec.Code) }
 }

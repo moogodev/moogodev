@@ -56,7 +56,7 @@ type BucketStore interface {
 		sizeBytes int64,
 		contentType string,
 		isPublic bool,
-		cacheControl string,
+		cacheControl *string,
 	) (*dbcontrol.BucketObject, int64, error)
 	ObjectByKey(ctx context.Context, projectID uuid.UUID, key string) (*dbcontrol.BucketObject, error)
 	SetObjectPublic(ctx context.Context, projectID uuid.UUID, key string, isPublic bool) (*dbcontrol.BucketObject, error)
@@ -502,8 +502,12 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 	// Empty string means no override; the default logic in writeObjectHeaders applies.
 	cacheControl := r.Header.Get("Cache-Control")
 
+	var ccPtr *string
+	if cacheControl != "" {
+		ccPtr = &cacheControl
+	}
 	object, prevSize, err := handler.store.PutObject(
-		r.Context(), projectID, bucket.ID, key, size, contentType, bucket.IsPublic, cacheControl,
+		r.Context(), projectID, bucket.ID, key, size, contentType, bucket.IsPublic, ccPtr,
 	)
 	if err != nil {
 		_ = handler.fs.DeleteObject(projectID, key)
@@ -914,8 +918,8 @@ func (handler *BucketPlane) writeObjectHeaders(
 	// immutable entry would then be wrong for a year. The ETag is what makes
 	// revalidation cheap instead.
 	if access == accessPublished {
-		if object.CacheControl != "" {
-			header.Set("Cache-Control", object.CacheControl)
+		if object.CacheControl != nil && *object.CacheControl != "" {
+			header.Set("Cache-Control", *object.CacheControl)
 		} else {
 			header.Set("Cache-Control", "public, max-age=300, must-revalidate")
 		}
@@ -924,8 +928,8 @@ func (handler *BucketPlane) writeObjectHeaders(
 		// re-download a preview image every time the object table is redrawn,
 		// while a plain max-age would let a browser keep serving a copy after the
 		// owner replaced the file. must-revalidate plus the ETag avoids both.
-		if object.CacheControl != "" {
-			header.Set("Cache-Control", object.CacheControl)
+		if object.CacheControl != nil && *object.CacheControl != "" {
+			header.Set("Cache-Control", *object.CacheControl)
 		} else {
 			header.Set("Cache-Control", "private, no-cache")
 		}
