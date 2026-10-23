@@ -50,14 +50,16 @@ unsettling what the rest of your shell has exported.
 
 | Variable | Flag | Needed by |
 |---|---|---|
-| `MOOGO_PROJECT_URL` | `--url` | every command — the project URL the dashboard shows |
-| `MOOGO_SECRET_KEY` | `--key` | `db` commands |
+| `MOOGO_BASE_URL` | `--base-url` | every command — the API origin, e.g. `https://api.moogo.dev` |
+| `MOOGO_PROJECT_ID` | `--project-id` | every command — the project's UUID |
+| `MOOGO_SQL_KEY` | `--key` | `db` commands |
 | `MOOGO_STORAGE_ACCESS_KEY_ID` | `--storage-key-id` | `bucket` commands |
 | `MOOGO_STORAGE_SECRET_KEY` | `--storage-key` | `bucket` commands |
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
-export MOOGO_SECRET_KEY="moogo_..."
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
 ```
 
 The two bucket variables are a [storage credential](/docs/credentials), which is
@@ -134,8 +136,8 @@ file never shrinks on its own; this command reclaims the freed pages.
 Size limits remain enforced (250 MB/project). Equivalent to:
 
 ```bash
-curl -X POST "$MOOGO_PROJECT_URL/maintenance" \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl -X POST "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/maintenance" \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"operation": "vacuum"}'
 ```

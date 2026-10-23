@@ -6,15 +6,13 @@ before it touches the database.
 
 ## Base URL
 
-Everything hangs off `MOOGO_PROJECT_URL`, which already contains the project id:
+Everything is built from two values: the API origin, `MOOGO_BASE_URL`, and the
+project id, `MOOGO_PROJECT_ID`. Together they form the project URL:
 
 ```
+$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID
 https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 ```
-
-Append `/query`, `/exec`, or `/transaction`. You never assemble the path yourself,
-so the internal route layout is not something your application has to track.
-`/exec/txn` is accepted as an alias for `/transaction`.
 
 There is also an older form, `/db/{project_id}/query`, `/db/{project_id}/exec`
 and `/db/{project_id}/transaction`. It behaves identically and exists so
@@ -89,8 +87,8 @@ Use this for anything that returns rows: `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN`
 or a `WITH` clause that ends in a read.
 
 ```bash
-curl $MOOGO_PROJECT_URL/query \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"SELECT id, email FROM users WHERE plan = ?","args":["pro"]}'
 ```
@@ -134,8 +132,8 @@ cap.
 Use this for `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP`.
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"INSERT INTO users (id, email, plan) VALUES (?, ?, ?)","args":["7c1f","ketut@example.com","free"]}'
 ```
@@ -185,8 +183,8 @@ so you learn generated ids, defaults, and any expression the database computed
 without a follow-up `SELECT`:
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"INSERT INTO users (email) VALUES (?) RETURNING id, email, plan","args":["ketut@example.com"]}'
 ```
@@ -217,8 +215,8 @@ identical, with an `Idempotent-Replay: true` header added so you can tell the
 two apart when debugging.
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Idempotency-Key: order-8f2c-charge" \
   -H "Content-Type: application/json" \
   -d '{"query":"INSERT INTO charges (order_id, amount) VALUES (?, ?)","args":["8f2c",25000]}'
@@ -258,8 +256,8 @@ for it — same request, same response, same rules. Use whichever reads better;
 `/transaction` is the documented spelling.
 
 ```bash
-curl $MOOGO_PROJECT_URL/transaction \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/transaction \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "statements": [
@@ -483,8 +481,8 @@ query planner statistics, vacuum the file and fold the write-ahead log back in
 one operation.
 
 ```bash
-curl $MOOGO_PROJECT_URL/maintenance \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/maintenance \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -X POST
 ```
 
@@ -743,9 +741,10 @@ A tiny data layer, in plain JavaScript:
 
 ```js
 // db.js
-const base = process.env.MOOGO_PROJECT_URL;
+// MOOGO_BASE_URL is the API origin; MOOGO_PROJECT_ID is the project's UUID.
+const base = `${process.env.MOOGO_BASE_URL}/p/${process.env.MOOGO_PROJECT_ID}`;
 const headers = {
-  Authorization: `Bearer ${process.env.MOOGO_SECRET_KEY}`,
+  Authorization: `Bearer ${process.env.MOOGO_SQL_KEY}`,
   "Content-Type": "application/json",
 };
 

@@ -46,7 +46,7 @@ func run() error {
 		return err
 	}
 
-	client := mcp.NewClient(config.ProjectURL, config.SecretKey, nil)
+	client := mcp.NewClient(config.ProjectURL(), config.SecretKey, nil)
 
 	// The object tools are registered only when both halves of the storage
 	// credential are present. Leaving them out is a configuration choice, not
@@ -54,7 +54,7 @@ func run() error {
 	var storage *mcp.StorageClient
 	if config.StorageEnabled() {
 		storage = mcp.NewStorageClient(
-			config.ProjectURL, config.BucketAccessKeyID, config.BucketSecretKey, nil,
+			config.ProjectURL(), config.BucketAccessKeyID, config.BucketSecretKey, nil,
 		)
 	}
 

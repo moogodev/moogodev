@@ -11,9 +11,11 @@ Works with Server Components, Server Actions, Route Handlers, and Edge Runtime.
 **Environment variables** (Vercel → Settings → Environment Variables, or `.env.local`):
 
 ```env
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
-MOOGO_SECRET_KEY=moogo_...
-NEXT_PUBLIC_MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=<project-id>
+MOOGO_SQL_KEY=moogo_...
+NEXT_PUBLIC_MOOGO_BASE_URL=https://api.moogo.dev
+NEXT_PUBLIC_MOOGO_PROJECT_ID=<project-id>
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 NEXT_PUBLIC_MOOGO_CDN_URL=https://cdn.moogo.dev
 NEXT_PUBLIC_MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
@@ -24,9 +26,13 @@ NEXT_PUBLIC_MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 
 ```ts
 // lib/moogo.ts
-const PROJECT_URL = process.env.MOOGO_PROJECT_URL!;
-const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
-const BUCKET_ENDPOINT = process.env.NEXT_PUBLIC_MOOGO_BASE_URL!;
+const BASE_URL = process.env.MOOGO_BASE_URL!;
+const PROJECT_ID = process.env.MOOGO_PROJECT_ID!;
+const SECRET_KEY = process.env.MOOGO_SQL_KEY!;
+const PROJECT_URL = `${BASE_URL}/p/${PROJECT_ID}`;
+const BUCKET_BASE_URL = process.env.NEXT_PUBLIC_MOOGO_BASE_URL!;
+const BUCKET_PROJECT_ID = process.env.NEXT_PUBLIC_MOOGO_PROJECT_ID!;
+const BUCKET_ENDPOINT = `${BUCKET_BASE_URL}/p/${BUCKET_PROJECT_ID}/bucket`;
 const CDN_URL = (process.env.NEXT_PUBLIC_MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const BUCKET_ACCESS_KEY_ID = process.env.NEXT_PUBLIC_MOOGO_STORAGE_ACCESS_KEY_ID!;
 const BUCKET_SECRET_KEY = process.env.NEXT_PUBLIC_MOOGO_STORAGE_SECRET_KEY!;

@@ -17,7 +17,8 @@ scoped to the job it is named for.
 
 ## Project key
 
-Issued when a project is created, and again whenever you rotate. Format:
+Issued when a project is created, and again whenever you rotate. In your
+environment it is `MOOGO_SQL_KEY`. Format:
 
 ```
 moogo_...
@@ -77,7 +78,9 @@ production.
 ## Storage credentials
 
 Storage has its own credential type, following the shape of Cloudflare R2: an
-**access key id** that is safe to display, and a **secret key** that is not.
+**access key id** that is safe to display (`MOOGO_STORAGE_ACCESS_KEY_ID`), and a
+**secret key** that is not (`MOOGO_STORAGE_SECRET_KEY`). Both travel with
+`MOOGO_BASE_URL` (the API origin) and `MOOGO_PROJECT_ID`.
 
 ```
 moogo_ak_...   <- access key id (public)
@@ -113,7 +116,8 @@ variables:
   "access_key_id": "moogo_ak_...",
   "secret_access_key": "moogo_sk_...",
   "env": {
-    "MOOGO_BASE_URL": "https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/bucket",
+    "MOOGO_BASE_URL": "https://api.moogo.dev",
+    "MOOGO_PROJECT_ID": "8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0",
     "MOOGO_STORAGE_ACCESS_KEY_ID": "moogo_ak_...",
     "MOOGO_STORAGE_SECRET_KEY": "moogo_sk_..."
   }

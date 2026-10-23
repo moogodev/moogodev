@@ -48,16 +48,15 @@ export default function ProjectSettings({
   const [confirming, setConfirming] = useState<"rotate-key" | "delete" | null>(null);
 
   const baseUrl = apiOrigin();
-  // The URL the user's own application talks to. It carries the project id so a
-  // client appends "/query" or "/bucket/<key>" directly, instead of assembling
-  // Moogo's internal route layout and having to keep it in sync.
-  const projectUrl = `${baseUrl}/p/${project.id}`;
+  // The origin of the data plane, as the SDK expects it. Clients append the
+  // project's own routes (/p/<id>/query, /p/<id>/bucket) rather than
+  // assembling Moogo's internal layout, so one origin plus the project id is
+  // all an application needs to hold.
   const isPaused = project.status === "paused";
 
   const envVars = [
-    { name: "MOOGO_PROJECT_URL", value: projectUrl },
+    { name: "MOOGO_BASE_URL", value: baseUrl },
     { name: "MOOGO_PROJECT_ID", value: project.id },
-    { name: "MOOGO_BASE_URL", value: `${projectUrl}/bucket` },
   ];
 
   // The docs page is the reference, so the button hands over its raw
@@ -187,7 +186,7 @@ export default function ProjectSettings({
           {envVars.map((entry) => (
             <CopyableField key={entry.name} label={entry.name} value={entry.value} />
           ))}
-          <CopyableField label="MOOGO_SECRET_KEY" value={project.secret_key_prefix} masked />
+          <CopyableField label="MOOGO_SQL_KEY" value={project.secret_key_prefix} masked />
         </div>
       </section>
 
@@ -196,7 +195,7 @@ export default function ProjectSettings({
         <section className="rounded-lg border border-accent-strong/40 bg-accent-strong/10 p-4">
           <SectionHeading accent>New secret key</SectionHeading>
           <p className="mt-2 text-[0.8rem] font-medium text-muted">
-            Put this in your project as <code>MOOGO_SECRET_KEY</code> now. It will not be
+            Put this in your project as <code>MOOGO_SQL_KEY</code> now. It will not be
             shown again — if you lose it, rotate once more.
           </p>
           <div className="mt-3 flex items-center gap-2">

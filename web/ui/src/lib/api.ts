@@ -94,6 +94,7 @@ export interface StorageCredentialSecret extends StorageCredential {
   secret_access_key: string;
   env: {
     MOOGO_BASE_URL: string;
+    MOOGO_PROJECT_ID: string;
     MOOGO_STORAGE_ACCESS_KEY_ID: string;
     MOOGO_STORAGE_SECRET_KEY: string;
   };

@@ -11,9 +11,9 @@ Works with Server Routes, Composables, and Nitro (Edge/Node).
 **Environment variables** (`.env` or runtime config):
 
 ```env
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
-MOOGO_SECRET_KEY=moogo_...
-MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=<project-id>
+MOOGO_SQL_KEY=moogo_...
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 MOOGO_CDN_URL=https://cdn.moogo.dev
 MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
@@ -24,10 +24,12 @@ MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 // nuxt.config.ts
 export default defineNuxtConfig({
   runtimeConfig: {
-    moogoProjectUrl: process.env.MOOGO_PROJECT_URL,
-    moogoSecretKey: process.env.MOOGO_SECRET_KEY,
+    moogoBaseUrl: process.env.MOOGO_BASE_URL,
+    moogoProjectId: process.env.MOOGO_PROJECT_ID,
+    moogoSqlKey: process.env.MOOGO_SQL_KEY,
     public: {
-      moogoBucketEndpoint: process.env.MOOGO_BASE_URL,
+      moogoBaseUrl: process.env.MOOGO_BASE_URL,
+      moogoProjectId: process.env.MOOGO_PROJECT_ID,
       moogoCdnUrl: process.env.MOOGO_CDN_URL,
       moogoBucketAccessKeyId: process.env.MOOGO_STORAGE_ACCESS_KEY_ID,
       moogoBucketSecretKey: process.env.MOOGO_STORAGE_SECRET_KEY,
@@ -43,9 +45,13 @@ export default defineNuxtConfig({
 export const useMoogo = () => {
   const config = useRuntimeConfig();
 
-  const PROJECT_URL = config.moogoProjectUrl as string;
-  const SECRET_KEY = config.moogoSecretKey as string;
-  const BUCKET_ENDPOINT = config.public.moogoBucketEndpoint as string;
+  const BASE_URL = config.moogoBaseUrl as string;
+  const PROJECT_ID = config.moogoProjectId as string;
+  const SECRET_KEY = config.moogoSqlKey as string;
+  const PROJECT_URL = `${BASE_URL}/p/${PROJECT_ID}`;
+  const BUCKET_BASE_URL = config.public.moogoBaseUrl as string;
+  const BUCKET_PROJECT_ID = config.public.moogoProjectId as string;
+  const BUCKET_ENDPOINT = `${BUCKET_BASE_URL}/p/${BUCKET_PROJECT_ID}/bucket`;
   const CDN_URL = ((config.public.moogoCdnUrl as string) ?? "").replace(/\/+$/, "");
   const BUCKET_ACCESS_KEY_ID = config.public.moogoBucketAccessKeyId as string;
   const BUCKET_SECRET_KEY = config.public.moogoBucketSecretKey as string;

@@ -20,12 +20,14 @@ You only need three environment variables:
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `MOOGO_PROJECT_URL` | `https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0` | Base URL for all SQL requests |
-| `MOOGO_SECRET_KEY` | `moogo_...` | Secret key for SQL endpoint authentication |
-| `MOOGO_BASE_URL` | `https://api.moogo.dev/p/<project-id>/bucket` | Base URL for object storage |
+| `MOOGO_BASE_URL` | `https://api.moogo.dev` | API origin — the host every request is built from |
+| `MOOGO_PROJECT_ID` | `8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0` | The project's UUID |
+| `MOOGO_SQL_KEY` | `moogo_...` | Key for SQL endpoint authentication |
 
 Put these three variables into your application, and you can read and write data
-through HTTP requests.
+through HTTP requests. SQL calls go to `$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query`
+(or `/exec`), and object storage calls go to
+`$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/bucket`.
 
 ---
 
@@ -154,18 +156,18 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 ## Next Steps After Understanding
 
 1. **Create project** via dashboard or `POST /api/projects`
-2. **Get 3 environment variables** (`MOOGO_PROJECT_URL`, `MOOGO_SECRET_KEY`, `MOOGO_BASE_URL`)
+2. **Get 3 environment variables** (`MOOGO_BASE_URL`, `MOOGO_PROJECT_ID`, `MOOGO_SQL_KEY`)
 3. **Read Production Readiness section** in your favorite framework guide (React, Python, Go, etc.)
 4. **Try first simple query:**
    ```bash
-   curl $MOOGO_PROJECT_URL/query \
-     -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+   curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
+     -H "Authorization: Bearer $MOOGO_SQL_KEY" \
      -H "Content-Type: application/json" \
      -d '{"query":"SELECT 1+2 as result","args":[]}'
    ```
 5. **Try first object upload:**
    ```bash
-   curl -X POST "$MOOGO_BASE_URL/kit.png?bucket=avatars" \
+   curl -X POST "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/bucket/kit.png?bucket=avatars" \
      -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
      -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
      -H "Content-Type: image/png" \
@@ -173,7 +175,7 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
    ```
 6. **Publish if you want to share without credentials:**
    ```bash
-   curl -X PATCH "$MOOGO_BASE_URL/avatars/kit.png" \
+   curl -X PATCH "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png" \
      -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
      -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
      -H "Content-Type: application/json" \

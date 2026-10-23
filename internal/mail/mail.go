@@ -113,12 +113,13 @@ func (sender *Sender) SendProjectCreated(
 	apiURL string,
 ) error {
 	dashboardLink := sender.publicURL + "/app/projects/" + projectID
-	// MOOGO_PROJECT_URL: the base a client appends "/query" or "/bucket/<key>"
-	// to. It is not a page and does not answer a bare GET.
+	// apiBase is the project URL a client appends "/query" or "/bucket/<key>"
+	// to. baseURL is the origin alone, which is the value of MOOGO_BASE_URL:
+	// the email shows both so the reader can copy the variable it needs.
 	apiBase := apiURL + "/p/" + projectID
 	logoURL := sender.publicURL + "/static/img/logo-light.png"
 	return sender.send(ctx, to, "Your Moogo project is ready",
-		projectCreatedHTML(projectName, projectID, secretKey, dashboardLink, apiBase, logoURL), projectID)
+		projectCreatedHTML(projectName, projectID, secretKey, dashboardLink, apiBase, apiURL, logoURL), projectID)
 }
 
 // SendManualBackupCreated emails a notification when a manual backup completes.
@@ -358,9 +359,10 @@ func messageShell(title, intro, buttonText, link, logoURL string) string {
 
 // projectCreatedHTML renders the project creation email with credentials and details.
 //
-// dashboardLink is the page the button opens; apiBase is MOOGO_PROJECT_URL, the
-// data-plane base for the SQL and bucket rows.
-func projectCreatedHTML(projectName, projectID, secretKey, dashboardLink, apiBase, logoURL string) string {
+// dashboardLink is the page the button opens; apiBase is the project URL
+// (origin + /p/{project_id}) the data plane is addressed at, and baseURL is
+// the origin alone, the value of MOOGO_BASE_URL.
+func projectCreatedHTML(projectName, projectID, secretKey, dashboardLink, apiBase, baseURL, logoURL string) string {
 	return `<!doctype html>
 <html>
   <body style="margin:0;background:#f5f7fa;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
@@ -399,28 +401,28 @@ func projectCreatedHTML(projectName, projectID, secretKey, dashboardLink, apiBas
                 <hr style="margin:32px 0 16px;border:none;border-top:1px solid #e5e7eb;" />
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#374151;">
                   <tr>
-                    <td style="padding:8px 0;font-weight:600;color:#111827;width:30%;">Project ID</td>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;width:38%;">MOOGO_BASE_URL</td>
+                    <td style="padding:8px 0;font-family:monospace;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;">`+baseURL+`</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">MOOGO_PROJECT_ID</td>
                     <td style="padding:8px 0;font-family:monospace;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;">`+projectID+`</td>
                   </tr>
                   <tr>
-                    <td style="padding:8px 0;font-weight:600;color:#111827;">Secret Key</td>
-                    <td style="padding:8px 0;font-family:monospace;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:8px 12px;color:#92400e;"><strong>`+secretKey+`</strong></td>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">MOOGO_SQL_KEY</td>
+                    <td style="padding:8px 0;font-family:monospace;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:8px 12px;color:#92400e;word-break:break-all;"><strong>`+secretKey+`</strong></td>
                   </tr>
                   <tr>
-                    <td style="padding:8px 0;font-weight:600;color:#111827;">Project Name</td>
-                    <td style="padding:8px 0;">`+projectName+`</td>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">API endpoint</td>
+                    <td style="padding:8px 0;font-family:monospace;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;word-break:break-all;">`+apiBase+`</td>
                   </tr>
                   <tr>
-                    <td style="padding:8px 0;font-weight:600;color:#111827;">API Endpoint</td>
-                    <td style="padding:8px 0;font-family:monospace;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;">`+apiBase+`</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:8px 0;font-weight:600;color:#111827;">Bucket Storage</td>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">Bucket storage</td>
                     <td style="padding:8px 0;">Available at <code>`+apiBase+`/bucket</code> (requires a storage credential)</td>
                   </tr>
                 </table>
                 <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.6;">
-                  <strong>Important:</strong> The secret key above is shown only once. Store it securely &mdash; it provides full access to your project's database and bucket storage. If lost, you can rotate it from the dashboard, but the old key will be invalidated immediately.
+                  <strong>Important:</strong> the SQL key above is shown only once. Store it securely &mdash; it provides full access to your project's database. If lost, you can rotate it from the dashboard, but the old key will be invalidated immediately.
                 </p>
                 <hr style="margin:32px 0 16px;border:none;border-top:1px solid #e5e7eb;" />
                 <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.5;">

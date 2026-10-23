@@ -17,10 +17,10 @@ Works with Java 17+ (HttpClient), Spring Boot, Quarkus, Micronaut, or Kotlin cor
 **Environment variables:**
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; empty falls back to the API origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -42,9 +42,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class Moogo {
     // Not final: a test can point the client at a mock server before first use.
-    static String PROJECT_URL = System.getenv("MOOGO_PROJECT_URL");
-    private static final String SECRET_KEY = System.getenv("MOOGO_SECRET_KEY");
-    private static final String BUCKET_ENDPOINT = System.getenv("MOOGO_BASE_URL");
+    static String BASE_URL = System.getenv("MOOGO_BASE_URL");
+    private static final String PROJECT_ID = System.getenv("MOOGO_PROJECT_ID");
+    private static final String SECRET_KEY = System.getenv("MOOGO_SQL_KEY");
+    private static final String BUCKET_ENDPOINT = BASE_URL + "/p/" + PROJECT_ID + "/bucket";
     private static final String CDN_URL = System.getenv("MOOGO_CDN_URL") == null ? "" : System.getenv("MOOGO_CDN_URL").replaceAll("/+$", "");
     private static final String BUCKET_ACCESS_KEY_ID = System.getenv("MOOGO_STORAGE_ACCESS_KEY_ID");
     private static final String BUCKET_SECRET_KEY = System.getenv("MOOGO_STORAGE_SECRET_KEY");
@@ -72,7 +73,7 @@ public class Moogo {
         var json = MAPPER.writeValueAsString(body);
 
         var request = HttpRequest.newBuilder()
-            .uri(URI.create(PROJECT_URL + path))
+            .uri(URI.create(BASE_URL + "/p/" + PROJECT_ID + path))
             .header("Authorization", "Bearer " + SECRET_KEY)
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(json))
@@ -169,8 +170,8 @@ public class Moogo {
         // serves published objects only: a fresh upload is private, so publish it
         // with bucketPublish first. Until then, public_url in the response is an
         // empty string. When MOOGO_CDN_URL is set, public objects are served from
-        // that CDN host instead of the bucket endpoint.
-        String base = BUCKET_ENDPOINT.replaceAll("/p/([^/]+)/bucket/?$", "/pub/$1");
+        // that CDN host instead of the API origin.
+        String base = BASE_URL + "/pub/" + PROJECT_ID;
         if (!CDN_URL.isEmpty()) {
             // Keep the /pub/<id> path, swap only the scheme and authority.
             URI cdn = URI.create(CDN_URL);
@@ -250,9 +251,9 @@ public class Main {
 
 ```yaml
 moogo:
-  project-url: ${MOOGO_PROJECT_URL}
-  secret-key: ${MOOGO_SECRET_KEY}
-  bucket-endpoint: ${MOOGO_BASE_URL}
+  base-url: ${MOOGO_BASE_URL}
+  project-id: ${MOOGO_PROJECT_ID}
+  secret-key: ${MOOGO_SQL_KEY}
   cdn-url: ${MOOGO_CDN_URL}
   bucket-access-key-id: ${MOOGO_STORAGE_ACCESS_KEY_ID}
   bucket-secret-key: ${MOOGO_STORAGE_SECRET_KEY}
@@ -263,18 +264,18 @@ moogo:
 ```java
 @Component
 public class MoogoClient {
-    private final String projectUrl, secretKey, bucketEndpoint, bucketAccessKeyId, bucketSecretKey;
+    private final String baseUrl, projectId, secretKey, bucketAccessKeyId, bucketSecretKey;
     private final WebClient webClient;
 
-    public MoogoClient(@Value("${moogo.project-url}") String projectUrl,
+    public MoogoClient(@Value("${moogo.base-url}") String baseUrl,
+                       @Value("${moogo.project-id}") String projectId,
                        @Value("${moogo.secret-key}") String secretKey,
-                       @Value("${moogo.bucket-endpoint}") String bucketEndpoint,
                        @Value("${moogo.bucket-access-key-id}") String bucketAccessKeyId,
                        @Value("${moogo.bucket-secret-key}") String bucketSecretKey,
                        WebClient.Builder builder) {
-        this.projectUrl = projectUrl;
+        this.baseUrl = baseUrl;
+        this.projectId = projectId;
         this.secretKey = secretKey;
-        this.bucketEndpoint = bucketEndpoint;
         this.bucketAccessKeyId = bucketAccessKeyId;
         this.bucketSecretKey = bucketSecretKey;
         this.webClient = builder.build();
@@ -283,7 +284,7 @@ public class MoogoClient {
     public Mono<Map<String, Object>> sql(String sql, List<Object> args) {
         String path = sql.trim().matches("(?i)^(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\\b.*") ? "/query" : "/exec";
         return webClient.post()
-            .uri(projectUrl + path)
+            .uri(baseUrl + "/p/" + projectId + path)
             .header("Authorization", "Bearer " + secretKey)
             .bodyValue(Map.of("query", sql, "args", args))
             .retrieve()
@@ -351,9 +352,10 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 
 object Moogo {
-    private val PROJECT_URL = System.getenv("MOOGO_PROJECT_URL")!!
-    private val SECRET_KEY = System.getenv("MOOGO_SECRET_KEY")!!
-    private val BUCKET_ENDPOINT = System.getenv("MOOGO_BASE_URL")!!
+    private val BASE_URL = System.getenv("MOOGO_BASE_URL")!!
+    private val PROJECT_ID = System.getenv("MOOGO_PROJECT_ID")!!
+    private val SECRET_KEY = System.getenv("MOOGO_SQL_KEY")!!
+    private val BUCKET_ENDPOINT = "$BASE_URL/p/$PROJECT_ID/bucket"
     private val CDN_URL = System.getenv("MOOGO_CDN_URL").orEmpty().trimEnd('/')
     private val BUCKET_ACCESS_KEY_ID = System.getenv("MOOGO_STORAGE_ACCESS_KEY_ID")!!
     private val BUCKET_SECRET_KEY = System.getenv("MOOGO_STORAGE_SECRET_KEY")!!
@@ -369,7 +371,7 @@ object Moogo {
         val json = MAPPER.writeValueAsString(body)
 
         val request = HttpRequest.newBuilder()
-            .uri(URI.create(PROJECT_URL + path))
+            .uri(URI.create(BASE_URL + "/p/" + PROJECT_ID + path))
             .header("Authorization", "Bearer $SECRET_KEY")
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(json))
@@ -436,9 +438,9 @@ object Moogo {
     // objects only: a fresh upload is private, so publish it with bucketPublish
     // first. Until then, public_url in the response is an empty string. When
     // MOOGO_CDN_URL is set, public objects are served from that CDN host instead
-    // of the bucket endpoint.
+    // of the API origin.
     fun bucketPublicUrl(key: String): String {
-        val base = BUCKET_ENDPOINT.replace(Regex("/p/([^/]+)/bucket/?$"), "/pub/\$1")
+        val base = "$BASE_URL/pub/$PROJECT_ID"
         val publicBase = if (CDN_URL.isEmpty()) base else {
             // Keep the /pub/<id> path, swap only the scheme and authority.
             val cdn = URI.create(CDN_URL)
@@ -497,7 +499,7 @@ public interface MoogoClient {
 }
 
 // application.properties
-quarkus.rest-client.moogo.url=https://api.moogo.dev/p/<project-id>
+quarkus.rest-client.moogo.url=${MOOGO_BASE_URL}/p/${MOOGO_PROJECT_ID}
 quarkus.rest-client.moogo.scope=javax.inject.Singleton
 ```
 
@@ -511,7 +513,7 @@ try (MockWebServer server = new MockWebServer()) {
         .setBody("{\"success\":true,\"columns\":[\"id\"],\"rows\":[[\"u1\"]],\"row_count\":1}"));
     server.start();
 
-    Moogo.PROJECT_URL = server.url("/").toString();
+    Moogo.BASE_URL = server.url("/").toString();
     // run tests...
 }
 ```

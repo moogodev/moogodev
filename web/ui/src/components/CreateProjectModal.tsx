@@ -36,9 +36,9 @@ export default function CreateProjectModal({
   const envEntries: Array<[string, string]> = useMemo(() => {
     if (!created || !secretKey) return [];
     return [
-      ["MOOGO_PROJECT_URL", `${apiOrigin()}/p/${created.id}`],
+      ["MOOGO_BASE_URL", apiOrigin()],
       ["MOOGO_PROJECT_ID", created.id],
-      ["MOOGO_SECRET_KEY", secretKey],
+      ["MOOGO_SQL_KEY", secretKey],
     ];
   }, [created, secretKey]);
 
@@ -177,7 +177,7 @@ export default function CreateProjectModal({
               <h2 className="mb-2 text-lg font-semibold">Project created</h2>
               <p className="text-sm leading-relaxed text-muted">
                 Put these three values in your own project's environment, then point your
-                app at <code className="font-mono text-foreground">$MOOGO_PROJECT_URL/query</code>.
+                app at <code className="font-mono text-foreground">$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query</code>.
                 The dashboard does not need them &mdash; it reaches your database as the
                 owner.
               </p>
@@ -195,7 +195,7 @@ export default function CreateProjectModal({
                       key={key}
                       name={key}
                       value={value}
-                      highlight={key === "MOOGO_SECRET_KEY"}
+                      highlight={key === "MOOGO_SQL_KEY"}
                     />
                   ))}
                 </div>

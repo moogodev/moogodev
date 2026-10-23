@@ -7,16 +7,16 @@ string, no driver, and no database client to install.
 You create a project, and Moogo hands you three values:
 
 ```
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_BASE_URL=https://api.moogo.dev
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_...
+MOOGO_SQL_KEY=moogo_...
 ```
 
 Put those in your application's environment and it can read and write data:
 
 ```bash
-curl $MOOGO_PROJECT_URL/query \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"SELECT id, email FROM users WHERE plan = ?","args":["pro"]}'
 ```

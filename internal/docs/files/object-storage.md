@@ -499,6 +499,33 @@ curl https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID \
 | `PATCH` | `/buckets/{project_id}/{bucket_id}` | Update visibility, upload policy, and quota. |
 | `DELETE` | `/buckets/{project_id}/{bucket_id}` | Delete a bucket and its objects. |
 | `POST` | `/buckets/{project_id}/{bucket_id}/public` | Publish or unpublish the bucket — sets the upload default and rewrites every existing object. |
+| `POST` | `/buckets/{project_id}/{bucket_id}/purge-cache` | List all public URLs in the bucket for CDN cache purging. |
+
+### Purge CDN cache
+
+```bash
+curl -X POST https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/purge-cache \
+  -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
+  -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY"
+```
+
+```json
+{
+  "success": true,
+  "bucket_id": "3f8a...",
+  "bucket_name": "avatars",
+  "purged_count": 42,
+  "urls": [
+    "https://cdn.moogo.dev/pub/8f3c.../avatars/kit.png",
+    "https://cdn.moogo.dev/pub/8f3c.../avatars/logo.png"
+  ],
+  "note": "These URLs should be purged from your CDN. If using Cloudflare, call the Purge Cache API with these URLs. For manual purge, use the dashboard or Cloudflare API with your zone ID and API token."
+}
+```
+
+Use this to enumerate every public URL in a bucket so you can issue a cache purge to your CDN
+(Cloudflare, CloudFront, Fastly, etc.). The response includes all currently-public object URLs.
+Future versions may call the CDN API directly when credentials are configured.
 
 ### Get bucket info
 
@@ -576,10 +603,10 @@ npm install @moogodev/client
 ```
 
 ```typescript
-import { MoogoClient, createClientFromEnv } from '@moogodev/client';
+import { createStorageClient } from '@moogodev/client';
 
 // Reads from env: MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY
-const client = createClientFromEnv();
+const client = createStorageClient();
 
 // Upload with custom Cache-Control
 await client.upload('avatars/user.png', fileBlob, {
@@ -607,7 +634,7 @@ const buckets = await client.listBuckets();
 const info = await client.getBucketInfo('bucket-id');
 ```
 
-See [JavaScript Client](/docs/javascript-client) for full API reference, error handling, browser usage, and TypeScript types.
+See [JavaScript Client](/docs/javascript-client) for full API reference, SQL client, error handling, browser usage, and TypeScript types.
 
 ### Minimal fetch wrapper (if you prefer no dependency)
 
@@ -615,7 +642,8 @@ If you need zero dependencies, here's a minimal wrapper:
 
 ```js
 // storage.js
-const root = process.env.MOOGO_BASE_URL; // ends in /p/{project_id}/bucket
+// MOOGO_BASE_URL is the API origin; the bucket endpoint is built from it.
+const root = `${process.env.MOOGO_BASE_URL}/p/${process.env.MOOGO_PROJECT_ID}/bucket`;
 
 const headers = {
   "X-Moogo-Access-Key-Id": process.env.MOOGO_STORAGE_ACCESS_KEY_ID,
@@ -659,7 +687,7 @@ const encodeKey = (key) =>
 ## Troubleshooting
 
 - **415 unsupported_media_type** — you're missing or wrong `Content-Type`. On JSON endpoints it must be `application/json`. On an object upload it must be the file's type (never JSON-wrapped).
-- **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need `Authorization: Bearer $MOOGO_SECRET_KEY`. The types are not interchangeable.
+- **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need `Authorization: Bearer $MOOGO_SQL_KEY`. The types are not interchangeable.
 - **404 on an object you just uploaded** — check the key case and the bucket (`?bucket=`). The path is `/bucket/{key}`, not `/buckets/`.
 - **Object 404s on `/pub/` right after making it public** — check that the object is actually published: make the bucket public, or `PATCH` the object with `{"is_public": true}`, and read `is_public` back. Missing and unpublished objects answer `404` by design, and those responses are `no-store`, so a fresh publish shows up on the next request. If the URL was fetched while an older deployment was live, an edge copy of that 404 can linger until its TTL expires — use a new key or purge your CDN. For mutable assets, versioning keys (`image-v2.png`) is more reliable than cache invalidation.
 - **object_too_large** — above the bucket's `max_object_size_bytes` (or 250 MB). Shrink the file, raise the cap, or split it.

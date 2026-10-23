@@ -99,8 +99,9 @@ func (api *fakeAPI) runEnv(overrides map[string]string, args ...string) (code in
 	api.t.Helper()
 
 	environment := map[string]string{
-		EnvProjectURL:        api.server.URL + "/p/" + testProjectID,
-		EnvSecretKey:         "moogo_key_test",
+		EnvBaseURL:           api.server.URL,
+		EnvProjectID:         testProjectID,
+		EnvSQLKey:            "moogo_key_test",
 		EnvBucketAccessKeyID: "moogo_access_test",
 		EnvBucketSecretKey:   "moogo_bucket_secret_test",
 	}

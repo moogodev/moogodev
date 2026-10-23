@@ -8,7 +8,7 @@ A guide for using Moogo from a **client-side React** app (Vite, CRA, Remix SPA m
 
 ## The constraint: SQL key stays on the server
 
-Moogo's **SQL endpoints** (`/query`, `/exec`) require the `MOOGO_SECRET_KEY` as a Bearer token.  
+Moogo's **SQL endpoints** (`/query`, `/exec`) require the `MOOGO_SQL_KEY` as a Bearer token.  
 **Never put this key in client-side code** — it would be visible in the browser bundle.
 
 **Bucket endpoints** (`/bucket/*`) use a separate credential (`MOOGO_STORAGE_ACCESS_KEY_ID` + `MOOGO_STORAGE_SECRET_KEY`).  
@@ -38,8 +38,10 @@ import express from "express";
 import fetch from "node-fetch";
 
 const router = express.Router();
-const MOOGO_URL = process.env.MOOGO_PROJECT_URL!;
-const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
+const MOOGO_BASE_URL = process.env.MOOGO_BASE_URL!;
+const MOOGO_PROJECT_ID = process.env.MOOGO_PROJECT_ID!;
+const SECRET_KEY = process.env.MOOGO_SQL_KEY!;
+const MOOGO_URL = `${MOOGO_BASE_URL}/p/${MOOGO_PROJECT_ID}`;
 
 function isRead(sql) {
   // `with` covers CTE reads (WITH ... SELECT); a CTE that writes
@@ -148,7 +150,9 @@ Since bucket credentials are separate, you **can** use them directly in React fo
 
 ```tsx
 // hooks/useMoogoBucket.ts
-const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BASE_URL!;
+const BASE_URL = import.meta.env.VITE_MOOGO_BASE_URL!;
+const PROJECT_ID = import.meta.env.VITE_MOOGO_PROJECT_ID!;
+const BUCKET_ENDPOINT = `${BASE_URL}/p/${PROJECT_ID}/bucket`;
 const CDN_URL = (import.meta.env.VITE_MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const ACCESS_KEY = import.meta.env.VITE_MOOGO_STORAGE_ACCESS_KEY_ID!;
 const SECRET_KEY = import.meta.env.VITE_MOOGO_STORAGE_SECRET_KEY!;
@@ -246,11 +250,13 @@ export function Avatar({ key }: { key: string }) {
 
 ```env
 # Backend (proxy) — keep secret!
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
-MOOGO_SECRET_KEY=moogo_...
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=<project-id>
+MOOGO_SQL_KEY=moogo_...
 
 # Frontend (bucket only) — safe to expose
-VITE_MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
+VITE_MOOGO_BASE_URL=https://api.moogo.dev
+VITE_MOOGO_PROJECT_ID=<project-id>
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 VITE_MOOGO_CDN_URL=https://cdn.moogo.dev
 VITE_MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...

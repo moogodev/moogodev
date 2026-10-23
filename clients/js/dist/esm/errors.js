@@ -178,7 +178,7 @@ export class UnauthorizedError extends MoogoError {
     constructor(detail) {
         const hint = detail
             ? detail
-            : 'Authentication required. Storage: set MOOGO_BASE_URL (or MOOGO_BASE_URL), MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY. SQL: set MOOGO_SQL_KEY (or MOOGO_SQL_KEY). Old names (MOOGO_BUCKET_*) still work but deprecated.';
+            : 'Authentication required. Storage: set MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY. SQL: set MOOGO_SQL_KEY.';
         super('unauthorized', hint, 401, detail);
         this.name = 'UnauthorizedError';
         Object.setPrototypeOf(this, UnauthorizedError.prototype);

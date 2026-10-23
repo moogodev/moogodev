@@ -186,8 +186,9 @@ sudo editor /etc/moogo/mcp.env
 
 | Variable | Required | Default | Notes |
 |---|---|---|---|
-| `MOOGO_PROJECT_URL` | yes | — | e.g. `https://api.moogo.dev/p/<project_id>` |
-| `MOOGO_SECRET_KEY` | yes | — | SQL credential (project secret) |
+| `MOOGO_BASE_URL` | yes | — | API origin, e.g. `https://api.moogo.dev` |
+| `MOOGO_PROJECT_ID` | yes | — | The project's UUID |
+| `MOOGO_SQL_KEY` | yes | — | SQL credential (project key) |
 | `MOOGO_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http` |
 | `MOOGO_MCP_ADDR` | no | `127.0.0.1:4618` | Only used when `transport=http` |
 | `MOOGO_STORAGE_ACCESS_KEY_ID` | no* | — | Object tools need **both** this and the secret |
@@ -370,8 +371,9 @@ started by `deploy.sh` — every project needs its own credentials.
 # 1. Buat environment file per proyek
 sudo mkdir -p /etc/moogo
 cat >/etc/moogo/mcp.env <<'EOF'
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project_id>
-MOOGO_SECRET_KEY=moogo_sk_...          # SQL credential
+MOOGO_BASE_URL=https://api.moogo.dev     # API origin, no path
+MOOGO_PROJECT_ID=<project_id>            # the project's UUID
+MOOGO_SQL_KEY=moogo_...                  # SQL credential (project key)
 MOOGO_MCP_TRANSPORT=http               # atau stdio (default)
 MOOGO_MCP_ADDR=127.0.0.1:4618          # default loopback — JANGAN 0.0.0.0
 # Opsional: object storage tools
@@ -427,28 +429,45 @@ All legacy env vars removed. **Action required** before restart:
 
 ```bash
 # /etc/moogo/moogo.env — replace old names with new names
-# Old (removed):            # New (required):
-MOOGO_API_URL              →  MOOGO_BASE_URL
-MOOGO_BUCKET_ENDPOINT      →  MOOGO_BASE_URL
-MOOGO_BUCKET_ACCESS_KEY_ID →  MOOGO_STORAGE_ACCESS_KEY_ID
-MOOGO_BUCKET_SECRET_KEY    →  MOOGO_STORAGE_SECRET_KEY
-MOOGO_PROJECT_KEY          →  MOOGO_SQL_KEY
+# Old (removed):             # New (required):
+MOOGO_API_URL               →  MOOGO_BASE_URL
+MOOGO_BUCKET_ENDPOINT       →  MOOGO_BASE_URL
+MOOGO_BUCKET_ACCESS_KEY_ID  →  MOOGO_STORAGE_ACCESS_KEY_ID
+MOOGO_BUCKET_SECRET_KEY     →  MOOGO_STORAGE_SECRET_KEY
+MOOGO_PROJECT_KEY           →  MOOGO_SQL_KEY
+MOOGO_PROJECT_URL           →  MOOGO_BASE_URL (origin only) + MOOGO_PROJECT_ID
+MOOGO_SECRET_KEY            →  MOOGO_SQL_KEY
 ```
+
+`MOOGO_BASE_URL` is the **origin only** — `https://api.yourdomain.com`, no
+`/p/<id>` and no `/bucket`. The project id lives in `MOOGO_PROJECT_ID`, and
+clients append `/p/$MOOGO_PROJECT_ID/query` or `/p/$MOOGO_PROJECT_ID/bucket`
+themselves. A value that still carries a path is rejected at startup.
 
 Minimal working file after upgrade:
 
 ```bash
-MOOGO_BASE_URL=https://api.yourdomain.com
-MOOGO_PROJECT_ID=your-project-uuid
-MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_xxx
-MOOGO_STORAGE_SECRET_KEY=moogo_sk_xxx
-MOOGO_SQL_KEY=moogo_proj_xxx        # only for SQL operations
-MOOGO_PUBLIC_URL=https://app.yourdomain.com
+# The server itself
+MOOGO_BASE_URL=https://api.yourdomain.com    # API origin, no path
+MOOGO_PUBLIC_URL=https://app.yourdomain.com  # dashboard origin
 MOOGO_DATABASE_URL=postgres://...
 MOOGO_SESSION_SECRET=your-64-char-secret
 MOOGO_COOKIE_SECURE=true
 MOOGO_ENV=production
 RESEND_API_KEY=re_xxx   # or MOOGO_GOOGLE_CLIENT_ID=xxx
+```
+
+Storage credentials are **not** server environment. Each project gets its own,
+issued in the dashboard (**Bucket → Credentials**) and read only by the client
+application or the MCP server, never by `moogo`. Set them where the client runs:
+
+```bash
+# A client application's own environment (any language)
+MOOGO_BASE_URL=https://api.yourdomain.com
+MOOGO_PROJECT_ID=your-project-uuid
+MOOGO_SQL_KEY=moogo_...                # SQL (or MOOGO_STORAGE_* for storage)
+MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
+MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 ```
 
 Check config before restart:

@@ -78,7 +78,8 @@ func parseFlags(args []string, takesValue, isBool map[string]bool) (*flagSet, er
 // next one's usage.
 func sharedFlags() (takesValue, isBool map[string]bool) {
 	takesValue = map[string]bool{
-		"url":            true,
+		"base-url":       true,
+		"project-id":     true,
 		"key":            true,
 		"storage-key-id": true,
 		"storage-key":    true,

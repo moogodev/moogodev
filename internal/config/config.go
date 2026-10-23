@@ -22,8 +22,9 @@ type Config struct {
 	// PublicURL is the origin the browser dashboard is served from, and so the
 	// origin the OAuth redirect URI is built from.
 	PublicURL string
-	// BaseURL is the origin a client application is told to talk to: the base of
-	// MOOGO_PROJECT_URL and MOOGO_BASE_URL.
+	// BaseURL is the data-plane origin a client application is told to talk
+	// to: the value of MOOGO_BASE_URL. It carries no path — a client appends
+	// /p/{project_id} and its own routes.
 	//
 	// It exists because a split deployment puts the dashboard and the data
 	// plane on different hostnames, and the value has to be assembled from
@@ -655,6 +656,7 @@ var knownMoogoEnv = map[string]bool{
 	"MOOGO_ACTIVITY_LOG_RETENTION_DAYS": true,
 	"MOOGO_ADDR":                        true,
 	"MOOGO_API_URL":                     true, // deprecated, accepted
+	"MOOGO_PROJECT_URL":                 true, // deprecated: rename to MOOGO_BASE_URL + MOOGO_PROJECT_ID
 	"MOOGO_BACKUP_ACCESS_KEY":           true,
 	"MOOGO_BACKUP_ALERT_AFTER":          true,
 	"MOOGO_BACKUP_ALERT_WEBHOOK":        true,
@@ -704,6 +706,7 @@ var knownMoogoEnv = map[string]bool{
 	"MOOGO_SQL_READ_ONLY":               true,
 	"MOOGO_SESSION_SECURE":              true,
 	"MOOGO_SESSION_SECRET":              true,
+	"MOOGO_SECRET_KEY":                  true, // deprecated: rename to MOOGO_SQL_KEY
 }
 
 // Floor values. Anything below these is a configuration mistake rather than a

@@ -11,10 +11,10 @@ Works with PHP 8.1+, no framework required.
 **Environment variables** (`.env` or server config):
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; empty falls back to the API origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -26,16 +26,17 @@ export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
 <?php
 // moogo.php
 
-$projectUrl = $_ENV['MOOGO_PROJECT_URL'] ?? getenv('MOOGO_PROJECT_URL');
-$secretKey = $_ENV['MOOGO_SECRET_KEY'] ?? getenv('MOOGO_SECRET_KEY');
-$bucketEndpoint = $_ENV['MOOGO_BASE_URL'] ?? getenv('MOOGO_BASE_URL');
+$baseUrl = rtrim($_ENV['MOOGO_BASE_URL'] ?? getenv('MOOGO_BASE_URL'), '/');
+$projectId = $_ENV['MOOGO_PROJECT_ID'] ?? getenv('MOOGO_PROJECT_ID');
+$secretKey = $_ENV['MOOGO_SQL_KEY'] ?? getenv('MOOGO_SQL_KEY');
+$bucketEndpoint = "{$baseUrl}/p/{$projectId}/bucket";
 $cdnUrl = rtrim($_ENV['MOOGO_CDN_URL'] ?? getenv('MOOGO_CDN_URL') ?: '', '/');
 $bucketAccessKeyId = $_ENV['MOOGO_STORAGE_ACCESS_KEY_ID'] ?? getenv('MOOGO_STORAGE_ACCESS_KEY_ID');
 $bucketSecretKey = $_ENV['MOOGO_STORAGE_SECRET_KEY'] ?? getenv('MOOGO_STORAGE_SECRET_KEY');
 
 function moogoRequest(string $path, string $sql, array $args = []): array {
-    global $projectUrl, $secretKey;
-    $ch = curl_init("{$projectUrl}{$path}");
+    global $baseUrl, $projectId, $secretKey;
+    $ch = curl_init("{$baseUrl}/p/{$projectId}{$path}");
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_HTTPHEADER => [
@@ -135,15 +136,15 @@ function bucketPublish(string $key): array {
 }
 
 function bucketPublicUrl(string $key): string {
-    global $bucketEndpoint, $cdnUrl;
+    global $baseUrl, $projectId, $cdnUrl;
     // /pub/<project-id>/<key> is the route that needs no credential. The bucket
     // endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated
     // URL, and a browser tab carries no storage credential, so an <img> pointed at
     // one breaks for every private object. This serves published objects only: a
     // fresh upload is private, so publish it with bucketPublish first. Until then,
     // public_url in the response is an empty string. When MOOGO_CDN_URL is set,
-    // public objects are served from that CDN host instead of the bucket endpoint.
-    $publicBase = preg_replace('#/p/([^/]+)/bucket/?$#', '/pub/$1', $bucketEndpoint);
+    // public objects are served from that CDN host instead of the API origin.
+    $publicBase = "{$baseUrl}/pub/{$projectId}";
     if ($cdnUrl !== '') {
         // Keep the /pub/<project-id> path, swap only the scheme and host.
         $publicBase = preg_replace('#^https?://[^/]+#', $cdnUrl, $publicBase);
@@ -241,13 +242,14 @@ class MoogoClient {
         private ClientInterface $client,
         private RequestFactoryInterface $requestFactory,
         private StreamFactoryInterface $streamFactory,
-        private string $projectUrl,
+        private string $baseUrl,
+        private string $projectId,
         private string $secretKey
     ) {}
 
     public function sql(string $sql, array $args = []): array {
         $endpoint = preg_match('/^\s*(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\b/i', $sql) ? '/query' : '/exec';
-        $request = $this->requestFactory->createRequest('POST', $this->projectUrl . $endpoint)
+        $request = $this->requestFactory->createRequest('POST', "{$this->baseUrl}/p/{$this->projectId}{$endpoint}")
             ->withHeader('Authorization', "Bearer {$this->secretKey}")
             ->withHeader('Content-Type', 'application/json')
             ->withBody($this->streamFactory->createStream(json_encode(['query' => $sql, 'args' => $args])));

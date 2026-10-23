@@ -11,14 +11,15 @@ npm i ofetch  # or use built-in fetch (modern browsers)
 **Environment variables** (`.env` — only public bucket URL goes to client):
 
 ```env
-VITE_MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
+VITE_MOOGO_BASE_URL=https://api.moogo.dev
+VITE_MOOGO_PROJECT_ID=<project-id>
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 VITE_MOOGO_CDN_URL=https://cdn.moogo.dev
 VITE_MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
 VITE_MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 ```
 
-> ⚠️ **Never expose `MOOGO_SECRET_KEY` (SQL key) in client code.**  
+> ⚠️ **Never expose `MOOGO_SQL_KEY` (SQL key) in client code.**  
 > For SQL in a SPA, create a small backend proxy (see below) or use a Server Function (Netlify/Vercel Functions, Cloudflare Workers).
 
 ## Client-side Bucket only (`composables/useMoogoBucket.ts`)
@@ -27,7 +28,9 @@ VITE_MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 // composables/useMoogoBucket.ts
 import { ofetch, type FetchResponse } from "ofetch";
 
-const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BASE_URL!;
+const BASE_URL = import.meta.env.VITE_MOOGO_BASE_URL!;
+const PROJECT_ID = import.meta.env.VITE_MOOGO_PROJECT_ID!;
+const BUCKET_ENDPOINT = `${BASE_URL}/p/${PROJECT_ID}/bucket`;
 const CDN_URL = (import.meta.env.VITE_MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const BUCKET_ACCESS_KEY_ID = import.meta.env.VITE_MOOGO_STORAGE_ACCESS_KEY_ID!;
 const BUCKET_SECRET_KEY = import.meta.env.VITE_MOOGO_STORAGE_SECRET_KEY!;
@@ -150,8 +153,10 @@ Create a tiny serverless function (Netlify, Vercel, Cloudflare Workers):
 // netlify/functions/moogo-sql.ts
 import type { Handler } from "@netlify/functions";
 
-const PROJECT_URL = process.env.MOOGO_PROJECT_URL!;
-const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
+const MOOGO_BASE_URL = process.env.MOOGO_BASE_URL!;
+const MOOGO_PROJECT_ID = process.env.MOOGO_PROJECT_ID!;
+const SECRET_KEY = process.env.MOOGO_SQL_KEY!;
+const PROJECT_URL = `${MOOGO_BASE_URL}/p/${MOOGO_PROJECT_ID}`;
 
 const headers = {
   Authorization: `Bearer ${SECRET_KEY}`,

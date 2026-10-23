@@ -34,9 +34,9 @@ Read [Limits](/docs/limits) before designing around it.
 3. Put these in the project's environment:
 
 ```bash
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project_id>
+MOOGO_BASE_URL=https://api.moogo.dev
 MOOGO_PROJECT_ID=<project_id>
-MOOGO_SECRET_KEY=...             # SQL only
+MOOGO_SQL_KEY=...                 # SQL only
 MOOGO_STORAGE_ACCESS_KEY_ID=...   # object storage only
 MOOGO_STORAGE_SECRET_KEY=...      # object storage only
 ```
@@ -74,8 +74,9 @@ takes an optional `limit` (default 100, capped at 1000).
 
 | Variable | Required | Default | Notes |
 |---|---|---|---|
-| `MOOGO_PROJECT_URL` | yes | — | e.g. `https://api.moogo.dev/p/<project_id>` |
-| `MOOGO_SECRET_KEY` | yes | — | SQL credential (project secret) |
+| `MOOGO_BASE_URL` | yes | — | API origin, e.g. `https://api.moogo.dev` |
+| `MOOGO_PROJECT_ID` | yes | — | The project's UUID |
+| `MOOGO_SQL_KEY` | yes | — | SQL credential (project key) |
 | `MOOGO_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http` |
 | `MOOGO_MCP_ADDR` | no | `127.0.0.1:4618` | Only for `http` transport |
 | `MOOGO_STORAGE_ACCESS_KEY_ID` | no* | — | Bucket tools need **both** this and the secret |
@@ -96,8 +97,9 @@ go build -o moogo-mcp ./cmd/mcp
     "moogo": {
       "command": "/path/to/moogo-mcp",
       "env": {
-        "MOOGO_PROJECT_URL": "https://api.moogo.dev/p/<project_id>",
-        "MOOGO_SECRET_KEY": "...",
+        "MOOGO_BASE_URL": "https://api.moogo.dev",
+        "MOOGO_PROJECT_ID": "<project_id>",
+        "MOOGO_SQL_KEY": "...",
         "MOOGO_STORAGE_ACCESS_KEY_ID": "...",   // optional
         "MOOGO_STORAGE_SECRET_KEY": "..."       // optional
       }
@@ -143,8 +145,8 @@ is never logged, never in tool args, never in tool results.
 Request, authorized with the SQL key:
 
 ```bash
-curl "$MOOGO_PROJECT_URL/query" \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query" \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query": "SELECT id, email FROM users WHERE plan = ?", "args": ["pro"]}'
 ```
@@ -176,8 +178,8 @@ Reclaim space after deletes/drops. The database file never shrinks on its own.
 
 ```bash
 # Via HTTP
-curl -X POST "$MOOGO_PROJECT_URL/maintenance" \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl -X POST "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/maintenance" \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"operation": "vacuum"}'
 
@@ -272,12 +274,13 @@ moogo help
 
 | Variable | Required | Notes |
 |---|---|---|
-| `MOOGO_PROJECT_URL` | yes | e.g. `https://api.moogo.dev/p/<project_id>` |
-| `MOOGO_SECRET_KEY` | yes | Project secret key for SQL commands |
+| `MOOGO_BASE_URL` | yes | API origin, e.g. `https://api.moogo.dev` |
+| `MOOGO_PROJECT_ID` | yes | The project's UUID |
+| `MOOGO_SQL_KEY` | yes | SQL key for db commands |
 | `MOOGO_STORAGE_ACCESS_KEY_ID` | for `bucket` commands | Storage credential |
 | `MOOGO_STORAGE_SECRET_KEY` | for `bucket` commands | Storage credential |
 
-Flags `--url`, `--key`, `--storage-key-id`, `--storage-key` override environment variables.
+Flags `--base-url`, `--project-id`, `--key`, `--storage-key-id`, `--storage-key` override environment variables.
 
 ### Commands
 
@@ -303,10 +306,10 @@ npm install @moogodev/client
 ```
 
 ```typescript
-import { MoogoClient, createClientFromEnv } from '@moogodev/client';
+import { createStorageClient } from '@moogodev/client';
 
 // From env vars (MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY)
-const client = createClientFromEnv();
+const client = createStorageClient();
 
 // Upload with custom Cache-Control
 await client.upload('avatars/user.png', fileBlob, {
@@ -344,7 +347,7 @@ X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID
 Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY
 ```
 
-With `ENDPOINT=$MOOGO_PROJECT_URL/bucket`:
+With `ENDPOINT=$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/bucket`:
 
 | Action | Request |
 |---|---|

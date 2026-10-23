@@ -11,10 +11,11 @@ pip install fastapi uvicorn httpx pydantic
 **Environment variables:**
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; falls back to the bucket endpoint origin when empty.
+# API origin (no path; the /p/<project-id>/... path is built in code).
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; falls back to the API origin when empty.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -29,15 +30,17 @@ import httpx
 from typing import Any
 from urllib.parse import quote
 
-PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
-SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
-BUCKET_ENDPOINT = os.environ["MOOGO_BASE_URL"]
-# Optional CDN origin for public objects; falls back to the bucket endpoint origin when empty.
+BASE_URL = os.environ["MOOGO_BASE_URL"].rstrip("/")
+PROJECT_ID = os.environ["MOOGO_PROJECT_ID"]
+SQL_KEY = os.environ["MOOGO_SQL_KEY"]
+PROJECT_URL = f"{BASE_URL}/p/{PROJECT_ID}"
+BUCKET_ENDPOINT = f"{PROJECT_URL}/bucket"
+# Optional CDN origin for public objects; falls back to the API origin when empty.
 CDN_URL = os.environ.get("MOOGO_CDN_URL", "").rstrip("/")
 BUCKET_ACCESS_KEY_ID = os.environ["MOOGO_STORAGE_ACCESS_KEY_ID"]
 BUCKET_SECRET_KEY = os.environ["MOOGO_STORAGE_SECRET_KEY"]
 
-SQL_HEADERS = {"Authorization": f"Bearer {SECRET_KEY}", "Content-Type": "application/json"}
+SQL_HEADERS = {"Authorization": f"Bearer {SQL_KEY}", "Content-Type": "application/json"}
 STORAGE_HEADERS = {"X-Moogo-Access-Key-Id": BUCKET_ACCESS_KEY_ID, "Authorization": f"Bearer {BUCKET_SECRET_KEY}"}
 
 client = httpx.AsyncClient(timeout=30.0)
@@ -112,10 +115,8 @@ def bucket_public_url(key: str) -> str:
     # breaks for every private object. This serves published objects only: a fresh
     # upload is private, so publish it with bucket_publish first. Until then,
     # public_url in the response is an empty string. Public objects are served
-    # from the CDN origin (CDN_URL) when set, otherwise from the bucket endpoint.
-    origin, _, tail = BUCKET_ENDPOINT.partition("/p/")
-    project_id = tail.split("/")[0]
-    return f"{CDN_URL or origin}/pub/{project_id}/{quote(key, safe='/')}"
+    # from the CDN origin (CDN_URL) when set, otherwise from the API origin.
+    return f"{CDN_URL or BASE_URL}/pub/{PROJECT_ID}/{quote(key, safe='/')}"
 ```
 
 ## FastAPI App (`main.py`)

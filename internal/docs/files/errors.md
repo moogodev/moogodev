@@ -200,7 +200,7 @@ Two things worth knowing if you are seeing this when you did not expect it:
 ### When you get `unauthorized`
 
 1. **Is it the right key?** The project's Settings tab shows a masked
-   `MOOGO_SECRET_KEY` — the key's eight-character prefix. Check it against the
+   `MOOGO_SQL_KEY` — the key's eight-character prefix. Check it against the
    start of your key.
 2. **Is it the right scheme?** Only `Bearer` is accepted — not Basic, not a bare
    token.
@@ -291,7 +291,7 @@ plain `POST` to an existing key is refused rather than silently replacing the fi
 The dashboard uses your **session**, not a project key. So the SQL and the data
 are fine, and the difference is the credential. Check:
 
-- Is `MOOGO_SECRET_KEY` in the deployed environment, not just your shell?
+- Is `MOOGO_SQL_KEY` in the deployed environment, not just your shell?
 - Did you restart after adding it?
 - Is there a trailing newline or quotes in the value?
 - Did a deploy rotate the key? Get the current prefix from the dashboard.

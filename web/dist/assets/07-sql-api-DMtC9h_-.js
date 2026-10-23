@@ -1,0 +1,958 @@
+var e=`# SQL API
+
+Three endpoints. One runs reads, one runs writes, and one runs several writes as
+a single unit. All three take a project key, and all three validate your SQL
+before it touches the database.
+
+## Base URL
+
+Everything is built from two values: the API origin, \`MOOGO_BASE_URL\`, and the
+project id, \`MOOGO_PROJECT_ID\`. Together they form the project URL:
+
+\`\`\`
+$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID
+https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+\`\`\`
+
+There is also an older form, \`/db/{project_id}/query\`, \`/db/{project_id}/exec\`
+and \`/db/{project_id}/transaction\`. It behaves identically and exists so
+integrations built against it keep working. New code should use the
+project-scoped URL.
+
+## Machine-readable spec
+
+The whole API — every route, every request and response shape, every error
+code — is described by an [OpenAPI 3.0 document](/openapi.yaml), served
+unauthenticated as YAML. It is the same document the dashboard's TypeScript
+types are generated from, so what a code generator reads matches what the
+server actually returns:
+
+\`\`\`bash
+curl https://api.moogo.dev/openapi.yaml
+\`\`\`
+
+Point \`openapi-generator\`, \`oapi-codegen\` or a similar tool at that URL to
+generate a typed client instead of hand-writing \`fetch\` wrappers. This prose
+page and that document are maintained together; when they disagree, the YAML is
+the one the server is built against.
+
+## Authentication
+
+Every request needs the project key:
+
+\`\`\`
+Authorization: Bearer moogo_...
+Content-Type: application/json
+\`\`\`
+
+A missing or wrong key returns \`401\`.
+
+## Request body
+
+Both endpoints take the same body:
+
+\`\`\`json
+{
+  "query": "SELECT id, email FROM users WHERE plan = ?",
+  "args": ["pro"]
+}
+\`\`\`
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| \`query\` | string | Yes | One SQL statement. |
+| \`args\` | array | No | Values for the \`?\` placeholders, in order. |
+
+Unknown fields are rejected rather than ignored. If you send \`{"argz": [...]}\` you
+get an error instead of a success that quietly did nothing.
+
+### Always use \`args\`
+
+Values belong in \`args\`, never concatenated into \`query\`. \`args\` travel as bound
+parameters, so a value can never become syntax:
+
+\`\`\`json
+{ "query": "INSERT INTO users (id, email) VALUES (?, ?)", "args": ["7c1f", "ketut@example.com"] }
+\`\`\`
+
+Not this, ever:
+
+\`\`\`json
+{ "query": "INSERT INTO users (id, email) VALUES ('7c1f', 'ketut@example.com')" }
+\`\`\`
+
+## \`POST /query\` — reads
+
+Use this for anything that returns rows: \`SELECT\`, \`VALUES\`, \`PRAGMA\`, \`EXPLAIN\`,
+or a \`WITH\` clause that ends in a read.
+
+\`\`\`bash
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \\
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"SELECT id, email FROM users WHERE plan = ?","args":["pro"]}'
+\`\`\`
+
+Response:
+
+\`\`\`json
+{
+  "success": true,
+  "columns": ["id", "email"],
+  "rows": [["7c1f", "ketut@example.com"]],
+  "row_count": 1,
+  "truncated": false,
+  "duration_ms": 2
+}
+\`\`\`
+
+| Field | Type | Notes |
+|---|---|---|
+| \`success\` | boolean | Always \`true\` on a 200. |
+| \`columns\` | string[] | The shape of every row. |
+| \`rows\` | any[][] | Positionally aligned with \`columns\`. |
+| \`row_count\` | number | Rows returned. |
+| \`truncated\` | boolean | \`true\` if a row cap was hit — do not treat this as the whole table. |
+| \`duration_ms\` | number | Server-side execution time. |
+
+Rows are **arrays, not objects**. \`rows[i][j]\` corresponds to \`columns[j]\`, which
+keeps the payload small and lets you render a table without reading the first row
+to discover the shape.
+
+A read response also carries at most **16 MB** of row data. \`truncated\` covers
+the row cap of 1000 rows; a result past the byte cap fails with
+\`413 result_too_large\` rather than coming back half-complete.
+
+\`/query\` **rejects writes** with \`not_a_read\`. That is deliberate: routing a write
+through the read endpoint would let a caller pull a large result set past the row
+cap.
+
+## \`POST /exec\` — writes
+
+Use this for \`INSERT\`, \`UPDATE\`, \`DELETE\`, \`CREATE\`, \`ALTER\`, \`DROP\`.
+
+\`\`\`bash
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \\
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"INSERT INTO users (id, email, plan) VALUES (?, ?, ?)","args":["7c1f","ketut@example.com","free"]}'
+\`\`\`
+
+Response:
+
+\`\`\`json
+{
+  "success": true,
+  "rows_affected": 1,
+  "size_bytes": 24576,
+  "duration_ms": 1
+}
+\`\`\`
+
+| Field | Type | Notes |
+|---|---|---|
+| \`success\` | boolean | Always \`true\` on a 200. |
+| \`rows_affected\` | number | Rows changed. |
+| \`size_bytes\` | number | Database size after the write. Useful for tracking quota. |
+| \`last_insert_rowid\` | number | **On an \`INSERT\` or \`REPLACE\` only.** The new row's id. |
+| \`duration_ms\` | number | Server-side execution time. |
+
+\`\`\`json
+{ "success": true, "rows_affected": 1, "last_insert_rowid": 42, "size_bytes": 24576, "duration_ms": 1 }
+\`\`\`
+
+That saves the \`SELECT\` that would otherwise follow an insert to learn the new
+id:
+
+\`\`\`js
+const created = await sql("INSERT INTO users (email) VALUES (?)", [email]);
+// created.last_insert_rowid is the id — no follow-up query.
+\`\`\`
+
+On every other statement the field is **absent**, not zero. SQLite's
+\`last_insert_rowid\` belongs to the connection rather than the statement, so an
+\`UPDATE\` right after an \`INSERT\` would otherwise report the id the insert
+created. Read the field only when it is present.
+
+\`/exec\` rejects reads with \`not_a_write\`.
+
+### \`RETURNING\` — write and read back in one call
+
+Add a \`RETURNING\` clause and \`/exec\` hands back the rows the statement touched,
+so you learn generated ids, defaults, and any expression the database computed
+without a follow-up \`SELECT\`:
+
+\`\`\`bash
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \\
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"INSERT INTO users (email) VALUES (?) RETURNING id, email, plan","args":["ketut@example.com"]}'
+\`\`\`
+
+\`\`\`json
+{
+  "success": true,
+  "rows_affected": 1,
+  "columns": ["id", "email", "plan"],
+  "rows": [[42, "ketut@example.com", "free"]],
+  "size_bytes": 24576,
+  "duration_ms": 1
+}
+\`\`\`
+
+\`columns\` and \`rows\` are **absent** on an ordinary write, so you can tell a
+plain insert from one that asked data back. \`rows_affected\` equals the number of
+rows returned, since each returned row is one the statement changed. The row cap
+and result byte budget that bound \`/query\` apply here too; a truncated result
+sets \`truncated\` to \`true\`.
+
+### \`Idempotency-Key\` — retry a write without risking it twice
+
+Send an opaque key with a write and a retry becomes safe. The first request
+with a given key runs normally; a repeat within 24 hours returns the first
+response instead of running the statement again — the response body is
+identical, with an \`Idempotent-Replay: true\` header added so you can tell the
+two apart when debugging.
+
+\`\`\`bash
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \\
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \\
+  -H "Idempotency-Key: order-8f2c-charge" \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"INSERT INTO charges (order_id, amount) VALUES (?, ?)","args":["8f2c",25000]}'
+\`\`\`
+
+Rules worth knowing:
+
+- **Omit it and nothing changes.** The header is opt-in; a client that does not
+  send one gets the exact behaviour it has today.
+- **A repeat that arrives while the first is still running gets \`409\`** with
+  code \`idempotency_conflict\`. Retry the same request — do not change the key
+  or the body.
+- **\`5xx\` responses are not remembered.** A retry after a server error gets a
+  real second attempt rather than the same failure handed back.
+- **\`4xx\` responses are remembered**, so a retry of the same bad request gets
+  the same answer without re-running the work.
+- **Scope is caller + endpoint.** The same key on \`/exec\` and \`/transaction\`,
+  or across two projects, are separate promises and never collide.
+- **Keys are held in memory for 24 hours.** After a restart, or after that
+  window, a repeat runs again — so pick a key that is meaningful to your
+  application, like \`order-8f2c-charge\`, not a random UUID you throw away.
+
+The same header works on \`POST /transaction\` and \`POST /exec/txn\`.
+
+> **DDL goes here too.** \`CREATE TABLE\`, \`ALTER TABLE\`, \`CREATE INDEX\` are all
+> writes. They run through the same sanitizer, so check
+> [what is rejected](#what-is-rejected) before you are surprised.
+
+## \`POST /transaction\` — writes as one unit
+
+Use this when one logical change is several statements: create the todo, log the
+activity, bump the counter. Every statement is committed together, or none of them
+is.
+
+\`POST /exec/txn\` is the same endpoint under the name a client sometimes guesses
+for it — same request, same response, same rules. Use whichever reads better;
+\`/transaction\` is the documented spelling.
+
+\`\`\`bash
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/transaction \\
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "statements": [
+      { "query": "INSERT INTO todos (id, title) VALUES (?, ?)", "args": ["7c1f", "Buy milk"] },
+      { "query": "INSERT INTO activity (todo_id, action) VALUES (?, ?)", "args": ["7c1f", "created"] },
+      { "query": "UPDATE counters SET todos = todos + 1 WHERE name = ?", "args": ["total"] }
+    ]
+  }'
+\`\`\`
+
+Response:
+
+\`\`\`json
+{
+  "success": true,
+  "statements": [
+    { "rows_affected": 1, "last_insert_rowid": 1 },
+    { "rows_affected": 1 },
+    { "rows_affected": 1 }
+  ],
+  "rows_affected": 3,
+  "size_bytes": 24576,
+  "duration_ms": 3
+}
+\`\`\`
+
+| Field | Type | Notes |
+|---|---|---|
+| \`success\` | boolean | Always \`true\` on a 200. |
+| \`statements\` | object[] | One entry per submitted statement, in the same order. |
+| \`rows_affected\` | number | Total across the batch. |
+
+The per-statement \`rows_affected\` is \`0\` for statements that do not report a
+count, such as \`CREATE TABLE\`.
+
+**\`last_insert_rowid\` is the saving here.** It is the new row's id, present only
+on a statement that inserted one — an \`INSERT\` or a \`REPLACE\`:
+
+\`\`\`js
+const result = await transaction([
+  { query: "INSERT INTO users (email) VALUES (?)", args: [email] },
+  { query: "INSERT INTO activity (user_id, action) VALUES (?, 'created')", args: ["pending"] },
+]);
+
+const userId = result.statements[0].last_insert_rowid;
+\`\`\`
+
+Creating a record no longer needs a \`SELECT\` to find out what it was called.
+The field is **absent**, not zeroed, on every other statement: SQLite's
+\`last_insert_rowid\` belongs to the connection rather than the statement, so an
+\`UPDATE\` right after an \`INSERT\` would otherwise report the id that insert
+created. Read it only when it is there.
+
+### All or nothing
+
+If any statement fails, none of them are applied. Nothing partial is left behind,
+so a retry can never land on top of a half-finished change:
+
+\`\`\`json
+{
+  "error": {
+    "code": "sql_error",
+    "message": "the statement could not be executed",
+    "detail": "statement 2: execute statement: constraint failed: UNIQUE constraint failed: todos.id"
+  }
+}
+\`\`\`
+
+\`detail\` names the **position** of the failing statement, counted from 1. That is
+what makes a forty-statement migration fixable without bisecting it by hand.
+
+### What a transaction accepts
+
+- **Writes and DDL only.** A read is refused with \`not_a_write\`, the same as on
+  \`/exec\`. Reads go to \`/query\`. A write that seems to need a read first usually
+  does not — \`UPDATE counters SET todos = todos + 1 WHERE name = ?\` never
+  selects the row it is updating, so it needs no read and stays inside the batch.
+- **One statement per entry.** The single-statement rule below still applies to
+  each one, so a semicolon cannot smuggle in a second statement.
+- **Everything is validated before the first statement runs.** A batch with one
+  forbidden statement is refused with that statement's position, and the database
+  is never touched at all.
+- **Up to 100 statements.** The project's write lock is held for the whole batch
+  — that is what makes it atomic — which is also why a batch is bounded.
+- **One 15-second budget for the batch**, not one per statement.
+
+Every rule under [what is rejected](#what-is-rejected) applies to each statement
+in the batch: forbidden keywords, blocked functions, the PRAGMA allowlist, and the
+64 KB statement limit.
+
+### A transaction in the client
+
+\`\`\`js
+async function transaction(statements) {
+  const response = await fetch(\`\${base}/transaction\`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ statements }),
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error?.message ?? "request failed");
+  return body;
+}
+
+// The todo, its activity row and the counter all move together, or none do.
+await transaction([
+  { query: "INSERT INTO todos (id, title) VALUES (?, ?)", args: [id, title] },
+  { query: "INSERT INTO activity (todo_id, action) VALUES (?, ?)", args: [id, "created"] },
+  { query: "UPDATE counters SET todos = todos + 1 WHERE name = ?", args: ["total"] },
+]);
+\`\`\`
+
+## One statement per entry
+
+Send exactly one statement per entry. A second statement is rejected with
+\`sql_multiple_statements\`.
+
+\`\`\`json
+{ "query": "SELECT 1; DROP TABLE users" }
+\`\`\`
+
+This is checked on **tokens**, not on raw text, so a semicolon inside a string
+literal or a comment is not counted:
+
+\`\`\`json
+{ "query": "SELECT * FROM notes WHERE body = 'hello; world'" }
+\`\`\`
+
+That is fine. A trailing semicolon is also fine — it terminates the statement
+rather than starting another one.
+
+The dashboard's SQL console does this splitting for you: paste a script, and it
+runs each statement as its own request in order. This rule constrains one entry,
+not a whole script — and a batch of entries is exactly what
+[\`POST /transaction\`](#post-transaction-writes-as-one-unit) is for.
+
+## What is rejected
+
+Every statement is tokenized and inspected **before** it runs. Rejections come
+back as \`400\` with a specific \`code\`.
+
+### Keywords that would escape the database
+
+| Rejected | Because |
+|---|---|
+| \`ATTACH\` | Opens an arbitrary path as a database. This would turn \`/exec\` into a file reader for the whole host. |
+| \`DETACH\` | The other half of the same escape. |
+| \`REINDEX\` | Rebuilds indexes; use \`POST /maintenance\` instead. |
+| \`ANALYZE\` | Updates planner statistics; use \`POST /maintenance\` instead. |
+| \`VACUUM\` | Rewrites the whole file; use \`POST /maintenance\` instead. |
+| \`BEGIN\`, \`COMMIT\`, \`ROLLBACK\`, \`SAVEPOINT\`, \`RELEASE\` | You get one statement per request, and transactions are managed per request. |
+
+### Functions that read files or load native code
+
+\`readfile\`, \`writefile\`, \`load_extension\`, \`edit\`, \`fts3_tokenizer\`,
+\`sqlite_compileoption_get\`, \`sqlite_compileoption_used\`.
+
+These are matched **by name anywhere they appear**, including as a column or table
+name. That means a column literally named \`readfile\` is refused. This is a
+deliberate trade: a confusingly-named column is a small cost next to a readable
+\`/etc/passwd\`.
+
+### Triggers
+
+\`CREATE TRIGGER\` is rejected. A trigger body sits between \`BEGIN\` and \`END\` and
+contains semicolons, so detecting stacked statements correctly needs a real
+parser — and a hand-rolled approximation is exactly the kind of check that fails
+open on input SQLite accepts. Triggers are declined rather than shipping a check
+that might be wrong. Write your invariants in application code.
+
+### PRAGMA
+
+\`PRAGMA\` is **allowlisted, not blocked**, because many pragmas write to the file
+(\`journal_mode\`, \`key\`, \`rekey\`, \`page_size\`, \`auto_vacuum\`, \`synchronous\`).
+
+Allowed:
+
+\`table_info\`, \`table_xinfo\`, \`index_list\`, \`index_info\`, \`index_xinfo\`,
+\`foreign_key_list\`, \`collation_list\`, \`foreign_key_check\`
+
+The same list covers the \`pragma_*\` function spelling — \`pragma_database_list()\`
+is refused for the same reason \`PRAGMA database_list\` is: it reports filesystem
+paths.
+
+Two further groups are refused. \`function_list\`, \`module_list\`, \`pragma_list\`
+and \`compile_options\` describe the SQLite *engine* rather than your schema, so
+they are fingerprinting material with no page that needs them. \`integrity_check\`
+and \`quick_check\` walk every page of the file in one step, which the per-statement
+timeout cannot interrupt; run those against a downloaded copy instead.
+
+Both spellings work:
+
+\`\`\`json
+{ "query": "PRAGMA table_info(users)" }
+{ "query": "pragma_table_info('users')" }
+\`\`\`
+
+These are read-only introspection statements, which is what the dashboard's
+schema inspector needs.
+
+### Size and duration
+
+| Limit | Value | Error code |
+|---|---|---|
+| Statement length | 64 KB | \`sql_too_long\` |
+| Request body | 1 MB | \`body_too_large\` |
+| Execution time | 15 seconds | \`statement_timeout\` |
+| Database size | 250 MB | \`database_too_large\` |
+
+The statement length limit bounds tokenizer work and error-message size. It is not
+a substitute for the body limit, which is enforced while reading.
+
+A write that **would** cross the size ceiling is refused before it commits. You
+get an error, not a silently truncated database.
+
+## \`POST /maintenance\` — reclaim space after deletes
+
+Deleting rows frees pages inside the database file, but SQLite does not shrink
+the file on disk until it is rewritten. Run maintenance to reindex, rebuild
+query planner statistics, vacuum the file and fold the write-ahead log back in
+one operation.
+
+\`\`\`bash
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/maintenance \\
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \\
+  -X POST
+\`\`\`
+
+\`/maintenance/vacuum\` is accepted as an alias for the same operation.
+
+### Response
+
+\`\`\`json
+{
+  "success": true,
+  "vacuumed": true,
+  "reindexed": true,
+  "optimized": true,
+  "checkpointed": true,
+  "size_before_bytes": 245760,
+  "size_after_bytes": 65536,
+  "freed_bytes": 180224,
+  "duration_ms": 42
+}
+\`\`\`
+
+| Field | Type | Notes |
+|---|---|---|
+| \`vacuumed\` | boolean | \`false\` when the file had no free pages, so the rewrite had no space to return. The other steps still ran. |
+| \`reindexed\` | boolean | Indexes were rebuilt. |
+| \`optimized\` | boolean | Query planner statistics were rebuilt. |
+| \`checkpointed\` | boolean | The write-ahead log was folded back into the main file. |
+| \`size_before_bytes\` | integer | Size on disk before the run, including the log sidecar. |
+| \`size_after_bytes\` | integer | Size on disk after the run, including the log sidecar. |
+| \`freed_bytes\` | integer | \`size_before_bytes - size_after_bytes\`. |
+| \`duration_ms\` | integer | Server-side execution time. |
+
+### Rules
+
+- **Its own route.** \`VACUUM\`, \`REINDEX\` and \`ANALYZE\` are rejected on \`/exec\`
+  and \`/transaction\` because rewriting the whole file would bypass the per-project
+  size limit. The maintenance endpoint runs them in a fixed order with the
+  project's write lock and the same size limit still in force.
+- **Idempotent in effect.** Running it on a tight database is cheap and reports
+  \`vacuumed: false\`.
+- **One at a time per project.** The endpoint shares the project's write lock and
+  statement slot budget with \`/exec\` and \`/transaction\`; a concurrent request
+  waits for its turn or returns \`503 database_busy\` with \`Retry-After: 1\`.
+- **Budgeted.** The run uses the same statement timeout and is subject to the same
+  concurrency limit as other writes.
+- **Project key required.** A storage credential cannot run maintenance.
+
+You can also run it with the official CLI: \`moogo db vacuum\`.
+
+
+Moogo does not include a built-in migration framework. Instead, you run DDL
+statements directly via the \`/exec\` endpoint. This gives you full control but
+requires discipline.
+
+### Recommended Workflow
+
+1. **Keep migration files in version control**
+
+\`\`\`
+migrations/
+  001_create_users.sql
+  002_add_posts_table.sql
+  003_add_indexes.sql
+  004_add_foreign_keys.sql
+\`\`\`
+
+2. **Run migrations during deployment** (before deploying app code), using a
+simple runner that sends each \`.sql\` file as one transaction. The whole file
+either applies or none of it does, so a migration that fails on its sixth
+statement leaves no half-migrated schema behind:
+
+\`\`\`javascript
+// migrate.js
+import fs from 'fs';
+import path from 'path';
+import { transaction } from './lib/moogo';
+
+const MIGRATIONS_DIR = './migrations';
+
+async function runMigrations() {
+  const files = fs.readdirSync(MIGRATIONS_DIR)
+    .filter(f => f.endsWith('.sql'))
+    .sort();
+
+  for (const file of files) {
+    console.log(\`Running migration: \${file}\`);
+    const text = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf-8');
+    // Split on ';'. This is correct as long as no statement keeps a
+    // semicolon inside a string or comment — for those, split with a
+    // tokenizer instead of a plain String.split.
+    const statements = text.split(';').filter(s => s.trim());
+    // One entry per statement, one request per file: the batch is atomic and
+    // capped at 100 statements, so split a longer file into numbered parts.
+    await transaction(statements.map((query) => ({ query })));
+    console.log(\`✓ \${file}\`);
+  }
+}
+\`\`\`
+
+### Migration File Template
+
+\`\`\`sql
+-- 001_create_users.sql
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT,
+  password_hash TEXT,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);
+\`\`\`
+
+### Migration Checklist
+
+Before running migrations in production:
+
+- [ ] Test migrations on staging with production-like data
+- [ ] Use \`IF NOT EXISTS\` / \`IF EXISTS\` for idempotency
+- [ ] Run during low-traffic window
+- [ ] Have rollback plan (backup before migrate)
+- [ ] Test rollback locally first
+
+---
+
+## SQL Style Guide
+
+Follow these conventions to write SQL that is readable, portable, and works well
+with Moogo's HTTP API.
+
+### 1. Always Use Prepared Statements
+
+\`\`\`javascript
+// ✅ Correct — parameterized
+await sql("SELECT * FROM users WHERE email = ?", [email]);
+
+// ❌ NEVER — string interpolation (SQL injection: the value becomes syntax)
+await sql(\`SELECT * FROM users WHERE email = '\${email}'\`);
+\`\`\`
+
+### 2. Use Explicit Column Lists
+
+\`\`\`sql
+-- ✅ Good
+SELECT id, email, name FROM users WHERE id = ?
+
+-- ❌ Avoid SELECT *
+SELECT * FROM users WHERE id = ?
+\`\`\`
+
+### 3. Use CTEs for Complex Queries
+
+\`\`\`sql
+WITH active_users AS (
+  SELECT * FROM users WHERE is_active = 1
+)
+SELECT u.*, COUNT(p.id) as post_count
+FROM active_users u
+LEFT JOIN posts p ON u.id = p.user_id
+GROUP BY u.id;
+\`\`\`
+
+### 4. Use \`UPSERT\` for Idempotent Writes
+
+\`\`\`sql
+INSERT INTO users (id, email, name)
+VALUES (?, ?, ?)
+ON CONFLICT(email) DO UPDATE SET
+  name = excluded.name,
+  updated_at = datetime('now');
+\`\`\`
+
+### 5. Use \`RETURNING\` for Created Records
+
+\`\`\`sql
+INSERT INTO users (id, email, name)
+VALUES (?, ?, ?)
+RETURNING id, email, created_at;
+\`\`\`
+
+### 6. Schema Design Conventions
+
+| Aspect | Convention | Why |
+|--------|------------|-----|
+| Primary Keys | \`id TEXT PRIMARY KEY\` (UUID) | Distributed-friendly, no sequence contention |
+| Timestamps | \`TEXT DEFAULT (datetime('now'))\` | ISO8601 sorts lexicographically |
+| Booleans | \`INTEGER DEFAULT 1\` (0/1) | SQLite has no native BOOLEAN |
+| JSON | \`TEXT DEFAULT '{}'\` | Use \`json_extract()\` to query |
+| Foreign Keys | Always explicit with \`ON DELETE\` | Enables CASCADE, prevents orphans |
+
+### 7. Index Strategically
+
+\`\`\`sql
+-- Equality columns first, then range/order columns
+CREATE INDEX idx_posts_user_created ON posts(user_id, created_at DESC);
+CREATE INDEX idx_posts_published ON posts(published, created_at DESC);
+\`\`\`
+
+- Index columns used in \`WHERE\`, \`JOIN\`, \`ORDER BY\`
+- Equality columns first, then range/order columns
+- Don't over-index — each index slows writes
+
+---
+
+## What Cannot Run (Limitations)
+
+Moogo enforces safety limits that differ from embedded SQLite:
+
+| Feature | Status | Workaround |
+|---------|--------|------------|
+| \`BEGIN\`, \`COMMIT\`, \`ROLLBACK\`, \`SAVEPOINT\`, \`RELEASE\` | ❌ Rejected | The endpoint owns the transaction — send the batch to [\`POST /transaction\`](#post-transaction-writes-as-one-unit) |
+| Triggers (\`CREATE TRIGGER\`) | ❌ Rejected | Write invariants in application code |
+| \`ATTACH\` / \`DETACH\` | ❌ Rejected | Not supported |
+| \`VACUUM\` / \`REINDEX\` / \`ANALYZE\` | ❌ Rejected | Not supported |
+| \`load_extension\` / \`readfile\` / \`writefile\` | ❌ Blocked | Security |
+| \`ALTER TABLE ... DROP COLUMN\` | ⚠️ SQLite 3.35+ | Requires table recreate in older versions |
+| \`ALTER TABLE ... ADD FOREIGN KEY\` | ❌ Not supported | Requires table recreate |
+| Related writes across requests | ⚠️ One request each | Send them as one [\`/transaction\`](#post-transaction-writes-as-one-unit) batch |
+
+See [What is rejected](#what-is-rejected) for the full list of rejected statements.
+
+---
+
+## Related Guides
+
+- [Schema & Migration Best Practices](/docs/schema-best-practices) — Complete migration workflow, schema design patterns, and SQL style guide
+- [SQL API Reference](/docs/sql-api) — This page
+- [Security](/docs/security) — Prepared statements, sanitizer, limits
+- [Limits](/docs/limits) — Quotas, request limits, retention
+
+## Concurrency
+
+- **Reads run in parallel.** \`WAL\` mode means a reader never blocks the writer.
+- **Writes are serialised per project**, so two concurrent writes cannot hit
+  \`SQLITE_BUSY\`.
+- \`busy_timeout\` is still set as a backstop.
+- \`journal_mode = WAL\` and \`foreign_keys = ON\` on every connection.
+- **Foreign keys are enforced.** \`PRAGMA foreign_keys\` is set on every connection
+  as it opens, so a \`REFERENCES\` clause is not decoration: an orphan insert
+  fails with a constraint error instead of being written. Reading that pragma
+  back is not something you can do — it is not on the allowlist below, and
+  nothing else needs to be: what is enforced is what the table declares, so
+  \`PRAGMA foreign_key_list('your_table')\` is the check that answers the real
+  question, which is whether the constraint exists.
+- **Two pools per project** — one for reads (\`query_only\`), one for writes — at
+  most eight connections each. Handles are cached per project and evicted under
+  pressure, so the number of open file handles stays bounded and countable.
+
+## Complete example
+
+A tiny data layer, in plain JavaScript:
+
+\`\`\`js
+// db.js
+// MOOGO_BASE_URL is the API origin; MOOGO_PROJECT_ID is the project's UUID.
+const base = \`\${process.env.MOOGO_BASE_URL}/p/\${process.env.MOOGO_PROJECT_ID}\`;
+const headers = {
+  Authorization: \`Bearer \${process.env.MOOGO_SQL_KEY}\`,
+  "Content-Type": "application/json",
+};
+
+async function sql(query, args = []) {
+  // Route to the right endpoint: /query for reads, /exec for writes.
+  // \`with\` covers CTE reads (WITH ... SELECT); a CTE that writes
+  // (WITH ... INSERT) must be sent to /exec directly.
+  const endpoint = /^(select|values|pragma|explain|with)\\b/i.test(query.trim())
+    ? "query"
+    : "exec";
+
+  const response = await fetch(\`\${base}/\${endpoint}\`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ query, args }),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    const error = new Error(body.error?.message ?? "request failed");
+    error.code = body.error?.code;
+    throw error;
+  }
+  return body;
+}
+
+// Reads come back as arrays; give callers objects instead.
+export async function all(query, args = []) {
+  const result = await sql(query, args);
+  return result.rows.map((row) =>
+    Object.fromEntries(result.columns.map((column, index) => [column, row[index]])),
+  );
+}
+
+export async function run(query, args = []) {
+  return sql(query, args);
+}
+
+// Several writes that only make sense together. All of them commit, or none of
+// them do -- which is the only reason to reach for this rather than three calls
+// to /exec.
+export async function transaction(statements) {
+  const response = await fetch(\`\${base}/transaction\`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ statements }),
+  });
+
+  const body = await response.json();
+  if (!response.ok) {
+    const error = new Error(body.error?.message ?? "request failed");
+    error.code = body.error?.code;
+    error.detail = body.error?.detail;
+    throw error;
+  }
+  return body;
+}
+\`\`\`
+
+Using it:
+
+\`\`\`js
+await run(
+  "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL, plan TEXT)",
+);
+
+await run("INSERT INTO users (id, email, plan) VALUES (?, ?, ?)", [
+  "7c1f",
+  "ketut@example.com",
+  "free",
+]);
+
+const proUsers = await all("SELECT id, email FROM users WHERE plan = ?", ["pro"]);
+\`\`\`
+
+## Errors
+
+Every error has the same shape, so you can branch on \`code\` instead of parsing
+\`message\`:
+
+\`\`\`json
+{
+  "error": {
+    "code": "sql_forbidden_keyword",
+    "message": "this statement type is not allowed",
+    "detail": "ATTACH"
+  }
+}
+\`\`\`
+
+| Field | Notes |
+|---|---|
+| \`code\` | Stable and machine-readable. Safe to branch on. |
+| \`message\` | Human-readable, safe to show a developer. |
+| \`detail\` | Optional context. For SQL errors this is the driver's message. |
+
+### SQL validation codes
+
+| Code | Meaning |
+|---|---|
+| \`sql_empty\` | No statement was sent. |
+| \`sql_syntax_error\` | Could not be tokenized — usually an unterminated string or comment. |
+| \`sql_multiple_statements\` | More than one statement in one entry. |
+| \`sql_forbidden_keyword\` | A blocked keyword or trigger was used. \`detail\` names it. |
+| \`sql_forbidden_function\` | A blocked function name was used. |
+| \`sql_forbidden_pragma\` | The PRAGMA is not on the allowlist. |
+| \`sql_too_long\` | Statement over 64 KB. |
+| \`sql_invalid\` | Refused and not classified further. \`detail\` names the token. |
+| \`not_a_read\` | A write was sent to \`/query\`. |
+| \`not_a_write\` | A read was sent to \`/exec\` or inside a \`/transaction\` batch. |
+| \`transaction_empty\` | A \`/transaction\` batch with no statements. |
+| \`too_many_statements\` | A \`/transaction\` batch over 100 statements. |
+
+### Runtime codes
+
+| Code | Status | Meaning |
+|---|---|---|
+| \`sql_error\` | 400 | SQLite rejected the statement. Check \`detail\`. |
+| \`database_not_found\` | 404 | The project database does not exist. |
+| \`database_too_large\` | 413 | The database is at its 250 MB ceiling. |
+| \`statement_timeout\` | 504 | The statement passed 15 seconds and was cancelled. |
+| \`quota_exceeded\` | 429 | An account quota was reached. |
+| \`project_paused\` | 403 | The project is paused. |
+| \`project_not_ready\` | 403 | The project is still being created. |
+| \`body_too_large\` | 413 | Request body over 1 MB. |
+| \`invalid_json\` | 400 | The body was not valid JSON. |
+
+See [Errors and troubleshooting](/docs/errors) for how to handle them.
+
+## Transaksi dan enkapsulasi endpoint
+
+Endpoint \`/transaction\` (alias \`/exec/txn\`) menerima sekumpulan pernyataan SQL dan menjamin atomicity: keduanya commit atau keduanya rollback. Batasan penting:
+
+- **Maksimal 100 pernyataan** dalam satu transaksi.
+- **Budget 15 detik** total waktu eksekusi; melewati batas akan menyebabkan \`500 timeout\`.
+- **DDL + data in one transaction**: generally safe for small schema migrations (adding columns, simple indexes) together with light data manipulation. **Do not** combine large schema migrations (adding many tables/indexes) with intensive data manipulation in a single transaction. If your application relies on \`last_insert_rowid\`, ensure this read pattern is documented for each client language: the value is only available in the same session and immediately following the INSERT statement.
+
+**Safe schema migration patterns**:
+
+1. **Remove DDL from transaction** if it involves many tables/indexes; run separately before or after data manipulation.
+2. **If they must be together**: close the transaction immediately after data is inserted, then commit. Do not hold a transaction open during a long user session.
+3. **Reading \`last_insert_rowid\`**: after a successful INSERT in the same transaction, fetch the value before the next statement. Use with caution in concurrent environments.
+
+## Limits and performance
+
+From \`/docs/limits.md\`, limits are already transparent, but some practical patterns need clarification:
+
+- **Paging vs reading all**: For datasets over 100 rows, use \`LIMIT/OFFSET\` with small pages (e.g., 50 rows per page) instead of \`SELECT *\` entirely. Using large \`OFFSET\` gets slower because SQLite must skip preceding rows.
+- **CTE vs subquery**: For complex queries, CTE is generally more readable and sometimes performs better, but avoid recursive CTEs in the same transaction as write operations, because SQLite may lock pages.
+- **Avoid \`SELECT *\`**: Column names change will break clients without migration. Always specify needed columns.
+- **Database does not auto-shrink**: \`DELETE\` frees pages immediately, but physical space (\`250 MB\` ceiling) does not decrease until \`VACUUM\` executes (blocked on Moogo). If project approaches the limit, delete rows progressively rather than one large deletion.
+- **Performance Anomalies Near the 250 MB Limit**: As usage approaches the ceiling, SQLite adds a small overhead to check the limit before every write. It is recommended to monitor daily usage and migrate to a new project before reaching 230 MB.
+
+## SQL Security
+
+From \`/docs/security.md\` and \`/docs/sql-api.md\`, validation is already strong:
+
+- \`ATTACH\`, \`VACUUM\`, \`REINDEX\`, \`ANALYZE\` are blocked.
+- Triggers are forbidden.
+- Filesystem functions are blocked.
+- \`PRAGMA\` only allowed from an allowlist.
+
+This is good engineering. However, one thing needs careful interpretation:
+
+- **Sensitive column names** (e.g., named \`readfile\` or variations) will be rejected even if it's just a naming coincidence.
+
+**Recommendations**:
+
+- Explain that this is a trade-off: there are column names that may not be used in any query.
+- Provide a list of sensitive names that can be checked before deploy, not just a list of functions.
+- Example sensitive names: \`readfile\`, \`writefile\`, \`delete\`, \`vacuum\`, \`attach\` (column names matching blocked SQL keywords).
+
+## Error handling
+
+From \`/docs/errors.md\`, error envelope is consistent and can be branched by \`code\`. This is good. But for small-to-medium developers, this still needs improvement:
+
+- Many developers compare \`message\`, not \`code\`.
+- Consistency across endpoints exists, but safe branching patterns may not be widely known.
+
+**Recommendations**:
+
+- Provide explicit error handling examples, e.g., how to distinguish \`database_busy\` from other errors.
+- Explain which errors are retryable and which are not.
+
+\`\`\`js
+// Example safe error handling pattern:
+try {
+  const body = await sql(query, args);
+} catch (err) {
+  const code = err.error?.code;
+  if (code === 'database_busy') {
+    // retry with exponential backoff
+    await delay(1000);
+    return sql(query, args);
+  }
+  if (code === 'quota_exceeded') {
+    // don't retry; notify user
+    throw new Error('Storage quota exceeded');
+  }
+  // other errors can bubble to UI
+  throw err;
+}
+\`\`\`
+
+## Next
+
+- [Object storage](/docs/object-storage) — files under the same project
+- [Security](/docs/security) — why these rules exist
+- [Errors](/docs/errors) — every error code and what to do about it
+- [Schema & migrations](/docs/schema-best-practices) — client helpers for
+  batch inserts, paging and indexes`;export{e as default};

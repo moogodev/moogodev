@@ -7,14 +7,21 @@ import (
 )
 
 // Environment variables. The names are the ones the dashboard shows when a
-// project is created and the ones the MCP server already reads, so one set of
-// exports works for curl, for an agent and for this tool.
+// project is created and the ones the MCP server reads, so one set of exports
+// works for curl, for an agent and for this tool.
+//
+// The origin and the project id are separate, exactly as the SDK reads them: a
+// client appends the project's own routes rather than holding a URL with the
+// route layout baked in.
 const (
-	// EnvProjectURL is the project's data-plane URL, including the project id:
-	// https://api.moogo.dev/p/<project-id>.
-	EnvProjectURL = "MOOGO_PROJECT_URL"
-	// EnvSecretKey is the project key, which authorises SQL.
-	EnvSecretKey = "MOOGO_SECRET_KEY"
+	// EnvBaseURL is the data-plane origin, without a path:
+	// https://api.moogo.dev. The project's routes are built from it and
+	// EnvProjectID.
+	EnvBaseURL = "MOOGO_BASE_URL"
+	// EnvProjectID is the project's UUID.
+	EnvProjectID = "MOOGO_PROJECT_ID"
+	// EnvSQLKey is the project key, which authorises SQL.
+	EnvSQLKey = "MOOGO_SQL_KEY"
 	// EnvBucketAccessKeyID is a storage credential's access key id, which
 	// authorises object storage.
 	EnvBucketAccessKeyID = "MOOGO_STORAGE_ACCESS_KEY_ID"
@@ -47,61 +54,52 @@ type Config struct {
 
 // resolve reads the configuration from flags over environment.
 //
-// Only the project URL is required here, because every command needs it; the
-// credentials are checked by the command that needs them, so `moogo db push`
-// does not ask for a storage credential it will never send.
+// Only the base URL and project id are required here, because every command
+// needs them; the credentials are checked by the command that needs them, so
+// `moogo db push` does not ask for a storage credential it will never send.
 func resolve(flags *flagSet) (Config, error) {
-	raw := first(flags.value("url"), os.Getenv(EnvProjectURL))
-	if raw == "" {
+	base := strings.TrimRight(strings.TrimSpace(first(flags.value("base-url"), os.Getenv(EnvBaseURL))), "/")
+	projectID := strings.TrimSpace(first(flags.value("project-id"), os.Getenv(EnvProjectID)))
+	if base == "" || projectID == "" {
 		return Config{}, &commandError{fmt.Errorf(
-			"%s is not set; it is the project URL from the dashboard, like https://api.moogo.dev/p/<project-id>",
-			EnvProjectURL)}
+			"%s and %s are not set; they are the API origin and the project id from the dashboard, like https://api.moogo.dev and 8f3c1a20-...",
+			EnvBaseURL, EnvProjectID)}
 	}
 
-	base, projectID, err := splitProjectURL(raw)
+	projectURL, err := buildProjectURL(base, projectID)
 	if err != nil {
 		return Config{}, &commandError{err}
 	}
 
 	return Config{
-		ProjectURL:        base,
+		ProjectURL:        projectURL,
 		ProjectID:         projectID,
-		SecretKey:         first(flags.value("key"), os.Getenv(EnvSecretKey)),
+		SecretKey:         first(flags.value("key"), os.Getenv(EnvSQLKey)),
 		BucketAccessKeyID: first(flags.value("storage-key-id"), os.Getenv(EnvBucketAccessKeyID)),
 		BucketSecretKey:   first(flags.value("storage-key"), os.Getenv(EnvBucketSecretKey)),
 	}, nil
 }
 
-// splitProjectURL validates the shape of a project URL and reads the project
-// id out of it.
+// buildProjectURL validates the origin and the project id and joins them into
+// the base every command appends to.
 //
 // The shape is fixed by the API: the data plane is mounted at /p/{project_id},
-// and every endpoint in this tool is a path under that URL. A URL that does not
-// carry the segment is refused rather than guessed at, because guessing
-// produces a base that silently answers for whatever else is mounted there.
-func splitProjectURL(raw string) (projectURL, projectID string, err error) {
-	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
-
-	if !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "https://") {
-		return "", "", fmt.Errorf(
-			"%s must be an http or https URL (got %q)", EnvProjectURL, raw)
+// so the origin must carry no path and the id must be a single segment. A value
+// that does not fit is refused rather than guessed at, because guessing produces
+// a base that silently answers for whatever else is mounted there.
+func buildProjectURL(base, projectID string) (string, error) {
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		return "", fmt.Errorf(
+			"%s must be an http or https origin, without a path (got %q)", EnvBaseURL, base)
 	}
-
-	marker := "/p/"
-	index := strings.LastIndex(trimmed, marker)
-	if index < 0 {
-		return "", "", fmt.Errorf(
-			"%s must be the project URL, which ends in /p/<project-id> (got %q)",
-			EnvProjectURL, raw)
+	if projectID == "" {
+		return "", fmt.Errorf("%s must not be empty", EnvProjectID)
 	}
-
-	projectID = trimmed[index+len(marker):]
-	if projectID == "" || strings.ContainsAny(projectID, "/?#") {
-		return "", "", fmt.Errorf(
-			"%s has nothing usable after /p/ (got %q)", EnvProjectURL, raw)
+	if strings.ContainsAny(projectID, "/?# ") {
+		return "", fmt.Errorf(
+			"%s must be a single path segment (got %q)", EnvProjectID, projectID)
 	}
-
-	return trimmed, projectID, nil
+	return base + "/p/" + projectID, nil
 }
 
 // sqlEndpoint is one of the data-plane routes that run SQL.
@@ -119,8 +117,8 @@ func (config Config) bucketEndpoint(path string) string {
 func (config Config) requireSecret() error {
 	if config.SecretKey == "" {
 		return &commandError{fmt.Errorf(
-			"%s is not set; it is the project key shown once when the project was created",
-			EnvSecretKey)}
+			"%s is not set; it is the SQL key shown once when the project was created",
+			EnvSQLKey)}
 	}
 	return nil
 }

@@ -234,7 +234,7 @@ paths:
     post:
       tags: [SQL]
       summary: Compact the database and reclaim free space
-      description: Project-scoped alias using MOOGO_PROJECT_URL. Reindexes, rebuilds planner statistics, vacuums the file and checkpoints the WAL.
+      description: Project-scoped route under MOOGO_BASE_URL + /p/{project_id}. Reindexes, rebuilds planner statistics, vacuums the file and checkpoints the WAL.
       security:
         - BearerAuth: []
       responses:

@@ -430,9 +430,10 @@ fi
 if [[ $mcp_enabled -eq 1 ]]; then
 	# MCP validates at startup; static check that required vars are present.
 	# The actual runtime validation happens during restart_and_verify.
-	if ! grep -qE '^MOOGO_PROJECT_URL=' "$MCP_ENV_FILE" || \
-	   ! grep -qE '^MOOGO_SECRET_KEY=' "$MCP_ENV_FILE"; then
-		die_rolledback "mcp.env missing MOOGO_PROJECT_URL or MOOGO_SECRET_KEY." 0 moogo
+	if ! grep -qE '^MOOGO_BASE_URL=' "$MCP_ENV_FILE" || \
+	   ! grep -qE '^MOOGO_PROJECT_ID=' "$MCP_ENV_FILE" || \
+	   ! grep -qE '^MOOGO_SQL_KEY=' "$MCP_ENV_FILE"; then
+		die_rolledback "mcp.env missing MOOGO_BASE_URL, MOOGO_PROJECT_ID or MOOGO_SQL_KEY." 0 moogo
 	fi
 fi
 

@@ -110,9 +110,10 @@ Usage:
   moogo help                  print this help
 
 Configuration, by environment or flag. The flag wins.
-  MOOGO_PROJECT_URL            the project URL from the dashboard:
-                               https://api.moogo.dev/p/<project-id>   --url
-  MOOGO_SECRET_KEY             the project key, for db commands        --key
+  MOOGO_BASE_URL              the API origin from the dashboard:
+                              https://api.moogo.dev                     --base-url
+  MOOGO_PROJECT_ID            the project id                         --project-id
+  MOOGO_SQL_KEY               the SQL key, for db commands               --key
   MOOGO_STORAGE_ACCESS_KEY_ID   a storage credential, for bucket commands
   MOOGO_STORAGE_SECRET_KEY      its secret                       --storage-key
 

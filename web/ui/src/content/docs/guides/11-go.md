@@ -12,10 +12,10 @@ go mod init myapp
 **Environment variables:**
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; empty falls back to the API origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -30,6 +30,7 @@ package moogo
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -40,12 +41,17 @@ import (
 )
 
 var (
-	projectURL        = os.Getenv("MOOGO_PROJECT_URL")
-	secretKey         = os.Getenv("MOOGO_SECRET_KEY")
-	bucketEndpoint    = os.Getenv("MOOGO_BASE_URL")
+	baseURL           = strings.TrimRight(os.Getenv("MOOGO_BASE_URL"), "/")
+	projectID         = os.Getenv("MOOGO_PROJECT_ID")
+	secretKey         = os.Getenv("MOOGO_SQL_KEY")
 	cdnURL            = strings.TrimRight(os.Getenv("MOOGO_CDN_URL"), "/")
 	bucketAccessKeyID = os.Getenv("MOOGO_STORAGE_ACCESS_KEY_ID")
 	bucketSecretKey   = os.Getenv("MOOGO_STORAGE_SECRET_KEY")
+
+	// projectEndpoint is the data-plane base for this project: the SQL endpoints
+	// hang off /p/<project-id>, and the bucket endpoint off /p/<project-id>/bucket.
+	projectEndpoint = fmt.Sprintf("%s/p/%s", baseURL, projectID)
+	bucketEndpoint  = projectEndpoint + "/bucket"
 
 	// `with` covers CTE reads (WITH ... SELECT); a CTE that writes
 	// (WITH ... INSERT) must be sent to /exec directly.
@@ -115,7 +121,7 @@ func postSQL(path, sql string, args []any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return do("POST", projectURL+path, map[string]string{
+	return do("POST", projectEndpoint+path, map[string]string{
 		"Authorization": "Bearer " + secretKey,
 		"Content-Type":  "application/json",
 	}, payload)
@@ -220,8 +226,8 @@ func BucketPublicUrl(key string) string {
 	// objects only: a fresh upload is private, so publish it with BucketPublish
 	// first. Until then, public_url in the response is an empty string. When
 	// MOOGO_CDN_URL is set, public objects are served from that CDN host instead
-	// of the bucket endpoint.
-	base := strings.TrimSuffix(strings.Replace(bucketEndpoint, "/p/", "/pub/", 1), "/bucket")
+	// of the API origin.
+	base := baseURL + "/pub/" + projectID
 	if cdnURL != "" {
 		// Keep the /pub/<id> path, swap only the scheme and host.
 		if u, err := url.Parse(base); err == nil {
@@ -391,8 +397,9 @@ func TestSQL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	os.Setenv("MOOGO_PROJECT_URL", server.URL)
-	os.Setenv("MOOGO_SECRET_KEY", "test")
+	os.Setenv("MOOGO_BASE_URL", server.URL)
+	os.Setenv("MOOGO_PROJECT_ID", "test-project")
+	os.Setenv("MOOGO_SQL_KEY", "test")
 
 	users := moogo.ToObjects(Must(moogo.SQL("SELECT id FROM users")))
 	assert.Equal(t, []map[string]any{{"id": "u1"}}, users)

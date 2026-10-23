@@ -1,0 +1,280 @@
+# PHP (Vanilla)
+
+Works with PHP 8.1+, no framework required.
+
+## Setup
+
+```bash
+# PHP 8.1+ with curl extension (enabled by default)
+```
+
+**Environment variables** (`.env` or server config):
+
+```bash
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; empty falls back to the API origin.
+export MOOGO_CDN_URL="https://cdn.moogo.dev"
+export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
+export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
+```
+
+## Client (`moogo.php`)
+
+```php
+<?php
+// moogo.php
+
+$baseUrl = rtrim($_ENV['MOOGO_BASE_URL'] ?? getenv('MOOGO_BASE_URL'), '/');
+$projectId = $_ENV['MOOGO_PROJECT_ID'] ?? getenv('MOOGO_PROJECT_ID');
+$secretKey = $_ENV['MOOGO_SQL_KEY'] ?? getenv('MOOGO_SQL_KEY');
+$bucketEndpoint = "{$baseUrl}/p/{$projectId}/bucket";
+$cdnUrl = rtrim($_ENV['MOOGO_CDN_URL'] ?? getenv('MOOGO_CDN_URL') ?: '', '/');
+$bucketAccessKeyId = $_ENV['MOOGO_STORAGE_ACCESS_KEY_ID'] ?? getenv('MOOGO_STORAGE_ACCESS_KEY_ID');
+$bucketSecretKey = $_ENV['MOOGO_STORAGE_SECRET_KEY'] ?? getenv('MOOGO_STORAGE_SECRET_KEY');
+
+function moogoRequest(string $path, string $sql, array $args = []): array {
+    global $baseUrl, $projectId, $secretKey;
+    $ch = curl_init("{$baseUrl}/p/{$projectId}{$path}");
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            "Authorization: Bearer {$secretKey}",
+            "Content-Type: application/json",
+        ],
+        CURLOPT_POSTFIELDS => json_encode(["query" => $sql, "args" => $args]),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $body = json_decode($response, true);
+    if ($httpCode >= 400) {
+        throw new MoogoException($body['error'] ?? []);
+    }
+    return $body;
+}
+
+function isRead(string $sql): bool {
+    // `with` covers CTE reads (WITH ... SELECT); a CTE that writes
+    // (WITH ... INSERT) must be sent to /exec directly.
+    return (bool) preg_match('/^\s*(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\b/i', $sql);
+}
+
+function query(string $sql, array $args = []): array {
+    return moogoRequest("/query", $sql, $args);
+}
+
+// Named execSql rather than exec: PHP has a built-in exec() for running a shell
+// command, and a global-namespace file cannot redeclare it — the file would stop
+// parsing with "Cannot redeclare function exec()".
+function execSql(string $sql, array $args = []): array {
+    return moogoRequest("/exec", $sql, $args);
+}
+
+function sql(string $sql, array $args = []): array {
+    return isRead($sql) ? query($sql, $args) : execSql($sql, $args);
+}
+
+function toObjects(array $result): array {
+    $cols = $result['columns'] ?? [];
+    return array_map(fn($row) => array_combine($cols, $row), $result['rows'] ?? []);
+}
+
+// ── Bucket ───────────────────────────────────────────────────────────
+function storageRequest(string $method, string $path, $body = null, array $extraHeaders = []): array|string {
+    global $bucketEndpoint, $bucketAccessKeyId, $bucketSecretKey;
+    $ch = curl_init("{$bucketEndpoint}{$path}");
+    curl_setopt_array($ch, [
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_HTTPHEADER => array_merge([
+            "X-Moogo-Access-Key-Id: {$bucketAccessKeyId}",
+            "Authorization: Bearer {$bucketSecretKey}",
+        ], $extraHeaders),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+    ]);
+    if ($body !== null) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+    }
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode >= 400) {
+        throw new MoogoException(json_decode($response, true)['error'] ?? []);
+    }
+    if ($httpCode === 204) return [];
+    return $response;
+}
+
+function bucketUpload(string $key, string $content, string $contentType): array {
+    $path = implode('/', array_map('rawurlencode', explode('/', $key)));
+    return json_decode(storageRequest("POST", "/{$path}", $content, ["Content-Type: {$contentType}"]), true);
+}
+
+function bucketDownload(string $key): string {
+    return storageRequest("GET", "/{$key}");
+}
+
+function bucketDelete(string $key): array {
+    return json_decode(storageRequest("DELETE", "/{$key}"), true);
+}
+
+function bucketList(?string $prefix = null): array {
+    $path = $prefix ? "?prefix={$prefix}" : "";
+    return json_decode(storageRequest("GET", $path), true);
+}
+
+function bucketPublish(string $key): array {
+    $path = implode('/', array_map('rawurlencode', explode('/', $key)));
+    $body = json_encode(["is_public" => true]);
+    return json_decode(storageRequest("PATCH", "/{$path}", $body, ["Content-Type: application/json"]), true);
+}
+
+function bucketPublicUrl(string $key): string {
+    global $baseUrl, $projectId, $cdnUrl;
+    // /pub/<project-id>/<key> is the route that needs no credential. The bucket
+    // endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated
+    // URL, and a browser tab carries no storage credential, so an <img> pointed at
+    // one breaks for every private object. This serves published objects only: a
+    // fresh upload is private, so publish it with bucketPublish first. Until then,
+    // public_url in the response is an empty string. When MOOGO_CDN_URL is set,
+    // public objects are served from that CDN host instead of the API origin.
+    $publicBase = "{$baseUrl}/pub/{$projectId}";
+    if ($cdnUrl !== '') {
+        // Keep the /pub/<project-id> path, swap only the scheme and host.
+        $publicBase = preg_replace('#^https?://[^/]+#', $cdnUrl, $publicBase);
+    }
+    $path = implode('/', array_map('rawurlencode', explode('/', $key)));
+    return "{$publicBase}/{$path}";
+}
+
+// errorCode rather than code: Exception already has an int $code, and
+// redeclaring it as a string makes the class a fatal error.
+class MoogoException extends Exception {
+    public string $errorCode;
+    public ?string $detail;
+    public function __construct(array $error) {
+        $this->errorCode = $error['code'] ?? 'unknown';
+        $this->detail = $error['detail'] ?? null;
+        parent::__construct($error['message'] ?? 'Moogo request failed');
+    }
+}
+```
+
+## Usage — SQLite
+
+```php
+<?php
+require 'moogo.php';
+
+sql("
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    plan TEXT DEFAULT 'free',
+    created_at TEXT DEFAULT (datetime('now'))
+  )
+");
+
+sql("INSERT INTO users (id, email, plan) VALUES (?, ?, ?)",
+    [uniqid('u_', true), "ketut@example.com", "pro"]);
+
+$users = toObjects(sql("SELECT id, email, plan FROM users WHERE plan = ?", ["pro"]));
+
+foreach ($users as $user) {
+    echo "{$user['email']} — {$user['plan']}\n";
+}
+```
+
+## Usage — Bucket
+
+```php
+<?php
+require 'moogo.php';
+
+$content = file_get_contents("avatar.png");
+$key = "avatars/kit.png";
+bucketUpload($key, $content, "image/png");
+bucketPublish($key);
+
+$files = bucketList("avatars/");
+foreach ($files['objects'] as $obj) {
+    echo "{$obj['key']} — {$obj['size_bytes']} bytes\n";
+}
+
+$download = bucketDownload("avatars/kit.png");
+file_put_contents("kit-download.png", $download);
+
+echo "Public URL: " . bucketPublicUrl($key) . "\n";
+```
+
+## Error handling
+
+```php
+try {
+    sql("SELECT * FROM nonexistent");
+} catch (MoogoException $e) {
+    if ($e->errorCode === 'sql_error') {
+        echo "SQLite error: {$e->detail}\n";
+    } elseif ($e->errorCode === 'database_too_large') {
+        echo "Project hit 250 MB limit\n";
+    }
+    throw $e;
+}
+```
+
+## PSR-7 / PSR-18 compatible (for frameworks)
+
+```php
+<?php
+// moogo-psr.php
+use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\StreamFactoryInterface;
+
+class MoogoClient {
+    public function __construct(
+        private ClientInterface $client,
+        private RequestFactoryInterface $requestFactory,
+        private StreamFactoryInterface $streamFactory,
+        private string $baseUrl,
+        private string $projectId,
+        private string $secretKey
+    ) {}
+
+    public function sql(string $sql, array $args = []): array {
+        $endpoint = preg_match('/^\s*(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\b/i', $sql) ? '/query' : '/exec';
+        $request = $this->requestFactory->createRequest('POST', "{$this->baseUrl}/p/{$this->projectId}{$endpoint}")
+            ->withHeader('Authorization', "Bearer {$this->secretKey}")
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($this->streamFactory->createStream(json_encode(['query' => $sql, 'args' => $args])));
+        $response = $this->client->sendRequest($request);
+        $body = json_decode((string)$response->getBody(), true);
+        if ($response->getStatusCode() >= 400) {
+            throw new MoogoException($body['error'] ?? []);
+        }
+        return $body;
+    }
+}
+```
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
+
+## Next
+
+- [Laravel guide](/docs/guides/laravel)
+- [Vanilla JS guide](/docs/guides/javascript-vanilla)
+- [SQL API reference](/docs/sql-api)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
+- [Object storage](/docs/object-storage)

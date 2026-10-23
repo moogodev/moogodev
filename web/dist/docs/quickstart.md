@@ -18,21 +18,21 @@ In the [dashboard](/app), click **New project**, name it, and confirm.
 When it reaches the status `ready`, Moogo shows three values **once**:
 
 ```
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_BASE_URL=https://api.moogo.dev
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_...
+MOOGO_SQL_KEY=moogo_...
 ```
 
-**Copy them now.** The secret key is never displayed again — only a hash and an
+**Copy them now.** The SQL key is never displayed again — only a hash and an
 eight-character prefix are stored. If you lose it, you can
 [rotate it](/docs/credentials#rotating-a-key).
 
 Put them in your environment:
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_BASE_URL="https://api.moogo.dev"
 export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
-export MOOGO_SECRET_KEY="moogo_..."
+export MOOGO_SQL_KEY="moogo_..."
 ```
 
 Full detail: [Create your first project](/docs/create-project).
@@ -42,8 +42,8 @@ Full detail: [Create your first project](/docs/create-project).
 Creating a table is a **write**, so it goes to `/exec`:
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "CREATE TABLE users (
@@ -67,8 +67,8 @@ Note the `args` array — values are bound parameters, never interpolated into t
 SQL text.
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "INSERT INTO users (id, email, plan) VALUES (?, ?, ?)",
@@ -85,8 +85,8 @@ curl $MOOGO_PROJECT_URL/exec \
 Reads go to `/query`:
 
 ```bash
-curl $MOOGO_PROJECT_URL/query \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"SELECT id, email, plan FROM users WHERE plan = ?","args":["pro"]}'
 ```
@@ -109,8 +109,8 @@ That is a working database.
 When one change is several statements, send them as one batch:
 
 ```bash
-curl $MOOGO_PROJECT_URL/transaction \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/transaction \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "statements": [
@@ -140,7 +140,7 @@ The quickest way to integrate, since there is no driver to install:
 
 ```js
 const headers = {
-  Authorization: `Bearer ${process.env.MOOGO_SECRET_KEY}`,
+  Authorization: `Bearer ${process.env.MOOGO_SQL_KEY}`,
   "Content-Type": "application/json",
 };
 
@@ -152,7 +152,7 @@ export async function sql(query, args = []) {
     : "exec";
 
   const response = await fetch(
-    `${process.env.MOOGO_PROJECT_URL}/${endpoint}`,
+    `${process.env.MOOGO_BASE_URL}/p/${process.env.MOOGO_PROJECT_ID}/${endpoint}`,
     { method: "POST", headers, body: JSON.stringify({ query, args }) },
   );
 

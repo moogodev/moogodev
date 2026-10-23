@@ -11,10 +11,10 @@ Expressive, elegant, full-stack framework with built-in HTTP client.
 **Environment variables** (`.env`):
 
 ```env
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
-MOOGO_SECRET_KEY=moogo_...
-MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
-# Optional: origin public objects are served from (e.g. https://cdn.moogo.dev); empty falls back to the bucket endpoint origin.
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_SQL_KEY=moogo_...
+# Optional: origin public objects are served from (e.g. https://cdn.moogo.dev); empty falls back to the API origin.
 MOOGO_CDN_URL=
 MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
 MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
@@ -24,9 +24,9 @@ MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 // config/services.php
 return [
     'moogo' => [
-        'project_url' => env('MOOGO_PROJECT_URL'),
-        'secret_key' => env('MOOGO_SECRET_KEY'),
-        'bucket_endpoint' => env('MOOGO_BASE_URL'),
+        'base_url' => env('MOOGO_BASE_URL'),
+        'project_id' => env('MOOGO_PROJECT_ID'),
+        'secret_key' => env('MOOGO_SQL_KEY'),
         'cdn_url' => env('MOOGO_CDN_URL'),
         'bucket_access_key_id' => env('MOOGO_STORAGE_ACCESS_KEY_ID'),
         'bucket_secret_key' => env('MOOGO_STORAGE_SECRET_KEY'),
@@ -50,34 +50,39 @@ class Moogo {
     // to null before reading config. A non-nullable `string $x = null` is a
     // fatal error, not a default.
     public function __construct(
-        private ?string $projectUrl = null,
+        private ?string $baseUrl = null,
+        private ?string $projectId = null,
         private ?string $secretKey = null,
-        private ?string $bucketEndpoint = null,
         private ?string $cdnUrl = null,
         private ?string $bucketAccessKeyId = null,
         private ?string $bucketSecretKey = null
     ) {
-        $this->projectUrl ??= config('services.moogo.project_url');
+        $this->baseUrl ??= config('services.moogo.base_url');
+        $this->baseUrl = rtrim((string) $this->baseUrl, '/');
+        $this->projectId ??= config('services.moogo.project_id');
         $this->secretKey ??= config('services.moogo.secret_key');
-        $this->bucketEndpoint ??= config('services.moogo.bucket_endpoint');
         $this->cdnUrl ??= config('services.moogo.cdn_url');
         $this->cdnUrl = rtrim((string) $this->cdnUrl, '/');
         $this->bucketAccessKeyId ??= config('services.moogo.bucket_access_key_id');
         $this->bucketSecretKey ??= config('services.moogo.bucket_secret_key');
     }
 
+    private function bucketEndpoint(): string {
+        return "{$this->baseUrl}/p/{$this->projectId}/bucket";
+    }
+
     private function sqlClient(): \Illuminate\Http\Client\PendingRequest {
         return Http::withHeaders([
             'Authorization' => "Bearer {$this->secretKey}",
             'Content-Type' => 'application/json',
-        ])->baseUrl($this->projectUrl)->timeout(30);
+        ])->baseUrl("{$this->baseUrl}/p/{$this->projectId}")->timeout(30);
     }
 
     private function storageClient(): \Illuminate\Http\Client\PendingRequest {
         return Http::withHeaders([
             'X-Moogo-Access-Key-Id' => $this->bucketAccessKeyId,
             'Authorization' => "Bearer {$this->bucketSecretKey}",
-        ])->baseUrl($this->bucketEndpoint)->timeout(30);
+        ])->baseUrl($this->bucketEndpoint())->timeout(30);
     }
 
     private function isRead(string $sql): bool {
@@ -160,8 +165,8 @@ class Moogo {
         // object. This serves published objects only: a fresh upload is private,
         // so publish it with bucketPublish first. Until then, public_url in the
         // response is an empty string. When MOOGO_CDN_URL is set, public objects
-        // are served from that CDN host instead of the bucket endpoint.
-        $base = preg_replace('#/p/([^/]+)/bucket/?$#', '/pub/$1', $this->bucketEndpoint);
+        // are served from that CDN host instead of the API origin.
+        $base = "{$this->baseUrl}/pub/{$this->projectId}";
         if ($this->cdnUrl !== '') {
             // Keep the /pub/<project-id> path, swap only the scheme and host.
             $base = preg_replace('#^https?://[^/]+#', $this->cdnUrl, $base);
@@ -339,7 +344,7 @@ ProcessUsers::dispatch($emails)->onQueue('moogo');
 // tests/Feature/UserTest.php
 public function test_create_user() {
     Http::fake([
-        config('services.moogo.project_url') . '/*' => Http::response([
+        config('services.moogo.base_url') . '/p/' . config('services.moogo.project_id') . '/*' => Http::response([
             'success' => true,
             'rows_affected' => 1,
         ], 200),

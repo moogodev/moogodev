@@ -12,10 +12,10 @@ gem 'httparty'  # or use Net::HTTP (stdlib)
 **Environment variables** (`.env` or Rails credentials):
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; empty falls back to the API origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -31,9 +31,11 @@ require 'uri'
 require 'erb'
 
 class Moogo
-  PROJECT_URL = ENV['MOOGO_PROJECT_URL']
-  SECRET_KEY  = ENV['MOOGO_SECRET_KEY']
-  BUCKET_ENDPOINT = ENV['MOOGO_BASE_URL']
+  BASE_URL = ENV['MOOGO_BASE_URL'].to_s.sub(%r{/+\z}, '')
+  PROJECT_ID = ENV['MOOGO_PROJECT_ID']
+  SECRET_KEY  = ENV['MOOGO_SQL_KEY']
+  PROJECT_ENDPOINT = "#{BASE_URL}/p/#{PROJECT_ID}"
+  BUCKET_ENDPOINT = "#{PROJECT_ENDPOINT}/bucket"
   CDN_URL = ENV['MOOGO_CDN_URL'].to_s.sub(%r{/+\z}, '')
   BUCKET_ACCESS_KEY_ID = ENV['MOOGO_STORAGE_ACCESS_KEY_ID']
   BUCKET_SECRET_KEY = ENV['MOOGO_STORAGE_SECRET_KEY']
@@ -52,7 +54,7 @@ class Moogo
   end
 
   def self.request(method, path, body: nil, headers: SQL_HEADERS)
-    uri = URI("#{PROJECT_URL}#{path}")
+    uri = URI("#{PROJECT_ENDPOINT}#{path}")
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = true
 
@@ -154,9 +156,9 @@ class Moogo
     # serves published objects only: a fresh upload is private, so publish it
     # with bucket_publish first. Until then, public_url in the response is an
     # empty string. When MOOGO_CDN_URL is set, public objects are served from
-    # that CDN host instead of the bucket endpoint.
+    # that CDN host instead of the API origin.
     path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
-    base = BUCKET_ENDPOINT.sub(%r{/p/([^/]+)/bucket/?\z}, '/pub/\1')
+    base = "#{BASE_URL}/pub/#{PROJECT_ID}"
     # Keep the /pub/<project-id> path, swap only the scheme and host.
     base = base.sub(%r{\Ahttps?://[^/]+}, CDN_URL) unless CDN_URL.empty?
     "#{base}/#{path}"
@@ -201,9 +203,11 @@ puts Moogo.bucket_public_url(key)
 ```ruby
 # app/services/moogo.rb
 class Moogo
-  PROJECT_URL = Rails.application.credentials.moogo_project_url || ENV['MOOGO_PROJECT_URL']
-  SECRET_KEY  = Rails.application.credentials.moogo_secret_key || ENV['MOOGO_SECRET_KEY']
-  BUCKET_ENDPOINT = Rails.application.credentials.moogo_bucket_endpoint || ENV['MOOGO_BASE_URL']
+  BASE_URL = (Rails.application.credentials.moogo_base_url || ENV['MOOGO_BASE_URL']).to_s.sub(%r{/+\z}, '')
+  PROJECT_ID = Rails.application.credentials.moogo_project_id || ENV['MOOGO_PROJECT_ID']
+  SECRET_KEY  = Rails.application.credentials.moogo_secret_key || ENV['MOOGO_SQL_KEY']
+  PROJECT_ENDPOINT = "#{BASE_URL}/p/#{PROJECT_ID}"
+  BUCKET_ENDPOINT = "#{PROJECT_ENDPOINT}/bucket"
   CDN_URL = (Rails.application.credentials.moogo_cdn_url || ENV['MOOGO_CDN_URL']).to_s.sub(%r{/+\z}, '')
   BUCKET_ACCESS_KEY_ID = Rails.application.credentials.moogo_bucket_access_key_id || ENV['MOOGO_STORAGE_ACCESS_KEY_ID']
   BUCKET_SECRET_KEY = Rails.application.credentials.moogo_bucket_secret_key || ENV['MOOGO_STORAGE_SECRET_KEY']
@@ -222,7 +226,7 @@ class Moogo
   end
 
   def self.client
-    @@client ||= Faraday.new(PROJECT_URL) do |f|
+    @@client ||= Faraday.new(PROJECT_ENDPOINT) do |f|
       f.request :json
       f.response :json
       f.adapter Faraday.default_adapter
@@ -310,9 +314,9 @@ class Moogo
     # serves published objects only: a fresh upload is private, so publish it
     # with bucket_publish first. Until then, public_url in the response is an
     # empty string. When MOOGO_CDN_URL is set, public objects are served from
-    # that CDN host instead of the bucket endpoint.
+    # that CDN host instead of the API origin.
     path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
-    base = BUCKET_ENDPOINT.sub(%r{/p/([^/]+)/bucket/?\z}, '/pub/\1')
+    base = "#{BASE_URL}/pub/#{PROJECT_ID}"
     # Keep the /pub/<project-id> path, swap only the scheme and host.
     base = base.sub(%r{\Ahttps?://[^/]+}, CDN_URL) unless CDN_URL.empty?
     "#{base}/#{path}"

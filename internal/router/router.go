@@ -633,10 +633,11 @@ func New(deps Deps) http.Handler {
 
 	// --- Data plane: project-scoped, for the developer's own application ---
 	//
-	// This is what MOOGO_PROJECT_URL points at. A client appends "/query" or
-	// "/bucket/<key>" to it, instead of assembling "/db/<project_id>/..." itself,
-	// so the internal route layout never has to be duplicated across every
-	// project that talks to Moogo.
+	// This is the project URL a client builds as MOOGO_BASE_URL + "/p/" +
+	// MOOGO_PROJECT_ID. A client appends "/query" or "/bucket/<key>" to it,
+	// instead of assembling "/db/<project_id>/..." itself, so the internal
+	// route layout never has to be duplicated across every project that talks
+	// to Moogo.
 	//
 	// The project id is still part of the URL: two projects share a deployment,
 	// and a URL plus a key pair has to identify exactly one of them.

@@ -40,13 +40,17 @@ const defaultAddr = "127.0.0.1:4618"
 // or a response: a key that can be passed in is a key that will end up in a
 // transcript.
 type Config struct {
-	// ProjectURL is the project's data-plane base, for example
-	// https://api.moogo.dev/p/<project_id>. The SQL and bucket endpoints are
-	// appended to it, so it carries the project id and the route layout in one
-	// value.
-	ProjectURL string
+	// BaseURL is the data-plane origin, for example https://api.moogo.dev.
+	// It carries no path: the project's routes are built from BaseURL and
+	// ProjectID.
+	BaseURL string
 
-	// SecretKey authorises the SQL tools (the project's secret key).
+	// ProjectID is the project's UUID. Every request is addressed under
+	// /p/{project_id}, so the origin and the id are held separately rather
+	// than fused into one URL.
+	ProjectID string
+
+	// SecretKey authorises the SQL tools (the project's SQL key).
 	SecretKey string
 
 	// Transport selects how the server is reached: stdio or http.
@@ -70,6 +74,13 @@ func (config Config) StorageEnabled() bool {
 	return config.BucketAccessKeyID != "" && config.BucketSecretKey != ""
 }
 
+// ProjectURL is the data-plane base every request is built from:
+// BaseURL plus the project's own path segment. It is derived rather than read
+// from the environment so a client never has to assemble Moogo's route layout.
+func (config Config) ProjectURL() string {
+	return config.BaseURL + "/p/" + config.ProjectID
+}
+
 // ParseEnv reads the configuration from the environment.
 //
 // It takes the lookup function rather than calling os.Getenv directly so the
@@ -80,8 +91,9 @@ func (config Config) StorageEnabled() bool {
 // not after it has reported a puzzling authentication error mid-task.
 func ParseEnv(getenv func(string) string) (Config, error) {
 	config := Config{
-		ProjectURL:        strings.TrimRight(strings.TrimSpace(getenv("MOOGO_PROJECT_URL")), "/"),
-		SecretKey:         strings.TrimSpace(getenv("MOOGO_SECRET_KEY")),
+		BaseURL:           strings.TrimRight(strings.TrimSpace(getenv("MOOGO_BASE_URL")), "/"),
+		ProjectID:         strings.TrimSpace(getenv("MOOGO_PROJECT_ID")),
+		SecretKey:         strings.TrimSpace(getenv("MOOGO_SQL_KEY")),
 		Transport:         strings.TrimSpace(getenv("MOOGO_MCP_TRANSPORT")),
 		Addr:              strings.TrimSpace(getenv("MOOGO_MCP_ADDR")),
 		BucketAccessKeyID: strings.TrimSpace(getenv("MOOGO_STORAGE_ACCESS_KEY_ID")),
@@ -89,11 +101,14 @@ func ParseEnv(getenv func(string) string) (Config, error) {
 	}
 
 	var problems []string
-	if config.ProjectURL == "" {
-		problems = append(problems, "MOOGO_PROJECT_URL is required")
+	if config.BaseURL == "" {
+		problems = append(problems, "MOOGO_BASE_URL is required")
+	}
+	if config.ProjectID == "" {
+		problems = append(problems, "MOOGO_PROJECT_ID is required")
 	}
 	if config.SecretKey == "" {
-		problems = append(problems, "MOOGO_SECRET_KEY is required")
+		problems = append(problems, "MOOGO_SQL_KEY is required")
 	}
 
 	if config.Transport == "" {

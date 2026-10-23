@@ -47,6 +47,18 @@ Two things that trip people up:
 ## Docs are part of the product
 
 The manual ships inside the product at `/docs`. If your change alters behaviour
-a page describes, change the page in the same pull request —
-`web/ui/src/content/docs/` plus its mirror in `internal/docs/files/` where one
-exists.
+a page describes, change the page in the same pull request.
+
+The source is `web/ui/src/content/docs/`. Two flattened copies exist so that
+anything which does not run JavaScript — an AI agent, a link preview, `curl` —
+reads the same text:
+
+- `internal/docs/files/*.md` — embedded in the binary, served at
+  `/api/docs/<slug>`. Regenerate with `scripts/sync-docs.sh` after editing the
+  source; the files are named `<slug>.md`, without the numeric prefix that only
+  orders the sidebar.
+- `web/dist/docs/*.md` — written by `npm run build` (see
+  `web/ui/scripts/build-llms.mjs`), served at `/docs/<slug>.md`.
+
+Edit the source, then run `scripts/sync-docs.sh`, then rebuild the frontend so
+`web/dist` is committed alongside it.

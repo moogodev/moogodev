@@ -48,8 +48,14 @@ type StorageCredentialSecretResponse struct {
 }
 
 // StorageCredentialEnv is the environment a client needs to use the credential.
+//
+// The names are the five the SDK reads, and each carries the same meaning it
+// has there: MOOGO_BASE_URL is the data plane origin, not an endpoint with a
+// path baked in. A client appends /p/{project_id}/bucket itself, so a value
+// that already ended in that path would have been appended to twice.
 type StorageCredentialEnv struct {
-	Endpoint        string `json:"MOOGO_BASE_URL"`
+	BaseURL         string `json:"MOOGO_BASE_URL"`
+	ProjectID       string `json:"MOOGO_PROJECT_ID"`
 	AccessKeyID     string `json:"MOOGO_STORAGE_ACCESS_KEY_ID"`
 	SecretAccessKey string `json:"MOOGO_STORAGE_SECRET_KEY"`
 }
@@ -121,11 +127,7 @@ func (handler *ControlPlane) CreateStorageCredential(w http.ResponseWriter, r *h
 	httpx.WriteJSON(w, http.StatusCreated, StorageCredentialSecretResponse{
 		StorageCredentialResponse: describeStorageCredential(credential),
 		SecretAccessKey:           key.SecretKeyPlaintext,
-		Env: StorageCredentialEnv{
-			Endpoint:        handler.storageEndpoint(r, project.ID),
-			AccessKeyID:     key.AccessKeyID,
-			SecretAccessKey: key.SecretKeyPlaintext,
-		},
+		Env:                       handler.storageCredentialEnv(r, project.ID, key.AccessKeyID, key.SecretKeyPlaintext),
 	})
 }
 
@@ -167,11 +169,7 @@ func (handler *ControlPlane) RotateStorageCredential(w http.ResponseWriter, r *h
 	httpx.WriteJSON(w, http.StatusOK, StorageCredentialSecretResponse{
 		StorageCredentialResponse: describeStorageCredential(credential),
 		SecretAccessKey:           key.SecretKeyPlaintext,
-		Env: StorageCredentialEnv{
-			Endpoint:        handler.storageEndpoint(r, project.ID),
-			AccessKeyID:     credential.AccessKeyID,
-			SecretAccessKey: key.SecretKeyPlaintext,
-		},
+		Env:                       handler.storageCredentialEnv(r, project.ID, credential.AccessKeyID, key.SecretKeyPlaintext),
 	})
 }
 
@@ -217,7 +215,7 @@ func describeStorageCredential(credential *dbcontrol.StorageCredential) StorageC
 	return response
 }
 
-// storageEndpoint builds the endpoint a client points its storage SDK at.
+// baseOrigin is the data plane's public origin, as a client should see it.
 //
 // It comes from configuration rather than from the request, for two reasons
 // that made the request the wrong source:
@@ -233,7 +231,7 @@ func describeStorageCredential(credential *dbcontrol.StorageCredential) StorageC
 // MOOGO_BASE_URL names the data plane's public origin. It falls back to
 // MOOGO_PUBLIC_URL and then to the request, so a single-host deployment and
 // the tests need no extra configuration.
-func (handler *ControlPlane) storageEndpoint(r *http.Request, projectID uuid.UUID) string {
+func (handler *ControlPlane) baseOrigin(r *http.Request) string {
 	base := handler.cfg.BaseURL
 	if base == "" {
 		base = handler.cfg.PublicURL
@@ -241,5 +239,22 @@ func (handler *ControlPlane) storageEndpoint(r *http.Request, projectID uuid.UUI
 	if base == "" {
 		base = publicBaseURL(r)
 	}
-	return base + "/p/" + projectID.String() + "/bucket"
+	return strings.TrimRight(base, "/")
+}
+
+// storageCredentialEnv is the credential in the exact shape a client copies
+// into its environment. The origin and the project id are separate, because
+// that is how the SDK reads them: it appends the project's own routes itself.
+func (handler *ControlPlane) storageCredentialEnv(
+	r *http.Request,
+	projectID uuid.UUID,
+	accessKeyID string,
+	secretAccessKey string,
+) StorageCredentialEnv {
+	return StorageCredentialEnv{
+		BaseURL:         handler.baseOrigin(r),
+		ProjectID:       projectID.String(),
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretAccessKey,
+	}
 }

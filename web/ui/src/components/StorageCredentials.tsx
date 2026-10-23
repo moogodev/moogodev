@@ -112,13 +112,9 @@ export default function StorageCredentials({ projectId }: StorageCredentialsProp
 
   const handleCopyRevealed = useCallback(async () => {
     if (!revealed) return;
-    const { MOOGO_BASE_URL, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY } =
-      revealed.env;
-    const block = [
-      `MOOGO_BASE_URL=${MOOGO_BASE_URL}`,
-      `MOOGO_STORAGE_ACCESS_KEY_ID=${MOOGO_STORAGE_ACCESS_KEY_ID}`,
-      `MOOGO_STORAGE_SECRET_KEY=${MOOGO_STORAGE_SECRET_KEY}`,
-    ].join("\n");
+    const block = Object.entries(revealed.env)
+      .map(([name, value]) => `${name}=${value}`)
+      .join("\n");
     try {
       await navigator.clipboard.writeText(block);
       setCopied(true);
@@ -166,7 +162,7 @@ export default function StorageCredentials({ projectId }: StorageCredentialsProp
               onClick={handleCopyRevealed}
               className="cursor-pointer rounded-lg border border-edge-strong px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-hover-edge"
             >
-              {copied ? "Copied" : "Copy all three"}
+              {copied ? "Copied" : "Copy all"}
             </button>
             <button
               type="button"

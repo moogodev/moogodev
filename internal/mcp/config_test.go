@@ -16,8 +16,9 @@ func env(values map[string]string) func(string) string {
 // completeEnv is the smallest environment that satisfies ParseEnv.
 func completeEnv() map[string]string {
 	return map[string]string{
-		"MOOGO_PROJECT_URL": "https://api.moogo.dev/p/1234",
-		"MOOGO_SECRET_KEY":  "moogo_secret",
+		"MOOGO_BASE_URL":   "https://api.moogo.dev",
+		"MOOGO_PROJECT_ID": "1234",
+		"MOOGO_SQL_KEY":    "moogo_secret",
 	}
 }
 
@@ -30,11 +31,11 @@ func TestParseEnvSuccess(t *testing.T) {
 		t.Fatalf("ParseEnv() error = %v, want nil", err)
 	}
 
-	if config.ProjectURL != values["MOOGO_PROJECT_URL"] {
-		t.Errorf("ProjectURL = %q, want %q", config.ProjectURL, values["MOOGO_PROJECT_URL"])
+	if config.ProjectURL() != "https://api.moogo.dev/p/1234" {
+		t.Errorf("ProjectURL() = %q, want the base and project id joined", config.ProjectURL())
 	}
-	if config.SecretKey != values["MOOGO_SECRET_KEY"] {
-		t.Errorf("SecretKey = %q, want %q", config.SecretKey, values["MOOGO_SECRET_KEY"])
+	if config.SecretKey != values["MOOGO_SQL_KEY"] {
+		t.Errorf("SecretKey = %q, want %q", config.SecretKey, values["MOOGO_SQL_KEY"])
 	}
 	if config.Transport != TransportStdio {
 		t.Errorf("Transport = %q, want %q", config.Transport, TransportStdio)
@@ -45,15 +46,16 @@ func TestParseEnvTrimsTrailingSlash(t *testing.T) {
 	t.Parallel()
 
 	values := completeEnv()
-	values["MOOGO_PROJECT_URL"] = " https://api.moogo.dev/p/1234/ "
-	values["MOOGO_SECRET_KEY"] = " moogo_secret "
+	values["MOOGO_BASE_URL"] = " https://api.moogo.dev/ "
+	values["MOOGO_PROJECT_ID"] = " 1234 "
+	values["MOOGO_SQL_KEY"] = " moogo_secret "
 
 	config, err := ParseEnv(env(values))
 	if err != nil {
 		t.Fatalf("ParseEnv() error = %v, want nil", err)
 	}
-	if config.ProjectURL != "https://api.moogo.dev/p/1234" {
-		t.Errorf("ProjectURL = %q, want trailing slash and spaces removed", config.ProjectURL)
+	if config.ProjectURL() != "https://api.moogo.dev/p/1234" {
+		t.Errorf("ProjectURL() = %q, want trailing slash and spaces removed", config.ProjectURL())
 	}
 	if config.SecretKey != "moogo_secret" {
 		t.Errorf("SecretKey = %q, want surrounding spaces removed", config.SecretKey)
@@ -69,19 +71,24 @@ func TestParseEnvMissingRequired(t *testing.T) {
 		wantMsg string
 	}{
 		{
-			name:    "no project url",
-			values:  map[string]string{"MOOGO_SECRET_KEY": "moogo_secret"},
-			wantMsg: "MOOGO_PROJECT_URL",
+			name:    "no base url",
+			values:  map[string]string{"MOOGO_PROJECT_ID": "1234", "MOOGO_SQL_KEY": "moogo_secret"},
+			wantMsg: "MOOGO_BASE_URL",
 		},
 		{
-			name:    "no secret key",
-			values:  map[string]string{"MOOGO_PROJECT_URL": "https://api.moogo.dev/p/1234"},
-			wantMsg: "MOOGO_SECRET_KEY",
+			name:    "no project id",
+			values:  map[string]string{"MOOGO_BASE_URL": "https://api.moogo.dev", "MOOGO_SQL_KEY": "moogo_secret"},
+			wantMsg: "MOOGO_PROJECT_ID",
+		},
+		{
+			name:    "no sql key",
+			values:  map[string]string{"MOOGO_BASE_URL": "https://api.moogo.dev", "MOOGO_PROJECT_ID": "1234"},
+			wantMsg: "MOOGO_SQL_KEY",
 		},
 		{
 			name:    "neither",
 			values:  map[string]string{},
-			wantMsg: "MOOGO_PROJECT_URL",
+			wantMsg: "MOOGO_BASE_URL",
 		},
 	}
 
@@ -245,7 +252,7 @@ func TestParseEnvReportsEveryProblem(t *testing.T) {
 	}
 
 	message := err.Error()
-	for _, want := range []string{"MOOGO_PROJECT_URL", "MOOGO_SECRET_KEY", "MOOGO_MCP_TRANSPORT"} {
+	for _, want := range []string{"MOOGO_BASE_URL", "MOOGO_PROJECT_ID", "MOOGO_SQL_KEY", "MOOGO_MCP_TRANSPORT"} {
 		if !strings.Contains(message, want) {
 			t.Errorf("ParseEnv() error = %q, want it to mention %s", message, want)
 		}

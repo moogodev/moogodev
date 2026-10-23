@@ -28,12 +28,14 @@ You only need three environment variables:
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `MOOGO_PROJECT_URL` | `https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0` | Base URL for all SQL requests |
-| `MOOGO_SECRET_KEY` | `moogo_...` | Secret key for SQL endpoint authentication |
-| `MOOGO_BASE_URL` | `https://api.moogo.dev/p/<project-id>/bucket` | Base URL for object storage |
+| `MOOGO_BASE_URL` | `https://api.moogo.dev` | API origin — the host every request is built from |
+| `MOOGO_PROJECT_ID` | `8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0` | The project's UUID |
+| `MOOGO_SQL_KEY` | `moogo_...` | Key for SQL endpoint authentication |
 
 Put these three variables into your application, and you can read and write data
-through HTTP requests.
+through HTTP requests. SQL calls go to `$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query`
+(or `/exec`), and object storage calls go to
+`$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/bucket`.
 
 ---
 
@@ -162,18 +164,18 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 ## Next Steps After Understanding
 
 1. **Create project** via dashboard or `POST /api/projects`
-2. **Get 3 environment variables** (`MOOGO_PROJECT_URL`, `MOOGO_SECRET_KEY`, `MOOGO_BASE_URL`)
+2. **Get 3 environment variables** (`MOOGO_BASE_URL`, `MOOGO_PROJECT_ID`, `MOOGO_SQL_KEY`)
 3. **Read Production Readiness section** in your favorite framework guide (React, Python, Go, etc.)
 4. **Try first simple query:**
    ```bash
-   curl $MOOGO_PROJECT_URL/query \
-     -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+   curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
+     -H "Authorization: Bearer $MOOGO_SQL_KEY" \
      -H "Content-Type: application/json" \
      -d '{"query":"SELECT 1+2 as result","args":[]}'
    ```
 5. **Try first object upload:**
    ```bash
-   curl -X POST "$MOOGO_BASE_URL/kit.png?bucket=avatars" \
+   curl -X POST "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/bucket/kit.png?bucket=avatars" \
      -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
      -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
      -H "Content-Type: image/png" \
@@ -181,7 +183,7 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
    ```
 6. **Publish if you want to share without credentials:**
    ```bash
-   curl -X PATCH "$MOOGO_BASE_URL/avatars/kit.png" \
+   curl -X PATCH "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png" \
      -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
      -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
      -H "Content-Type: application/json" \
@@ -228,21 +230,21 @@ In the [dashboard](/app), click **New project**, name it, and confirm.
 When it reaches the status `ready`, Moogo shows three values **once**:
 
 ```
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_BASE_URL=https://api.moogo.dev
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_...
+MOOGO_SQL_KEY=moogo_...
 ```
 
-**Copy them now.** The secret key is never displayed again — only a hash and an
+**Copy them now.** The SQL key is never displayed again — only a hash and an
 eight-character prefix are stored. If you lose it, you can
 [rotate it](/docs/credentials#rotating-a-key).
 
 Put them in your environment:
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_BASE_URL="https://api.moogo.dev"
 export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
-export MOOGO_SECRET_KEY="moogo_..."
+export MOOGO_SQL_KEY="moogo_..."
 ```
 
 Full detail: [Create your first project](/docs/create-project).
@@ -252,8 +254,8 @@ Full detail: [Create your first project](/docs/create-project).
 Creating a table is a **write**, so it goes to `/exec`:
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "CREATE TABLE users (
@@ -277,8 +279,8 @@ Note the `args` array — values are bound parameters, never interpolated into t
 SQL text.
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "INSERT INTO users (id, email, plan) VALUES (?, ?, ?)",
@@ -295,8 +297,8 @@ curl $MOOGO_PROJECT_URL/exec \
 Reads go to `/query`:
 
 ```bash
-curl $MOOGO_PROJECT_URL/query \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"SELECT id, email, plan FROM users WHERE plan = ?","args":["pro"]}'
 ```
@@ -319,8 +321,8 @@ That is a working database.
 When one change is several statements, send them as one batch:
 
 ```bash
-curl $MOOGO_PROJECT_URL/transaction \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/transaction \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "statements": [
@@ -350,7 +352,7 @@ The quickest way to integrate, since there is no driver to install:
 
 ```js
 const headers = {
-  Authorization: `Bearer ${process.env.MOOGO_SECRET_KEY}`,
+  Authorization: `Bearer ${process.env.MOOGO_SQL_KEY}`,
   "Content-Type": "application/json",
 };
 
@@ -362,7 +364,7 @@ export async function sql(query, args = []) {
     : "exec";
 
   const response = await fetch(
-    `${process.env.MOOGO_PROJECT_URL}/${endpoint}`,
+    `${process.env.MOOGO_BASE_URL}/p/${process.env.MOOGO_PROJECT_ID}/${endpoint}`,
     { method: "POST", headers, body: JSON.stringify({ query, args }) },
   );
 
@@ -409,16 +411,16 @@ string, no driver, and no database client to install.
 You create a project, and Moogo hands you three values:
 
 ```
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_BASE_URL=https://api.moogo.dev
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_...
+MOOGO_SQL_KEY=moogo_...
 ```
 
 Put those in your application's environment and it can read and write data:
 
 ```bash
-curl $MOOGO_PROJECT_URL/query \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"SELECT id, email FROM users WHERE plan = ?","args":["pro"]}'
 ```
@@ -911,9 +913,9 @@ Read [Limits](/docs/limits) before designing around it.
 3. Put these in the project's environment:
 
 ```bash
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project_id>
+MOOGO_BASE_URL=https://api.moogo.dev
 MOOGO_PROJECT_ID=<project_id>
-MOOGO_SECRET_KEY=...             # SQL only
+MOOGO_SQL_KEY=...                 # SQL only
 MOOGO_STORAGE_ACCESS_KEY_ID=...   # object storage only
 MOOGO_STORAGE_SECRET_KEY=...      # object storage only
 ```
@@ -951,8 +953,9 @@ takes an optional `limit` (default 100, capped at 1000).
 
 | Variable | Required | Default | Notes |
 |---|---|---|---|
-| `MOOGO_PROJECT_URL` | yes | — | e.g. `https://api.moogo.dev/p/<project_id>` |
-| `MOOGO_SECRET_KEY` | yes | — | SQL credential (project secret) |
+| `MOOGO_BASE_URL` | yes | — | API origin, e.g. `https://api.moogo.dev` |
+| `MOOGO_PROJECT_ID` | yes | — | The project's UUID |
+| `MOOGO_SQL_KEY` | yes | — | SQL credential (project key) |
 | `MOOGO_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http` |
 | `MOOGO_MCP_ADDR` | no | `127.0.0.1:4618` | Only for `http` transport |
 | `MOOGO_STORAGE_ACCESS_KEY_ID` | no* | — | Bucket tools need **both** this and the secret |
@@ -973,8 +976,9 @@ go build -o moogo-mcp ./cmd/mcp
     "moogo": {
       "command": "/path/to/moogo-mcp",
       "env": {
-        "MOOGO_PROJECT_URL": "https://api.moogo.dev/p/<project_id>",
-        "MOOGO_SECRET_KEY": "...",
+        "MOOGO_BASE_URL": "https://api.moogo.dev",
+        "MOOGO_PROJECT_ID": "<project_id>",
+        "MOOGO_SQL_KEY": "...",
         "MOOGO_STORAGE_ACCESS_KEY_ID": "...",   // optional
         "MOOGO_STORAGE_SECRET_KEY": "..."       // optional
       }
@@ -1020,8 +1024,8 @@ is never logged, never in tool args, never in tool results.
 Request, authorized with the SQL key:
 
 ```bash
-curl "$MOOGO_PROJECT_URL/query" \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query" \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query": "SELECT id, email FROM users WHERE plan = ?", "args": ["pro"]}'
 ```
@@ -1053,8 +1057,8 @@ Reclaim space after deletes/drops. The database file never shrinks on its own.
 
 ```bash
 # Via HTTP
-curl -X POST "$MOOGO_PROJECT_URL/maintenance" \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl -X POST "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/maintenance" \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"operation": "vacuum"}'
 
@@ -1149,12 +1153,13 @@ moogo help
 
 | Variable | Required | Notes |
 |---|---|---|
-| `MOOGO_PROJECT_URL` | yes | e.g. `https://api.moogo.dev/p/<project_id>` |
-| `MOOGO_SECRET_KEY` | yes | Project secret key for SQL commands |
+| `MOOGO_BASE_URL` | yes | API origin, e.g. `https://api.moogo.dev` |
+| `MOOGO_PROJECT_ID` | yes | The project's UUID |
+| `MOOGO_SQL_KEY` | yes | SQL key for db commands |
 | `MOOGO_STORAGE_ACCESS_KEY_ID` | for `bucket` commands | Storage credential |
 | `MOOGO_STORAGE_SECRET_KEY` | for `bucket` commands | Storage credential |
 
-Flags `--url`, `--key`, `--storage-key-id`, `--storage-key` override environment variables.
+Flags `--base-url`, `--project-id`, `--key`, `--storage-key-id`, `--storage-key` override environment variables.
 
 ### Commands
 
@@ -1180,10 +1185,10 @@ npm install @moogodev/client
 ```
 
 ```typescript
-import { MoogoClient, createClientFromEnv } from '@moogodev/client';
+import { createStorageClient } from '@moogodev/client';
 
 // From env vars (MOOGO_BASE_URL, MOOGO_PROJECT_ID, MOOGO_STORAGE_ACCESS_KEY_ID, MOOGO_STORAGE_SECRET_KEY)
-const client = createClientFromEnv();
+const client = createStorageClient();
 
 // Upload with custom Cache-Control
 await client.upload('avatars/user.png', fileBlob, {
@@ -1221,7 +1226,7 @@ X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID
 Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY
 ```
 
-With `ENDPOINT=$MOOGO_PROJECT_URL/bucket`:
+With `ENDPOINT=$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/bucket`:
 
 | Action | Request |
 |---|---|
@@ -1401,20 +1406,20 @@ than a spinner that never resolves — you always find out which state you are i
 On creation, Moogo shows three values **once**:
 
 ```
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_BASE_URL=https://api.moogo.dev
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_...
+MOOGO_SQL_KEY=moogo_...
 ```
 
 | Value | What it is |
 |---|---|
-| `MOOGO_PROJECT_URL` | The base URL every API call hangs off. It already contains the project id. |
-| `MOOGO_PROJECT_ID` | The project's UUID. Also identifies it in the dashboard and in URLs. |
-| `MOOGO_SECRET_KEY` | The bearer token that authorises API calls. |
+| `MOOGO_BASE_URL` | The API origin — the host every call is built from. It carries no path. |
+| `MOOGO_PROJECT_ID` | The project's UUID. Routes are `/p/<project_id>/...` under the base URL. |
+| `MOOGO_SQL_KEY` | The bearer token that authorises API calls. |
 
 **Copy them now.** The dashboard shows these once. When email notifications are
 on, Moogo also sends them in a **project created** email — but after creation the
-secret key is never shown again: not in the project list, not in settings. What
+SQL key is never shown again: not in the project list, not in settings. What
 Moogo keeps is a SHA-256 hash and an eight-character prefix, so it genuinely
 cannot show you the key again.
 
@@ -1426,9 +1431,9 @@ rotate.
 
 ```bash
 # .env
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_BASE_URL=https://api.moogo.dev
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_...
+MOOGO_SQL_KEY=moogo_...
 ```
 
 Do not commit this file. The key is a real credential and it is the only thing
@@ -1437,8 +1442,8 @@ standing between your database and anyone who has it.
 ## Make your first query
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL, plan TEXT)"}'
 ```
@@ -1448,14 +1453,14 @@ refuses reads. Use the right one for what you are doing:
 
 ```bash
 # Insert a row (a write, with a bound parameter)
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"INSERT INTO users (id, email, plan) VALUES (?, ?, ?)","args":["7c1f","ketut@example.com","free"]}'
 
 # Read rows back (a read)
-curl $MOOGO_PROJECT_URL/query \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"SELECT id, email, plan FROM users"}'
 ```
@@ -1497,8 +1502,10 @@ Automatic off-site copies of the database, with one-click restore. Covered in
 
 ### Settings tab
 
-- **Project URL and id** — always visible, safe to copy.
-- **Rotate key** — issues a new secret key and shows it once. The old key stops
+- **Project URL and id** — always visible, safe to copy. The dashboard shows the
+  origin (`MOOGO_BASE_URL`) and the id (`MOOGO_PROJECT_ID`) separately, because
+  that is how a client uses them.
+- **Rotate key** — issues a new SQL key and shows it once. The old key stops
   working immediately.
 - **Pause / resume** — stops and restarts all API access for this project.
 - **Download backup** — a `.db` file of the whole database. It uses your session,
@@ -1549,7 +1556,8 @@ scoped to the job it is named for.
 
 ## Project key
 
-Issued when a project is created, and again whenever you rotate. Format:
+Issued when a project is created, and again whenever you rotate. In your
+environment it is `MOOGO_SQL_KEY`. Format:
 
 ```
 moogo_...
@@ -1609,7 +1617,9 @@ production.
 ## Storage credentials
 
 Storage has its own credential type, following the shape of Cloudflare R2: an
-**access key id** that is safe to display, and a **secret key** that is not.
+**access key id** that is safe to display (`MOOGO_STORAGE_ACCESS_KEY_ID`), and a
+**secret key** that is not (`MOOGO_STORAGE_SECRET_KEY`). Both travel with
+`MOOGO_BASE_URL` (the API origin) and `MOOGO_PROJECT_ID`.
 
 ```
 moogo_ak_...   <- access key id (public)
@@ -1645,7 +1655,8 @@ variables:
   "access_key_id": "moogo_ak_...",
   "secret_access_key": "moogo_sk_...",
   "env": {
-    "MOOGO_BASE_URL": "https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0/bucket",
+    "MOOGO_BASE_URL": "https://api.moogo.dev",
+    "MOOGO_PROJECT_ID": "8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0",
     "MOOGO_STORAGE_ACCESS_KEY_ID": "moogo_ak_...",
     "MOOGO_STORAGE_SECRET_KEY": "moogo_sk_..."
   }
@@ -1741,15 +1752,13 @@ before it touches the database.
 
 ## Base URL
 
-Everything hangs off `MOOGO_PROJECT_URL`, which already contains the project id:
+Everything is built from two values: the API origin, `MOOGO_BASE_URL`, and the
+project id, `MOOGO_PROJECT_ID`. Together they form the project URL:
 
 ```
+$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID
 https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
 ```
-
-Append `/query`, `/exec`, or `/transaction`. You never assemble the path yourself,
-so the internal route layout is not something your application has to track.
-`/exec/txn` is accepted as an alias for `/transaction`.
 
 There is also an older form, `/db/{project_id}/query`, `/db/{project_id}/exec`
 and `/db/{project_id}/transaction`. It behaves identically and exists so
@@ -1824,8 +1833,8 @@ Use this for anything that returns rows: `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN`
 or a `WITH` clause that ends in a read.
 
 ```bash
-curl $MOOGO_PROJECT_URL/query \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"SELECT id, email FROM users WHERE plan = ?","args":["pro"]}'
 ```
@@ -1869,8 +1878,8 @@ cap.
 Use this for `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP`.
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"INSERT INTO users (id, email, plan) VALUES (?, ?, ?)","args":["7c1f","ketut@example.com","free"]}'
 ```
@@ -1920,8 +1929,8 @@ so you learn generated ids, defaults, and any expression the database computed
 without a follow-up `SELECT`:
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"INSERT INTO users (email) VALUES (?) RETURNING id, email, plan","args":["ketut@example.com"]}'
 ```
@@ -1952,8 +1961,8 @@ identical, with an `Idempotent-Replay: true` header added so you can tell the
 two apart when debugging.
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Idempotency-Key: order-8f2c-charge" \
   -H "Content-Type: application/json" \
   -d '{"query":"INSERT INTO charges (order_id, amount) VALUES (?, ?)","args":["8f2c",25000]}'
@@ -1993,8 +2002,8 @@ for it — same request, same response, same rules. Use whichever reads better;
 `/transaction` is the documented spelling.
 
 ```bash
-curl $MOOGO_PROJECT_URL/transaction \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/transaction \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "statements": [
@@ -2218,8 +2227,8 @@ query planner statistics, vacuum the file and fold the write-ahead log back in
 one operation.
 
 ```bash
-curl $MOOGO_PROJECT_URL/maintenance \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/maintenance \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -X POST
 ```
 
@@ -2478,9 +2487,10 @@ A tiny data layer, in plain JavaScript:
 
 ```js
 // db.js
-const base = process.env.MOOGO_PROJECT_URL;
+// MOOGO_BASE_URL is the API origin; MOOGO_PROJECT_ID is the project's UUID.
+const base = `${process.env.MOOGO_BASE_URL}/p/${process.env.MOOGO_PROJECT_ID}`;
 const headers = {
-  Authorization: `Bearer ${process.env.MOOGO_SECRET_KEY}`,
+  Authorization: `Bearer ${process.env.MOOGO_SQL_KEY}`,
   "Content-Type": "application/json",
 };
 
@@ -3638,7 +3648,8 @@ If you need zero dependencies, here's a minimal wrapper:
 
 ```js
 // storage.js
-const root = process.env.MOOGO_BASE_URL; // ends in /p/{project_id}/bucket
+// MOOGO_BASE_URL is the API origin; the bucket endpoint is built from it.
+const root = `${process.env.MOOGO_BASE_URL}/p/${process.env.MOOGO_PROJECT_ID}/bucket`;
 
 const headers = {
   "X-Moogo-Access-Key-Id": process.env.MOOGO_STORAGE_ACCESS_KEY_ID,
@@ -3682,7 +3693,7 @@ const encodeKey = (key) =>
 ## Troubleshooting
 
 - **415 unsupported_media_type** — you're missing or wrong `Content-Type`. On JSON endpoints it must be `application/json`. On an object upload it must be the file's type (never JSON-wrapped).
-- **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need `Authorization: Bearer $MOOGO_SECRET_KEY`. The types are not interchangeable.
+- **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need `Authorization: Bearer $MOOGO_SQL_KEY`. The types are not interchangeable.
 - **404 on an object you just uploaded** — check the key case and the bucket (`?bucket=`). The path is `/bucket/{key}`, not `/buckets/`.
 - **Object 404s on `/pub/` right after making it public** — check that the object is actually published: make the bucket public, or `PATCH` the object with `{"is_public": true}`, and read `is_public` back. Missing and unpublished objects answer `404` by design, and those responses are `no-store`, so a fresh publish shows up on the next request. If the URL was fetched while an older deployment was live, an edge copy of that 404 can linger until its TTL expires — use a new key or purge your CDN. For mutable assets, versioning keys (`image-v2.png`) is more reliable than cache invalidation.
 - **object_too_large** — above the bucket's `max_object_size_bytes` (or 250 MB). Shrink the file, raise the cap, or split it.
@@ -4557,14 +4568,16 @@ unsettling what the rest of your shell has exported.
 
 | Variable | Flag | Needed by |
 |---|---|---|
-| `MOOGO_PROJECT_URL` | `--url` | every command — the project URL the dashboard shows |
-| `MOOGO_SECRET_KEY` | `--key` | `db` commands |
+| `MOOGO_BASE_URL` | `--base-url` | every command — the API origin, e.g. `https://api.moogo.dev` |
+| `MOOGO_PROJECT_ID` | `--project-id` | every command — the project's UUID |
+| `MOOGO_SQL_KEY` | `--key` | `db` commands |
 | `MOOGO_STORAGE_ACCESS_KEY_ID` | `--storage-key-id` | `bucket` commands |
 | `MOOGO_STORAGE_SECRET_KEY` | `--storage-key` | `bucket` commands |
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
-export MOOGO_SECRET_KEY="moogo_..."
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
 ```
 
 The two bucket variables are a [storage credential](/docs/credentials), which is
@@ -4641,8 +4654,8 @@ file never shrinks on its own; this command reclaims the freed pages.
 Size limits remain enforced (250 MB/project). Equivalent to:
 
 ```bash
-curl -X POST "$MOOGO_PROJECT_URL/maintenance" \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl -X POST "$MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/maintenance" \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"operation": "vacuum"}'
 ```
@@ -4725,14 +4738,14 @@ puts the SQL key behind a proxy instead, see [React](/docs/guides/react).
 
 | Variable | Description |
 |----------|-------------|
-| `MOOGO_PROJECT_URL` | `https://api.moogo.dev/p/<project-id>` |
-| `MOOGO_SECRET_KEY` | `moogo_...` (SQL auth) |
-| `MOOGO_BASE_URL` | `https://api.moogo.dev/p/<project-id>/bucket` |
+| `MOOGO_BASE_URL` | `https://api.moogo.dev` (API origin) |
+| `MOOGO_PROJECT_ID` | `<project-id>` (project UUID) |
+| `MOOGO_SQL_KEY` | `moogo_...` (SQL auth) |
 | `MOOGO_CDN_URL` | Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty |
 | `MOOGO_STORAGE_ACCESS_KEY_ID` | `moogo_ak_...` |
 | `MOOGO_STORAGE_SECRET_KEY` | `moogo_sk_...` |
 
-`MOOGO_PROJECT_URL` and `MOOGO_SECRET_KEY` are on **Project → Settings**, shown
+`MOOGO_BASE_URL`, `MOOGO_PROJECT_ID`, and `MOOGO_SQL_KEY` are on **Project → Settings**, shown
 once at creation. The three bucket variables come from **Project → Bucket →
 Credentials**, where you create a credential — each is shown once too. Copy both
 immediately.
@@ -4741,9 +4754,11 @@ immediately.
 
 ```ts
 // lib/moogo.ts
-const PROJECT_URL = process.env.MOOGO_PROJECT_URL!;
-const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
-const BUCKET_ENDPOINT = process.env.MOOGO_BASE_URL!;
+const BASE_URL = process.env.MOOGO_BASE_URL!;
+const PROJECT_ID = process.env.MOOGO_PROJECT_ID!;
+const SECRET_KEY = process.env.MOOGO_SQL_KEY!;
+const PROJECT_URL = `${BASE_URL}/p/${PROJECT_ID}`;
+const BUCKET_ENDPOINT = `${BASE_URL}/p/${PROJECT_ID}/bucket`;
 const CDN_URL = (process.env.MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const BUCKET_ACCESS_KEY_ID = process.env.MOOGO_STORAGE_ACCESS_KEY_ID!;
 const BUCKET_SECRET_KEY = process.env.MOOGO_STORAGE_SECRET_KEY!;
@@ -4982,7 +4997,7 @@ A guide for using Moogo from a **client-side React** app (Vite, CRA, Remix SPA m
 
 ## The constraint: SQL key stays on the server
 
-Moogo's **SQL endpoints** (`/query`, `/exec`) require the `MOOGO_SECRET_KEY` as a Bearer token.  
+Moogo's **SQL endpoints** (`/query`, `/exec`) require the `MOOGO_SQL_KEY` as a Bearer token.  
 **Never put this key in client-side code** — it would be visible in the browser bundle.
 
 **Bucket endpoints** (`/bucket/*`) use a separate credential (`MOOGO_STORAGE_ACCESS_KEY_ID` + `MOOGO_STORAGE_SECRET_KEY`).  
@@ -5012,8 +5027,10 @@ import express from "express";
 import fetch from "node-fetch";
 
 const router = express.Router();
-const MOOGO_URL = process.env.MOOGO_PROJECT_URL!;
-const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
+const MOOGO_BASE_URL = process.env.MOOGO_BASE_URL!;
+const MOOGO_PROJECT_ID = process.env.MOOGO_PROJECT_ID!;
+const SECRET_KEY = process.env.MOOGO_SQL_KEY!;
+const MOOGO_URL = `${MOOGO_BASE_URL}/p/${MOOGO_PROJECT_ID}`;
 
 function isRead(sql) {
   // `with` covers CTE reads (WITH ... SELECT); a CTE that writes
@@ -5122,7 +5139,9 @@ Since bucket credentials are separate, you **can** use them directly in React fo
 
 ```tsx
 // hooks/useMoogoBucket.ts
-const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BASE_URL!;
+const BASE_URL = import.meta.env.VITE_MOOGO_BASE_URL!;
+const PROJECT_ID = import.meta.env.VITE_MOOGO_PROJECT_ID!;
+const BUCKET_ENDPOINT = `${BASE_URL}/p/${PROJECT_ID}/bucket`;
 const CDN_URL = (import.meta.env.VITE_MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const ACCESS_KEY = import.meta.env.VITE_MOOGO_STORAGE_ACCESS_KEY_ID!;
 const SECRET_KEY = import.meta.env.VITE_MOOGO_STORAGE_SECRET_KEY!;
@@ -5220,11 +5239,13 @@ export function Avatar({ key }: { key: string }) {
 
 ```env
 # Backend (proxy) — keep secret!
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
-MOOGO_SECRET_KEY=moogo_...
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=<project-id>
+MOOGO_SQL_KEY=moogo_...
 
 # Frontend (bucket only) — safe to expose
-VITE_MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
+VITE_MOOGO_BASE_URL=https://api.moogo.dev
+VITE_MOOGO_PROJECT_ID=<project-id>
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 VITE_MOOGO_CDN_URL=https://cdn.moogo.dev
 VITE_MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
@@ -5311,9 +5332,11 @@ Works with Server Components, Server Actions, Route Handlers, and Edge Runtime.
 **Environment variables** (Vercel → Settings → Environment Variables, or `.env.local`):
 
 ```env
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
-MOOGO_SECRET_KEY=moogo_...
-NEXT_PUBLIC_MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=<project-id>
+MOOGO_SQL_KEY=moogo_...
+NEXT_PUBLIC_MOOGO_BASE_URL=https://api.moogo.dev
+NEXT_PUBLIC_MOOGO_PROJECT_ID=<project-id>
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 NEXT_PUBLIC_MOOGO_CDN_URL=https://cdn.moogo.dev
 NEXT_PUBLIC_MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
@@ -5324,9 +5347,13 @@ NEXT_PUBLIC_MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 
 ```ts
 // lib/moogo.ts
-const PROJECT_URL = process.env.MOOGO_PROJECT_URL!;
-const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
-const BUCKET_ENDPOINT = process.env.NEXT_PUBLIC_MOOGO_BASE_URL!;
+const BASE_URL = process.env.MOOGO_BASE_URL!;
+const PROJECT_ID = process.env.MOOGO_PROJECT_ID!;
+const SECRET_KEY = process.env.MOOGO_SQL_KEY!;
+const PROJECT_URL = `${BASE_URL}/p/${PROJECT_ID}`;
+const BUCKET_BASE_URL = process.env.NEXT_PUBLIC_MOOGO_BASE_URL!;
+const BUCKET_PROJECT_ID = process.env.NEXT_PUBLIC_MOOGO_PROJECT_ID!;
+const BUCKET_ENDPOINT = `${BUCKET_BASE_URL}/p/${BUCKET_PROJECT_ID}/bucket`;
 const CDN_URL = (process.env.NEXT_PUBLIC_MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const BUCKET_ACCESS_KEY_ID = process.env.NEXT_PUBLIC_MOOGO_STORAGE_ACCESS_KEY_ID!;
 const BUCKET_SECRET_KEY = process.env.NEXT_PUBLIC_MOOGO_STORAGE_SECRET_KEY!;
@@ -5668,9 +5695,9 @@ Works with Server Routes, Composables, and Nitro (Edge/Node).
 **Environment variables** (`.env` or runtime config):
 
 ```env
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
-MOOGO_SECRET_KEY=moogo_...
-MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=<project-id>
+MOOGO_SQL_KEY=moogo_...
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 MOOGO_CDN_URL=https://cdn.moogo.dev
 MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
@@ -5681,10 +5708,12 @@ MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 // nuxt.config.ts
 export default defineNuxtConfig({
   runtimeConfig: {
-    moogoProjectUrl: process.env.MOOGO_PROJECT_URL,
-    moogoSecretKey: process.env.MOOGO_SECRET_KEY,
+    moogoBaseUrl: process.env.MOOGO_BASE_URL,
+    moogoProjectId: process.env.MOOGO_PROJECT_ID,
+    moogoSqlKey: process.env.MOOGO_SQL_KEY,
     public: {
-      moogoBucketEndpoint: process.env.MOOGO_BASE_URL,
+      moogoBaseUrl: process.env.MOOGO_BASE_URL,
+      moogoProjectId: process.env.MOOGO_PROJECT_ID,
       moogoCdnUrl: process.env.MOOGO_CDN_URL,
       moogoBucketAccessKeyId: process.env.MOOGO_STORAGE_ACCESS_KEY_ID,
       moogoBucketSecretKey: process.env.MOOGO_STORAGE_SECRET_KEY,
@@ -5700,9 +5729,13 @@ export default defineNuxtConfig({
 export const useMoogo = () => {
   const config = useRuntimeConfig();
 
-  const PROJECT_URL = config.moogoProjectUrl as string;
-  const SECRET_KEY = config.moogoSecretKey as string;
-  const BUCKET_ENDPOINT = config.public.moogoBucketEndpoint as string;
+  const BASE_URL = config.moogoBaseUrl as string;
+  const PROJECT_ID = config.moogoProjectId as string;
+  const SECRET_KEY = config.moogoSqlKey as string;
+  const PROJECT_URL = `${BASE_URL}/p/${PROJECT_ID}`;
+  const BUCKET_BASE_URL = config.public.moogoBaseUrl as string;
+  const BUCKET_PROJECT_ID = config.public.moogoProjectId as string;
+  const BUCKET_ENDPOINT = `${BUCKET_BASE_URL}/p/${BUCKET_PROJECT_ID}/bucket`;
   const CDN_URL = ((config.public.moogoCdnUrl as string) ?? "").replace(/\/+$/, "");
   const BUCKET_ACCESS_KEY_ID = config.public.moogoBucketAccessKeyId as string;
   const BUCKET_SECRET_KEY = config.public.moogoBucketSecretKey as string;
@@ -5982,14 +6015,15 @@ npm i ofetch  # or use built-in fetch (modern browsers)
 **Environment variables** (`.env` — only public bucket URL goes to client):
 
 ```env
-VITE_MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
+VITE_MOOGO_BASE_URL=https://api.moogo.dev
+VITE_MOOGO_PROJECT_ID=<project-id>
 # Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
 VITE_MOOGO_CDN_URL=https://cdn.moogo.dev
 VITE_MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
 VITE_MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 ```
 
-> ⚠️ **Never expose `MOOGO_SECRET_KEY` (SQL key) in client code.**  
+> ⚠️ **Never expose `MOOGO_SQL_KEY` (SQL key) in client code.**  
 > For SQL in a SPA, create a small backend proxy (see below) or use a Server Function (Netlify/Vercel Functions, Cloudflare Workers).
 
 ## Client-side Bucket only (`composables/useMoogoBucket.ts`)
@@ -5998,7 +6032,9 @@ VITE_MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 // composables/useMoogoBucket.ts
 import { ofetch, type FetchResponse } from "ofetch";
 
-const BUCKET_ENDPOINT = import.meta.env.VITE_MOOGO_BASE_URL!;
+const BASE_URL = import.meta.env.VITE_MOOGO_BASE_URL!;
+const PROJECT_ID = import.meta.env.VITE_MOOGO_PROJECT_ID!;
+const BUCKET_ENDPOINT = `${BASE_URL}/p/${PROJECT_ID}/bucket`;
 const CDN_URL = (import.meta.env.VITE_MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const BUCKET_ACCESS_KEY_ID = import.meta.env.VITE_MOOGO_STORAGE_ACCESS_KEY_ID!;
 const BUCKET_SECRET_KEY = import.meta.env.VITE_MOOGO_STORAGE_SECRET_KEY!;
@@ -6121,8 +6157,10 @@ Create a tiny serverless function (Netlify, Vercel, Cloudflare Workers):
 // netlify/functions/moogo-sql.ts
 import type { Handler } from "@netlify/functions";
 
-const PROJECT_URL = process.env.MOOGO_PROJECT_URL!;
-const SECRET_KEY = process.env.MOOGO_SECRET_KEY!;
+const MOOGO_BASE_URL = process.env.MOOGO_BASE_URL!;
+const MOOGO_PROJECT_ID = process.env.MOOGO_PROJECT_ID!;
+const SECRET_KEY = process.env.MOOGO_SQL_KEY!;
+const PROJECT_URL = `${MOOGO_BASE_URL}/p/${MOOGO_PROJECT_ID}`;
 
 const headers = {
   Authorization: `Bearer ${SECRET_KEY}`,
@@ -6243,10 +6281,10 @@ Works with SSR, static generation, and server endpoints (API routes).
 **Environment variables** (`.env`):
 
 ```env
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
-MOOGO_SECRET_KEY=moogo_...
-MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
-# Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_SQL_KEY=moogo_...
+# Optional — origin public objects are served from; falls back to the API origin when empty.
 MOOGO_CDN_URL=https://cdn.moogo.dev
 MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
 MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
@@ -6256,15 +6294,19 @@ MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 
 ```ts
 // src/lib/moogo.ts
-const PROJECT_URL = import.meta.env.MOOGO_PROJECT_URL!;
-const SECRET_KEY = import.meta.env.MOOGO_SECRET_KEY!;
-const BUCKET_ENDPOINT = import.meta.env.MOOGO_BASE_URL!;
+const BASE_URL = import.meta.env.MOOGO_BASE_URL!;
+const PROJECT_ID = import.meta.env.MOOGO_PROJECT_ID!;
+const SQL_KEY = import.meta.env.MOOGO_SQL_KEY!;
+// The project URL and the bucket endpoint are built from the origin and the
+// project id, so the environment carries no path and no route layout.
+const PROJECT_URL = `${BASE_URL}/p/${PROJECT_ID}`;
+const BUCKET_ENDPOINT = `${PROJECT_URL}/bucket`;
 const CDN_URL = (import.meta.env.MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const BUCKET_ACCESS_KEY_ID = import.meta.env.MOOGO_STORAGE_ACCESS_KEY_ID!;
 const BUCKET_SECRET_KEY = import.meta.env.MOOGO_STORAGE_SECRET_KEY!;
 
 const SQL_HEADERS = {
-  Authorization: `Bearer ${SECRET_KEY}`,
+  Authorization: `Bearer ${SQL_KEY}`,
   "Content-Type": "application/json",
 };
 
@@ -6332,7 +6374,7 @@ const encodeKey = (key: string) =>
 // one breaks for every private object. This serves published objects only --
 // before you publish, the response's public_url is an empty string.
 function publicBase(): string {
-  const base = BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+  const base = `${BASE_URL}/pub/${PROJECT_ID}`;
   return CDN_URL ? base.replace(/^https?:\/\/[^/]+/, CDN_URL) : base;
 }
 
@@ -6538,10 +6580,11 @@ Works with stdlib only (Python 3.11+). No dependencies.
 **Environment variables:**
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; falls back to the bucket endpoint origin when empty.
+# API origin (no path; the /p/<project-id>/... path is built in code).
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; falls back to the API origin when empty.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -6558,16 +6601,18 @@ import urllib.request
 from typing import Any
 from urllib.parse import quote
 
-PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
-SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
-BUCKET_ENDPOINT = os.environ["MOOGO_BASE_URL"]
-# Optional CDN origin for public objects; falls back to the bucket endpoint origin when empty.
+BASE_URL = os.environ["MOOGO_BASE_URL"].rstrip("/")
+PROJECT_ID = os.environ["MOOGO_PROJECT_ID"]
+SQL_KEY = os.environ["MOOGO_SQL_KEY"]
+PROJECT_URL = f"{BASE_URL}/p/{PROJECT_ID}"
+BUCKET_ENDPOINT = f"{PROJECT_URL}/bucket"
+# Optional CDN origin for public objects; falls back to the API origin when empty.
 CDN_URL = os.environ.get("MOOGO_CDN_URL", "").rstrip("/")
 BUCKET_ACCESS_KEY_ID = os.environ["MOOGO_STORAGE_ACCESS_KEY_ID"]
 BUCKET_SECRET_KEY = os.environ["MOOGO_STORAGE_SECRET_KEY"]
 
 SQL_HEADERS = {
-    "Authorization": f"Bearer {SECRET_KEY}",
+    "Authorization": f"Bearer {SQL_KEY}",
     "Content-Type": "application/json",
 }
 
@@ -6677,11 +6722,9 @@ def bucket_public_url(key: str) -> str:
     # and a browser tab carries no storage credential, so an <img> pointed at one
     # breaks for every private object. This serves published objects only: a fresh
     # upload is private, so publish it with bucket_publish first. Until then,
-    # public_url in the response is an empty string. Public objects are served
-    # from the CDN origin (CDN_URL) when set, otherwise from the bucket endpoint.
-    origin, _, tail = BUCKET_ENDPOINT.partition("/p/")
-    project_id = tail.split("/")[0]
-    return f"{CDN_URL or origin}/pub/{project_id}/{quote(key, safe='/')}"
+    # Public objects are served
+    # from the CDN origin (CDN_URL) when set, otherwise from the API origin.
+    return f"{CDN_URL or BASE_URL}/pub/{PROJECT_ID}/{quote(key, safe='/')}"
 ```
 
 ## Usage — SQLite
@@ -6751,8 +6794,8 @@ except MoogoError as e:
 import aiohttp
 import os
 
-PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
-SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
+PROJECT_URL = f"{os.environ['MOOGO_BASE_URL']}/p/{os.environ['MOOGO_PROJECT_ID']}"
+SECRET_KEY = os.environ["MOOGO_SQL_KEY"]
 
 HEADERS = {"Authorization": f"Bearer {SECRET_KEY}", "Content-Type": "application/json"}
 
@@ -6819,10 +6862,11 @@ pip install fastapi uvicorn httpx pydantic
 **Environment variables:**
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; falls back to the bucket endpoint origin when empty.
+# API origin (no path; the /p/<project-id>/... path is built in code).
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; falls back to the API origin when empty.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -6837,15 +6881,17 @@ import httpx
 from typing import Any
 from urllib.parse import quote
 
-PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
-SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
-BUCKET_ENDPOINT = os.environ["MOOGO_BASE_URL"]
-# Optional CDN origin for public objects; falls back to the bucket endpoint origin when empty.
+BASE_URL = os.environ["MOOGO_BASE_URL"].rstrip("/")
+PROJECT_ID = os.environ["MOOGO_PROJECT_ID"]
+SQL_KEY = os.environ["MOOGO_SQL_KEY"]
+PROJECT_URL = f"{BASE_URL}/p/{PROJECT_ID}"
+BUCKET_ENDPOINT = f"{PROJECT_URL}/bucket"
+# Optional CDN origin for public objects; falls back to the API origin when empty.
 CDN_URL = os.environ.get("MOOGO_CDN_URL", "").rstrip("/")
 BUCKET_ACCESS_KEY_ID = os.environ["MOOGO_STORAGE_ACCESS_KEY_ID"]
 BUCKET_SECRET_KEY = os.environ["MOOGO_STORAGE_SECRET_KEY"]
 
-SQL_HEADERS = {"Authorization": f"Bearer {SECRET_KEY}", "Content-Type": "application/json"}
+SQL_HEADERS = {"Authorization": f"Bearer {SQL_KEY}", "Content-Type": "application/json"}
 STORAGE_HEADERS = {"X-Moogo-Access-Key-Id": BUCKET_ACCESS_KEY_ID, "Authorization": f"Bearer {BUCKET_SECRET_KEY}"}
 
 client = httpx.AsyncClient(timeout=30.0)
@@ -6920,10 +6966,8 @@ def bucket_public_url(key: str) -> str:
     # breaks for every private object. This serves published objects only: a fresh
     # upload is private, so publish it with bucket_publish first. Until then,
     # public_url in the response is an empty string. Public objects are served
-    # from the CDN origin (CDN_URL) when set, otherwise from the bucket endpoint.
-    origin, _, tail = BUCKET_ENDPOINT.partition("/p/")
-    project_id = tail.split("/")[0]
-    return f"{CDN_URL or origin}/pub/{project_id}/{quote(key, safe='/')}"
+    # from the CDN origin (CDN_URL) when set, otherwise from the API origin.
+    return f"{CDN_URL or BASE_URL}/pub/{PROJECT_ID}/{quote(key, safe='/')}"
 ```
 
 ## FastAPI App (`main.py`)
@@ -7084,10 +7128,11 @@ pip install flask requests gunicorn
 **Environment variables:**
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; falls back to the bucket endpoint origin when empty.
+# API origin (no path; the /p/<project-id>/... path is built in code).
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; falls back to the API origin when empty.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -7102,15 +7147,17 @@ import requests
 from typing import Any
 from urllib.parse import quote
 
-PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
-SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
-BUCKET_ENDPOINT = os.environ["MOOGO_BASE_URL"]
-# Optional CDN origin for public objects; falls back to the bucket endpoint origin when empty.
+BASE_URL = os.environ["MOOGO_BASE_URL"].rstrip("/")
+PROJECT_ID = os.environ["MOOGO_PROJECT_ID"]
+SQL_KEY = os.environ["MOOGO_SQL_KEY"]
+PROJECT_URL = f"{BASE_URL}/p/{PROJECT_ID}"
+BUCKET_ENDPOINT = f"{PROJECT_URL}/bucket"
+# Optional CDN origin for public objects; falls back to the API origin when empty.
 CDN_URL = os.environ.get("MOOGO_CDN_URL", "").rstrip("/")
 BUCKET_ACCESS_KEY_ID = os.environ["MOOGO_STORAGE_ACCESS_KEY_ID"]
 BUCKET_SECRET_KEY = os.environ["MOOGO_STORAGE_SECRET_KEY"]
 
-SQL_HEADERS = {"Authorization": f"Bearer {SECRET_KEY}", "Content-Type": "application/json"}
+SQL_HEADERS = {"Authorization": f"Bearer {SQL_KEY}", "Content-Type": "application/json"}
 STORAGE_HEADERS = {"X-Moogo-Access-Key-Id": BUCKET_ACCESS_KEY_ID, "Authorization": f"Bearer {BUCKET_SECRET_KEY}"}
 
 session = requests.Session()
@@ -7185,10 +7232,8 @@ def bucket_public_url(key: str) -> str:
     # breaks for every private object. This serves published objects only: a fresh
     # upload is private, so publish it with bucket_publish first. Until then,
     # public_url in the response is an empty string. Public objects are served
-    # from the CDN origin (CDN_URL) when set, otherwise from the bucket endpoint.
-    origin, _, tail = BUCKET_ENDPOINT.partition("/p/")
-    project_id = tail.split("/")[0]
-    return f"{CDN_URL or origin}/pub/{project_id}/{quote(key, safe='/')}"
+    # from the CDN origin (CDN_URL) when set, otherwise from the API origin.
+    return f"{CDN_URL or BASE_URL}/pub/{PROJECT_ID}/{quote(key, safe='/')}"
 ```
 
 ## Flask App (`app.py`)
@@ -7330,10 +7375,11 @@ pip install django djangorestframework requests gunicorn
 ```python
 # settings.py
 import os
-MOOGO_PROJECT_URL = os.environ["MOOGO_PROJECT_URL"]
-MOOGO_SECRET_KEY = os.environ["MOOGO_SECRET_KEY"]
+# API origin (no path; the /p/<project-id>/... path is built in code).
 MOOGO_BASE_URL = os.environ["MOOGO_BASE_URL"]
-# Optional: origin public objects are served from; falls back to the bucket endpoint origin when empty.
+MOOGO_PROJECT_ID = os.environ["MOOGO_PROJECT_ID"]
+MOOGO_SQL_KEY = os.environ["MOOGO_SQL_KEY"]
+# Optional: origin public objects are served from; falls back to the API origin when empty.
 MOOGO_CDN_URL = os.environ.get("MOOGO_CDN_URL", "")
 MOOGO_STORAGE_ACCESS_KEY_ID = os.environ["MOOGO_STORAGE_ACCESS_KEY_ID"]
 MOOGO_STORAGE_SECRET_KEY = os.environ["MOOGO_STORAGE_SECRET_KEY"]
@@ -7358,15 +7404,19 @@ class MoogoError(Exception):
 
 class MoogoClient:
     def __init__(self):
-        self.project_url = settings.MOOGO_PROJECT_URL
-        self.secret_key = settings.MOOGO_SECRET_KEY
-        self.bucket_endpoint = settings.MOOGO_BASE_URL
-        # Optional CDN origin for public objects; falls back to the bucket endpoint origin when empty.
+        self.base_url = settings.MOOGO_BASE_URL.rstrip("/")
+        self.project_id = settings.MOOGO_PROJECT_ID
+        self.sql_key = settings.MOOGO_SQL_KEY
+        # The SQL and bucket endpoints are built from the API origin plus the
+        # project id rather than stored whole.
+        self.project_url = f"{self.base_url}/p/{self.project_id}"
+        self.bucket_endpoint = f"{self.project_url}/bucket"
+        # Optional CDN origin for public objects; falls back to the API origin when empty.
         self.cdn_url = getattr(settings, "MOOGO_CDN_URL", "").rstrip("/")
         self.bucket_access_key_id = settings.MOOGO_STORAGE_ACCESS_KEY_ID
         self.bucket_secret_key = settings.MOOGO_STORAGE_SECRET_KEY
 
-        self.sql_headers = {"Authorization": f"Bearer {self.secret_key}", "Content-Type": "application/json"}
+        self.sql_headers = {"Authorization": f"Bearer {self.sql_key}", "Content-Type": "application/json"}
         self.storage_headers = {"X-Moogo-Access-Key-Id": self.bucket_access_key_id, "Authorization": f"Bearer {self.bucket_secret_key}"}
         self.session = requests.Session()
 
@@ -7433,10 +7483,8 @@ class MoogoClient:
         # object. This serves published objects only: a fresh upload is private,
         # so publish it with bucket_publish first. Until then, public_url in the
         # response is an empty string. Public objects are served from the CDN
-        # origin (self.cdn_url) when set, otherwise from the bucket endpoint.
-        origin, _, tail = self.bucket_endpoint.partition("/p/")
-        project_id = tail.split("/")[0]
-        return f"{self.cdn_url or origin}/pub/{project_id}/{quote(key, safe='/')}"
+        # origin (self.cdn_url) when set, otherwise from the API origin.
+        return f"{self.cdn_url or self.base_url}/pub/{self.project_id}/{quote(key, safe='/')}"
 ```
 
 ## Singleton instance (`moogo/__init__.py`)
@@ -7585,8 +7633,8 @@ from .client import MoogoError
 
 class AsyncMoogoClient:
     def __init__(self):
-        self.project_url = settings.MOOGO_PROJECT_URL
-        self.secret_key = settings.MOOGO_SECRET_KEY
+        self.project_url = f"{settings.MOOGO_BASE_URL}/p/{settings.MOOGO_PROJECT_ID}"
+        self.secret_key = settings.MOOGO_SQL_KEY
         self.session = None
 
     async def __aenter__(self):
@@ -7672,10 +7720,10 @@ Works with PHP 8.1+, no framework required.
 **Environment variables** (`.env` or server config):
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; empty falls back to the API origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -7687,16 +7735,17 @@ export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
 <?php
 // moogo.php
 
-$projectUrl = $_ENV['MOOGO_PROJECT_URL'] ?? getenv('MOOGO_PROJECT_URL');
-$secretKey = $_ENV['MOOGO_SECRET_KEY'] ?? getenv('MOOGO_SECRET_KEY');
-$bucketEndpoint = $_ENV['MOOGO_BASE_URL'] ?? getenv('MOOGO_BASE_URL');
+$baseUrl = rtrim($_ENV['MOOGO_BASE_URL'] ?? getenv('MOOGO_BASE_URL'), '/');
+$projectId = $_ENV['MOOGO_PROJECT_ID'] ?? getenv('MOOGO_PROJECT_ID');
+$secretKey = $_ENV['MOOGO_SQL_KEY'] ?? getenv('MOOGO_SQL_KEY');
+$bucketEndpoint = "{$baseUrl}/p/{$projectId}/bucket";
 $cdnUrl = rtrim($_ENV['MOOGO_CDN_URL'] ?? getenv('MOOGO_CDN_URL') ?: '', '/');
 $bucketAccessKeyId = $_ENV['MOOGO_STORAGE_ACCESS_KEY_ID'] ?? getenv('MOOGO_STORAGE_ACCESS_KEY_ID');
 $bucketSecretKey = $_ENV['MOOGO_STORAGE_SECRET_KEY'] ?? getenv('MOOGO_STORAGE_SECRET_KEY');
 
 function moogoRequest(string $path, string $sql, array $args = []): array {
-    global $projectUrl, $secretKey;
-    $ch = curl_init("{$projectUrl}{$path}");
+    global $baseUrl, $projectId, $secretKey;
+    $ch = curl_init("{$baseUrl}/p/{$projectId}{$path}");
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_HTTPHEADER => [
@@ -7796,15 +7845,15 @@ function bucketPublish(string $key): array {
 }
 
 function bucketPublicUrl(string $key): string {
-    global $bucketEndpoint, $cdnUrl;
+    global $baseUrl, $projectId, $cdnUrl;
     // /pub/<project-id>/<key> is the route that needs no credential. The bucket
     // endpoint is not it -- /p/<project-id>/bucket/<key> is the authenticated
     // URL, and a browser tab carries no storage credential, so an <img> pointed at
     // one breaks for every private object. This serves published objects only: a
     // fresh upload is private, so publish it with bucketPublish first. Until then,
     // public_url in the response is an empty string. When MOOGO_CDN_URL is set,
-    // public objects are served from that CDN host instead of the bucket endpoint.
-    $publicBase = preg_replace('#/p/([^/]+)/bucket/?$#', '/pub/$1', $bucketEndpoint);
+    // public objects are served from that CDN host instead of the API origin.
+    $publicBase = "{$baseUrl}/pub/{$projectId}";
     if ($cdnUrl !== '') {
         // Keep the /pub/<project-id> path, swap only the scheme and host.
         $publicBase = preg_replace('#^https?://[^/]+#', $cdnUrl, $publicBase);
@@ -7902,13 +7951,14 @@ class MoogoClient {
         private ClientInterface $client,
         private RequestFactoryInterface $requestFactory,
         private StreamFactoryInterface $streamFactory,
-        private string $projectUrl,
+        private string $baseUrl,
+        private string $projectId,
         private string $secretKey
     ) {}
 
     public function sql(string $sql, array $args = []): array {
         $endpoint = preg_match('/^\s*(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\b/i', $sql) ? '/query' : '/exec';
-        $request = $this->requestFactory->createRequest('POST', $this->projectUrl . $endpoint)
+        $request = $this->requestFactory->createRequest('POST', "{$this->baseUrl}/p/{$this->projectId}{$endpoint}")
             ->withHeader('Authorization', "Bearer {$this->secretKey}")
             ->withHeader('Content-Type', 'application/json')
             ->withBody($this->streamFactory->createStream(json_encode(['query' => $sql, 'args' => $args])));
@@ -7955,10 +8005,10 @@ Expressive, elegant, full-stack framework with built-in HTTP client.
 **Environment variables** (`.env`):
 
 ```env
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
-MOOGO_SECRET_KEY=moogo_...
-MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
-# Optional: origin public objects are served from (e.g. https://cdn.moogo.dev); empty falls back to the bucket endpoint origin.
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_SQL_KEY=moogo_...
+# Optional: origin public objects are served from (e.g. https://cdn.moogo.dev); empty falls back to the API origin.
 MOOGO_CDN_URL=
 MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
 MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
@@ -7968,9 +8018,9 @@ MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 // config/services.php
 return [
     'moogo' => [
-        'project_url' => env('MOOGO_PROJECT_URL'),
-        'secret_key' => env('MOOGO_SECRET_KEY'),
-        'bucket_endpoint' => env('MOOGO_BASE_URL'),
+        'base_url' => env('MOOGO_BASE_URL'),
+        'project_id' => env('MOOGO_PROJECT_ID'),
+        'secret_key' => env('MOOGO_SQL_KEY'),
         'cdn_url' => env('MOOGO_CDN_URL'),
         'bucket_access_key_id' => env('MOOGO_STORAGE_ACCESS_KEY_ID'),
         'bucket_secret_key' => env('MOOGO_STORAGE_SECRET_KEY'),
@@ -7994,34 +8044,39 @@ class Moogo {
     // to null before reading config. A non-nullable `string $x = null` is a
     // fatal error, not a default.
     public function __construct(
-        private ?string $projectUrl = null,
+        private ?string $baseUrl = null,
+        private ?string $projectId = null,
         private ?string $secretKey = null,
-        private ?string $bucketEndpoint = null,
         private ?string $cdnUrl = null,
         private ?string $bucketAccessKeyId = null,
         private ?string $bucketSecretKey = null
     ) {
-        $this->projectUrl ??= config('services.moogo.project_url');
+        $this->baseUrl ??= config('services.moogo.base_url');
+        $this->baseUrl = rtrim((string) $this->baseUrl, '/');
+        $this->projectId ??= config('services.moogo.project_id');
         $this->secretKey ??= config('services.moogo.secret_key');
-        $this->bucketEndpoint ??= config('services.moogo.bucket_endpoint');
         $this->cdnUrl ??= config('services.moogo.cdn_url');
         $this->cdnUrl = rtrim((string) $this->cdnUrl, '/');
         $this->bucketAccessKeyId ??= config('services.moogo.bucket_access_key_id');
         $this->bucketSecretKey ??= config('services.moogo.bucket_secret_key');
     }
 
+    private function bucketEndpoint(): string {
+        return "{$this->baseUrl}/p/{$this->projectId}/bucket";
+    }
+
     private function sqlClient(): \Illuminate\Http\Client\PendingRequest {
         return Http::withHeaders([
             'Authorization' => "Bearer {$this->secretKey}",
             'Content-Type' => 'application/json',
-        ])->baseUrl($this->projectUrl)->timeout(30);
+        ])->baseUrl("{$this->baseUrl}/p/{$this->projectId}")->timeout(30);
     }
 
     private function storageClient(): \Illuminate\Http\Client\PendingRequest {
         return Http::withHeaders([
             'X-Moogo-Access-Key-Id' => $this->bucketAccessKeyId,
             'Authorization' => "Bearer {$this->bucketSecretKey}",
-        ])->baseUrl($this->bucketEndpoint)->timeout(30);
+        ])->baseUrl($this->bucketEndpoint())->timeout(30);
     }
 
     private function isRead(string $sql): bool {
@@ -8104,8 +8159,8 @@ class Moogo {
         // object. This serves published objects only: a fresh upload is private,
         // so publish it with bucketPublish first. Until then, public_url in the
         // response is an empty string. When MOOGO_CDN_URL is set, public objects
-        // are served from that CDN host instead of the bucket endpoint.
-        $base = preg_replace('#/p/([^/]+)/bucket/?$#', '/pub/$1', $this->bucketEndpoint);
+        // are served from that CDN host instead of the API origin.
+        $base = "{$this->baseUrl}/pub/{$this->projectId}";
         if ($this->cdnUrl !== '') {
             // Keep the /pub/<project-id> path, swap only the scheme and host.
             $base = preg_replace('#^https?://[^/]+#', $this->cdnUrl, $base);
@@ -8283,7 +8338,7 @@ ProcessUsers::dispatch($emails)->onQueue('moogo');
 // tests/Feature/UserTest.php
 public function test_create_user() {
     Http::fake([
-        config('services.moogo.project_url') . '/*' => Http::response([
+        config('services.moogo.base_url') . '/p/' . config('services.moogo.project_id') . '/*' => Http::response([
             'success' => true,
             'rows_affected' => 1,
         ], 200),
@@ -8338,10 +8393,10 @@ go mod init myapp
 **Environment variables:**
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; empty falls back to the API origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -8356,6 +8411,7 @@ package moogo
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -8366,12 +8422,17 @@ import (
 )
 
 var (
-	projectURL        = os.Getenv("MOOGO_PROJECT_URL")
-	secretKey         = os.Getenv("MOOGO_SECRET_KEY")
-	bucketEndpoint    = os.Getenv("MOOGO_BASE_URL")
+	baseURL           = strings.TrimRight(os.Getenv("MOOGO_BASE_URL"), "/")
+	projectID         = os.Getenv("MOOGO_PROJECT_ID")
+	secretKey         = os.Getenv("MOOGO_SQL_KEY")
 	cdnURL            = strings.TrimRight(os.Getenv("MOOGO_CDN_URL"), "/")
 	bucketAccessKeyID = os.Getenv("MOOGO_STORAGE_ACCESS_KEY_ID")
 	bucketSecretKey   = os.Getenv("MOOGO_STORAGE_SECRET_KEY")
+
+	// projectEndpoint is the data-plane base for this project: the SQL endpoints
+	// hang off /p/<project-id>, and the bucket endpoint off /p/<project-id>/bucket.
+	projectEndpoint = fmt.Sprintf("%s/p/%s", baseURL, projectID)
+	bucketEndpoint  = projectEndpoint + "/bucket"
 
 	// `with` covers CTE reads (WITH ... SELECT); a CTE that writes
 	// (WITH ... INSERT) must be sent to /exec directly.
@@ -8441,7 +8502,7 @@ func postSQL(path, sql string, args []any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return do("POST", projectURL+path, map[string]string{
+	return do("POST", projectEndpoint+path, map[string]string{
 		"Authorization": "Bearer " + secretKey,
 		"Content-Type":  "application/json",
 	}, payload)
@@ -8546,8 +8607,8 @@ func BucketPublicUrl(key string) string {
 	// objects only: a fresh upload is private, so publish it with BucketPublish
 	// first. Until then, public_url in the response is an empty string. When
 	// MOOGO_CDN_URL is set, public objects are served from that CDN host instead
-	// of the bucket endpoint.
-	base := strings.TrimSuffix(strings.Replace(bucketEndpoint, "/p/", "/pub/", 1), "/bucket")
+	// of the API origin.
+	base := baseURL + "/pub/" + projectID
 	if cdnURL != "" {
 		// Keep the /pub/<id> path, swap only the scheme and host.
 		if u, err := url.Parse(base); err == nil {
@@ -8717,8 +8778,9 @@ func TestSQL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	os.Setenv("MOOGO_PROJECT_URL", server.URL)
-	os.Setenv("MOOGO_SECRET_KEY", "test")
+	os.Setenv("MOOGO_BASE_URL", server.URL)
+	os.Setenv("MOOGO_PROJECT_ID", "test-project")
+	os.Setenv("MOOGO_SQL_KEY", "test")
 
 	users := moogo.ToObjects(Must(moogo.SQL("SELECT id FROM users")))
 	assert.Equal(t, []map[string]any{{"id": "u1"}}, users)
@@ -8766,10 +8828,10 @@ gem 'httparty'  # or use Net::HTTP (stdlib)
 **Environment variables** (`.env` or Rails credentials):
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; empty falls back to the API origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -8785,9 +8847,11 @@ require 'uri'
 require 'erb'
 
 class Moogo
-  PROJECT_URL = ENV['MOOGO_PROJECT_URL']
-  SECRET_KEY  = ENV['MOOGO_SECRET_KEY']
-  BUCKET_ENDPOINT = ENV['MOOGO_BASE_URL']
+  BASE_URL = ENV['MOOGO_BASE_URL'].to_s.sub(%r{/+\z}, '')
+  PROJECT_ID = ENV['MOOGO_PROJECT_ID']
+  SECRET_KEY  = ENV['MOOGO_SQL_KEY']
+  PROJECT_ENDPOINT = "#{BASE_URL}/p/#{PROJECT_ID}"
+  BUCKET_ENDPOINT = "#{PROJECT_ENDPOINT}/bucket"
   CDN_URL = ENV['MOOGO_CDN_URL'].to_s.sub(%r{/+\z}, '')
   BUCKET_ACCESS_KEY_ID = ENV['MOOGO_STORAGE_ACCESS_KEY_ID']
   BUCKET_SECRET_KEY = ENV['MOOGO_STORAGE_SECRET_KEY']
@@ -8806,7 +8870,7 @@ class Moogo
   end
 
   def self.request(method, path, body: nil, headers: SQL_HEADERS)
-    uri = URI("#{PROJECT_URL}#{path}")
+    uri = URI("#{PROJECT_ENDPOINT}#{path}")
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = true
 
@@ -8908,9 +8972,9 @@ class Moogo
     # serves published objects only: a fresh upload is private, so publish it
     # with bucket_publish first. Until then, public_url in the response is an
     # empty string. When MOOGO_CDN_URL is set, public objects are served from
-    # that CDN host instead of the bucket endpoint.
+    # that CDN host instead of the API origin.
     path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
-    base = BUCKET_ENDPOINT.sub(%r{/p/([^/]+)/bucket/?\z}, '/pub/\1')
+    base = "#{BASE_URL}/pub/#{PROJECT_ID}"
     # Keep the /pub/<project-id> path, swap only the scheme and host.
     base = base.sub(%r{\Ahttps?://[^/]+}, CDN_URL) unless CDN_URL.empty?
     "#{base}/#{path}"
@@ -8955,9 +9019,11 @@ puts Moogo.bucket_public_url(key)
 ```ruby
 # app/services/moogo.rb
 class Moogo
-  PROJECT_URL = Rails.application.credentials.moogo_project_url || ENV['MOOGO_PROJECT_URL']
-  SECRET_KEY  = Rails.application.credentials.moogo_secret_key || ENV['MOOGO_SECRET_KEY']
-  BUCKET_ENDPOINT = Rails.application.credentials.moogo_bucket_endpoint || ENV['MOOGO_BASE_URL']
+  BASE_URL = (Rails.application.credentials.moogo_base_url || ENV['MOOGO_BASE_URL']).to_s.sub(%r{/+\z}, '')
+  PROJECT_ID = Rails.application.credentials.moogo_project_id || ENV['MOOGO_PROJECT_ID']
+  SECRET_KEY  = Rails.application.credentials.moogo_secret_key || ENV['MOOGO_SQL_KEY']
+  PROJECT_ENDPOINT = "#{BASE_URL}/p/#{PROJECT_ID}"
+  BUCKET_ENDPOINT = "#{PROJECT_ENDPOINT}/bucket"
   CDN_URL = (Rails.application.credentials.moogo_cdn_url || ENV['MOOGO_CDN_URL']).to_s.sub(%r{/+\z}, '')
   BUCKET_ACCESS_KEY_ID = Rails.application.credentials.moogo_bucket_access_key_id || ENV['MOOGO_STORAGE_ACCESS_KEY_ID']
   BUCKET_SECRET_KEY = Rails.application.credentials.moogo_bucket_secret_key || ENV['MOOGO_STORAGE_SECRET_KEY']
@@ -8976,7 +9042,7 @@ class Moogo
   end
 
   def self.client
-    @@client ||= Faraday.new(PROJECT_URL) do |f|
+    @@client ||= Faraday.new(PROJECT_ENDPOINT) do |f|
       f.request :json
       f.response :json
       f.adapter Faraday.default_adapter
@@ -9064,9 +9130,9 @@ class Moogo
     # serves published objects only: a fresh upload is private, so publish it
     # with bucket_publish first. Until then, public_url in the response is an
     # empty string. When MOOGO_CDN_URL is set, public objects are served from
-    # that CDN host instead of the bucket endpoint.
+    # that CDN host instead of the API origin.
     path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
-    base = BUCKET_ENDPOINT.sub(%r{/p/([^/]+)/bucket/?\z}, '/pub/\1')
+    base = "#{BASE_URL}/pub/#{PROJECT_ID}"
     # Keep the /pub/<project-id> path, swap only the scheme and host.
     base = base.sub(%r{\Ahttps?://[^/]+}, CDN_URL) unless CDN_URL.empty?
     "#{base}/#{path}"
@@ -9228,10 +9294,10 @@ Works with Java 17+ (HttpClient), Spring Boot, Quarkus, Micronaut, or Kotlin cor
 **Environment variables:**
 
 ```bash
-export MOOGO_PROJECT_URL="https://api.moogo.dev/p/<project-id>"
-export MOOGO_SECRET_KEY="moogo_..."
-export MOOGO_BASE_URL="https://api.moogo.dev/p/<project-id>/bucket"
-# Optional: origin public objects are served from; empty falls back to the bucket endpoint origin.
+export MOOGO_BASE_URL="https://api.moogo.dev"
+export MOOGO_PROJECT_ID="8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0"
+export MOOGO_SQL_KEY="moogo_..."
+# Optional: origin public objects are served from; empty falls back to the API origin.
 export MOOGO_CDN_URL="https://cdn.moogo.dev"
 export MOOGO_STORAGE_ACCESS_KEY_ID="moogo_ak_..."
 export MOOGO_STORAGE_SECRET_KEY="moogo_sk_..."
@@ -9253,9 +9319,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class Moogo {
     // Not final: a test can point the client at a mock server before first use.
-    static String PROJECT_URL = System.getenv("MOOGO_PROJECT_URL");
-    private static final String SECRET_KEY = System.getenv("MOOGO_SECRET_KEY");
-    private static final String BUCKET_ENDPOINT = System.getenv("MOOGO_BASE_URL");
+    static String BASE_URL = System.getenv("MOOGO_BASE_URL");
+    private static final String PROJECT_ID = System.getenv("MOOGO_PROJECT_ID");
+    private static final String SECRET_KEY = System.getenv("MOOGO_SQL_KEY");
+    private static final String BUCKET_ENDPOINT = BASE_URL + "/p/" + PROJECT_ID + "/bucket";
     private static final String CDN_URL = System.getenv("MOOGO_CDN_URL") == null ? "" : System.getenv("MOOGO_CDN_URL").replaceAll("/+$", "");
     private static final String BUCKET_ACCESS_KEY_ID = System.getenv("MOOGO_STORAGE_ACCESS_KEY_ID");
     private static final String BUCKET_SECRET_KEY = System.getenv("MOOGO_STORAGE_SECRET_KEY");
@@ -9283,7 +9350,7 @@ public class Moogo {
         var json = MAPPER.writeValueAsString(body);
 
         var request = HttpRequest.newBuilder()
-            .uri(URI.create(PROJECT_URL + path))
+            .uri(URI.create(BASE_URL + "/p/" + PROJECT_ID + path))
             .header("Authorization", "Bearer " + SECRET_KEY)
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(json))
@@ -9380,8 +9447,8 @@ public class Moogo {
         // serves published objects only: a fresh upload is private, so publish it
         // with bucketPublish first. Until then, public_url in the response is an
         // empty string. When MOOGO_CDN_URL is set, public objects are served from
-        // that CDN host instead of the bucket endpoint.
-        String base = BUCKET_ENDPOINT.replaceAll("/p/([^/]+)/bucket/?$", "/pub/$1");
+        // that CDN host instead of the API origin.
+        String base = BASE_URL + "/pub/" + PROJECT_ID;
         if (!CDN_URL.isEmpty()) {
             // Keep the /pub/<id> path, swap only the scheme and authority.
             URI cdn = URI.create(CDN_URL);
@@ -9461,9 +9528,9 @@ public class Main {
 
 ```yaml
 moogo:
-  project-url: ${MOOGO_PROJECT_URL}
-  secret-key: ${MOOGO_SECRET_KEY}
-  bucket-endpoint: ${MOOGO_BASE_URL}
+  base-url: ${MOOGO_BASE_URL}
+  project-id: ${MOOGO_PROJECT_ID}
+  secret-key: ${MOOGO_SQL_KEY}
   cdn-url: ${MOOGO_CDN_URL}
   bucket-access-key-id: ${MOOGO_STORAGE_ACCESS_KEY_ID}
   bucket-secret-key: ${MOOGO_STORAGE_SECRET_KEY}
@@ -9474,18 +9541,18 @@ moogo:
 ```java
 @Component
 public class MoogoClient {
-    private final String projectUrl, secretKey, bucketEndpoint, bucketAccessKeyId, bucketSecretKey;
+    private final String baseUrl, projectId, secretKey, bucketAccessKeyId, bucketSecretKey;
     private final WebClient webClient;
 
-    public MoogoClient(@Value("${moogo.project-url}") String projectUrl,
+    public MoogoClient(@Value("${moogo.base-url}") String baseUrl,
+                       @Value("${moogo.project-id}") String projectId,
                        @Value("${moogo.secret-key}") String secretKey,
-                       @Value("${moogo.bucket-endpoint}") String bucketEndpoint,
                        @Value("${moogo.bucket-access-key-id}") String bucketAccessKeyId,
                        @Value("${moogo.bucket-secret-key}") String bucketSecretKey,
                        WebClient.Builder builder) {
-        this.projectUrl = projectUrl;
+        this.baseUrl = baseUrl;
+        this.projectId = projectId;
         this.secretKey = secretKey;
-        this.bucketEndpoint = bucketEndpoint;
         this.bucketAccessKeyId = bucketAccessKeyId;
         this.bucketSecretKey = bucketSecretKey;
         this.webClient = builder.build();
@@ -9494,7 +9561,7 @@ public class MoogoClient {
     public Mono<Map<String, Object>> sql(String sql, List<Object> args) {
         String path = sql.trim().matches("(?i)^(SELECT|VALUES|PRAGMA|EXPLAIN|WITH)\\b.*") ? "/query" : "/exec";
         return webClient.post()
-            .uri(projectUrl + path)
+            .uri(baseUrl + "/p/" + projectId + path)
             .header("Authorization", "Bearer " + secretKey)
             .bodyValue(Map.of("query", sql, "args", args))
             .retrieve()
@@ -9562,9 +9629,10 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 
 object Moogo {
-    private val PROJECT_URL = System.getenv("MOOGO_PROJECT_URL")!!
-    private val SECRET_KEY = System.getenv("MOOGO_SECRET_KEY")!!
-    private val BUCKET_ENDPOINT = System.getenv("MOOGO_BASE_URL")!!
+    private val BASE_URL = System.getenv("MOOGO_BASE_URL")!!
+    private val PROJECT_ID = System.getenv("MOOGO_PROJECT_ID")!!
+    private val SECRET_KEY = System.getenv("MOOGO_SQL_KEY")!!
+    private val BUCKET_ENDPOINT = "$BASE_URL/p/$PROJECT_ID/bucket"
     private val CDN_URL = System.getenv("MOOGO_CDN_URL").orEmpty().trimEnd('/')
     private val BUCKET_ACCESS_KEY_ID = System.getenv("MOOGO_STORAGE_ACCESS_KEY_ID")!!
     private val BUCKET_SECRET_KEY = System.getenv("MOOGO_STORAGE_SECRET_KEY")!!
@@ -9580,7 +9648,7 @@ object Moogo {
         val json = MAPPER.writeValueAsString(body)
 
         val request = HttpRequest.newBuilder()
-            .uri(URI.create(PROJECT_URL + path))
+            .uri(URI.create(BASE_URL + "/p/" + PROJECT_ID + path))
             .header("Authorization", "Bearer $SECRET_KEY")
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(json))
@@ -9647,9 +9715,9 @@ object Moogo {
     // objects only: a fresh upload is private, so publish it with bucketPublish
     // first. Until then, public_url in the response is an empty string. When
     // MOOGO_CDN_URL is set, public objects are served from that CDN host instead
-    // of the bucket endpoint.
+    // of the API origin.
     fun bucketPublicUrl(key: String): String {
-        val base = BUCKET_ENDPOINT.replace(Regex("/p/([^/]+)/bucket/?$"), "/pub/\$1")
+        val base = "$BASE_URL/pub/$PROJECT_ID"
         val publicBase = if (CDN_URL.isEmpty()) base else {
             // Keep the /pub/<id> path, swap only the scheme and authority.
             val cdn = URI.create(CDN_URL)
@@ -9708,7 +9776,7 @@ public interface MoogoClient {
 }
 
 // application.properties
-quarkus.rest-client.moogo.url=https://api.moogo.dev/p/<project-id>
+quarkus.rest-client.moogo.url=${MOOGO_BASE_URL}/p/${MOOGO_PROJECT_ID}
 quarkus.rest-client.moogo.scope=javax.inject.Singleton
 ```
 
@@ -9722,7 +9790,7 @@ try (MockWebServer server = new MockWebServer()) {
         .setBody("{\"success\":true,\"columns\":[\"id\"],\"rows\":[[\"u1\"]],\"row_count\":1}"));
     server.start();
 
-    Moogo.PROJECT_URL = server.url("/").toString();
+    Moogo.BASE_URL = server.url("/").toString();
     // run tests...
 }
 ```
@@ -10717,7 +10785,7 @@ Two things worth knowing if you are seeing this when you did not expect it:
 ### When you get `unauthorized`
 
 1. **Is it the right key?** The project's Settings tab shows a masked
-   `MOOGO_SECRET_KEY` — the key's eight-character prefix. Check it against the
+   `MOOGO_SQL_KEY` — the key's eight-character prefix. Check it against the
    start of your key.
 2. **Is it the right scheme?** Only `Bearer` is accepted — not Basic, not a bare
    token.
@@ -10808,7 +10876,7 @@ plain `POST` to an existing key is refused rather than silently replacing the fi
 The dashboard uses your **session**, not a project key. So the SQL and the data
 are fine, and the difference is the credential. Check:
 
-- Is `MOOGO_SECRET_KEY` in the deployed environment, not just your shell?
+- Is `MOOGO_SQL_KEY` in the deployed environment, not just your shell?
 - Did you restart after adding it?
 - Is there a trailing newline or quotes in the value?
 - Did a deploy rotate the key? Get the current prefix from the dashboard.

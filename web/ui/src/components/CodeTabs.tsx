@@ -16,9 +16,10 @@ const samples: Sample[] = [
   {
     id: "query",
     label: "Query",
-    code: `# $MOOGO_PROJECT_URL = https://api.moogo.dev/p/<project_id>
-POST $MOOGO_PROJECT_URL/query
-Authorization: Bearer $MOOGO_SECRET_KEY
+    code: `# $MOOGO_BASE_URL = https://api.moogo.dev
+# $MOOGO_PROJECT_ID = 8f3c1a20-...
+POST $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query
+Authorization: Bearer $MOOGO_SQL_KEY
 Content-Type: application/json
 
 {
@@ -30,9 +31,10 @@ Content-Type: application/json
   {
     id: "exec",
     label: "Exec",
-    code: `# $MOOGO_PROJECT_URL = https://api.moogo.dev/p/<project_id>
-POST $MOOGO_PROJECT_URL/exec
-Authorization: Bearer $MOOGO_SECRET_KEY
+    code: `# $MOOGO_BASE_URL = https://api.moogo.dev
+# $MOOGO_PROJECT_ID = 8f3c1a20-...
+POST $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec
+Authorization: Bearer $MOOGO_SQL_KEY
 Content-Type: application/json
 
 {
@@ -44,9 +46,10 @@ Content-Type: application/json
   {
     id: "curl",
     label: "cURL",
-    code: `# $MOOGO_PROJECT_URL = https://api.moogo.dev/p/<project_id>
-curl $MOOGO_PROJECT_URL/query \\
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \\
+    code: `# $MOOGO_BASE_URL = https://api.moogo.dev
+# $MOOGO_PROJECT_ID = 8f3c1a20-...
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \\
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"query":"SELECT count(*) FROM users"}'`,
     response: `{"success":true,"columns":["count(*)"],"rows":[[7]],"row_count":1,"truncated":false,"duration_ms":1}`,

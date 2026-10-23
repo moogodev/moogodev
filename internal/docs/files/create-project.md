@@ -33,20 +33,20 @@ than a spinner that never resolves — you always find out which state you are i
 On creation, Moogo shows three values **once**:
 
 ```
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_BASE_URL=https://api.moogo.dev
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_...
+MOOGO_SQL_KEY=moogo_...
 ```
 
 | Value | What it is |
 |---|---|
-| `MOOGO_PROJECT_URL` | The base URL every API call hangs off. It already contains the project id. |
-| `MOOGO_PROJECT_ID` | The project's UUID. Also identifies it in the dashboard and in URLs. |
-| `MOOGO_SECRET_KEY` | The bearer token that authorises API calls. |
+| `MOOGO_BASE_URL` | The API origin — the host every call is built from. It carries no path. |
+| `MOOGO_PROJECT_ID` | The project's UUID. Routes are `/p/<project_id>/...` under the base URL. |
+| `MOOGO_SQL_KEY` | The bearer token that authorises API calls. |
 
 **Copy them now.** The dashboard shows these once. When email notifications are
 on, Moogo also sends them in a **project created** email — but after creation the
-secret key is never shown again: not in the project list, not in settings. What
+SQL key is never shown again: not in the project list, not in settings. What
 Moogo keeps is a SHA-256 hash and an eight-character prefix, so it genuinely
 cannot show you the key again.
 
@@ -58,9 +58,9 @@ rotate.
 
 ```bash
 # .env
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_BASE_URL=https://api.moogo.dev
 MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
-MOOGO_SECRET_KEY=moogo_...
+MOOGO_SQL_KEY=moogo_...
 ```
 
 Do not commit this file. The key is a real credential and it is the only thing
@@ -69,8 +69,8 @@ standing between your database and anyone who has it.
 ## Make your first query
 
 ```bash
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL, plan TEXT)"}'
 ```
@@ -80,14 +80,14 @@ refuses reads. Use the right one for what you are doing:
 
 ```bash
 # Insert a row (a write, with a bound parameter)
-curl $MOOGO_PROJECT_URL/exec \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/exec \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"INSERT INTO users (id, email, plan) VALUES (?, ?, ?)","args":["7c1f","ketut@example.com","free"]}'
 
 # Read rows back (a read)
-curl $MOOGO_PROJECT_URL/query \
-  -H "Authorization: Bearer $MOOGO_SECRET_KEY" \
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
+  -H "Authorization: Bearer $MOOGO_SQL_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query":"SELECT id, email, plan FROM users"}'
 ```
@@ -129,8 +129,10 @@ Automatic off-site copies of the database, with one-click restore. Covered in
 
 ### Settings tab
 
-- **Project URL and id** — always visible, safe to copy.
-- **Rotate key** — issues a new secret key and shows it once. The old key stops
+- **Project URL and id** — always visible, safe to copy. The dashboard shows the
+  origin (`MOOGO_BASE_URL`) and the id (`MOOGO_PROJECT_ID`) separately, because
+  that is how a client uses them.
+- **Rotate key** — issues a new SQL key and shows it once. The old key stops
   working immediately.
 - **Pause / resume** — stops and restarts all API access for this project.
 - **Download backup** — a `.db` file of the whole database. It uses your session,

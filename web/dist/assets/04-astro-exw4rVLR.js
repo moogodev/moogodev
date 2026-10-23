@@ -1,0 +1,294 @@
+var e=`# Astro
+
+Works with SSR, static generation, and server endpoints (API routes).
+
+## Setup
+
+\`\`\`bash
+# No extra packages needed (fetch is global)
+\`\`\`
+
+**Environment variables** (\`.env\`):
+
+\`\`\`env
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_SQL_KEY=moogo_...
+# Optional — origin public objects are served from; falls back to the API origin when empty.
+MOOGO_CDN_URL=https://cdn.moogo.dev
+MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
+MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
+\`\`\`
+
+## Client (\`src/lib/moogo.ts\`)
+
+\`\`\`ts
+// src/lib/moogo.ts
+const BASE_URL = import.meta.env.MOOGO_BASE_URL!;
+const PROJECT_ID = import.meta.env.MOOGO_PROJECT_ID!;
+const SQL_KEY = import.meta.env.MOOGO_SQL_KEY!;
+// The project URL and the bucket endpoint are built from the origin and the
+// project id, so the environment carries no path and no route layout.
+const PROJECT_URL = \`\${BASE_URL}/p/\${PROJECT_ID}\`;
+const BUCKET_ENDPOINT = \`\${PROJECT_URL}/bucket\`;
+const CDN_URL = (import.meta.env.MOOGO_CDN_URL ?? "").replace(/\\/+$/, "");
+const BUCKET_ACCESS_KEY_ID = import.meta.env.MOOGO_STORAGE_ACCESS_KEY_ID!;
+const BUCKET_SECRET_KEY = import.meta.env.MOOGO_STORAGE_SECRET_KEY!;
+
+const SQL_HEADERS = {
+  Authorization: \`Bearer \${SQL_KEY}\`,
+  "Content-Type": "application/json",
+};
+
+const STORAGE_HEADERS = {
+  "X-Moogo-Access-Key-Id": BUCKET_ACCESS_KEY_ID,
+  Authorization: \`Bearer \${BUCKET_SECRET_KEY}\`,
+};
+
+function isRead(sql: string): boolean {
+  // \`with\` covers CTE reads (WITH ... SELECT); a CTE that writes
+  // (WITH ... INSERT) must be sent to /exec directly.
+  return /^\\s*(select|values|pragma|explain|with)\\b/i.test(sql.trim());
+}
+
+async function handle(res: Response) {
+  const body = await res.json();
+  if (!res.ok) {
+    const err = new Error(body.error?.message ?? "request failed");
+    (err as any).code = body.error?.code;
+    (err as any).detail = body.error?.detail;
+    (err as any).status = res.status;
+    throw err;
+  }
+  return body;
+}
+
+// ── SQL ──────────────────────────────────────────────────────────────
+export async function query(sql: string, args: any[] = []) {
+  const res = await fetch(\`\${PROJECT_URL}/query\`, {
+    method: "POST",
+    headers: SQL_HEADERS,
+    body: JSON.stringify({ query: sql, args }),
+  });
+  return handle(res);
+}
+
+export async function exec(sql: string, args: any[] = []) {
+  const res = await fetch(\`\${PROJECT_URL}/exec\`, {
+    method: "POST",
+    headers: SQL_HEADERS,
+    body: JSON.stringify({ query: sql, args }),
+  });
+  return handle(res);
+}
+
+export async function sql(sql: string, args: any[] = []) {
+  return isRead(sql) ? query(sql, args) : exec(sql, args);
+}
+
+export function toObjects<T>(result: { columns: string[]; rows: any[][] }): T[] {
+  return result.rows.map((row) =>
+    Object.fromEntries(result.columns.map((col, i) => [col, row[i]]))
+  ) as T[];
+}
+
+// Slashes are meaningful in a key, so escape each segment and keep them -- the
+// server escapes a key the same way when it hands one back.
+const encodeKey = (key: string) =>
+  key.split("/").map(encodeURIComponent).join("/");
+
+// Public objects are served from the CDN host when MOOGO_CDN_URL is set.
+// The public route is /pub/<project-id>/<key> and needs no credential. The
+// bucket endpoint is not it: /p/<project-id>/bucket/<key> is the authenticated
+// URL, and a browser tab carries no storage credential, so an <img> pointed at
+// one breaks for every private object. This serves published objects only --
+// before you publish, the response's public_url is an empty string.
+function publicBase(): string {
+  const base = \`\${BASE_URL}/pub/\${PROJECT_ID}\`;
+  return CDN_URL ? base.replace(/^https?:\\/\\/[^/]+/, CDN_URL) : base;
+}
+
+// ── Bucket ───────────────────────────────────────────────────────────
+export async function bucketUpload(
+  key: string,
+  body: BodyInit,
+  contentType: string
+) {
+  const res = await fetch(\`\${BUCKET_ENDPOINT}/\${encodeKey(key)}\`, {
+    method: "POST",
+    headers: { ...STORAGE_HEADERS, "Content-Type": contentType },
+    body,
+  });
+  return handle(res);
+}
+
+export async function bucketDownload(key: string) {
+  return fetch(\`\${BUCKET_ENDPOINT}/\${encodeKey(key)}\`, {
+    headers: STORAGE_HEADERS,
+  });
+}
+
+export async function bucketDelete(key: string) {
+  const res = await fetch(\`\${BUCKET_ENDPOINT}/\${encodeKey(key)}\`, {
+    method: "DELETE",
+    headers: STORAGE_HEADERS,
+  });
+  return handle(res);
+}
+
+export async function bucketList(prefix?: string) {
+  const url = new URL(\`\${BUCKET_ENDPOINT}\`);
+  if (prefix) url.searchParams.set("prefix", prefix);
+  const res = await fetch(url, { headers: STORAGE_HEADERS });
+  return handle(res);
+}
+
+// Objects are private until published with bucketPublish, so the public_url in
+// an upload response is an empty string until then.
+export async function bucketPublish(key: string) {
+  const res = await fetch(\`\${BUCKET_ENDPOINT}/\${encodeKey(key)}\`, {
+    method: "PATCH",
+    headers: { ...STORAGE_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ is_public: true }),
+  });
+  return handle(res);
+}
+
+export function bucketPublicUrl(key: string): string {
+  return \`\${publicBase()}/\${encodeKey(key)}\`;
+}
+\`\`\`
+
+## SSR Pages (\`.astro\` with \`---\`)
+
+\`\`\`astro
+---
+// src/pages/users.astro
+import { sql, toObjects } from "@/lib/moogo";
+
+const users = await toObjects(
+  await sql("SELECT id, email, plan, created_at FROM users ORDER BY created_at DESC")
+);
+---
+
+<ul>
+  {users.map((u) => (
+    <li>{u.email} — {u.plan} <small>{new Date(u.created_at).toLocaleDateString()}</small></li>
+  ))}
+</ul>
+\`\`\`
+
+## Server Endpoints (API routes)
+
+\`\`\`ts
+// src/pages/api/users.json.ts
+import type { APIRoute } from "astro";
+import { sql, toObjects } from "@/lib/moogo";
+
+export const GET: APIRoute = async () => {
+  const users = await toObjects(await sql("SELECT id, email, plan FROM users"));
+  return new Response(JSON.stringify(users), {
+    headers: { "Content-Type": "application/json" },
+  });
+};
+
+export const POST: APIRoute = async ({ request }) => {
+  const { email, plan } = await request.json();
+  const id = crypto.randomUUID();
+  await sql("INSERT INTO users (id, email, plan) VALUES (?, ?, ?)", [id, email, plan ?? "free"]);
+  return new Response(JSON.stringify({ id }), { status: 201 });
+};
+\`\`\`
+
+## Hybrid: Static generation with dynamic data
+
+\`\`\`astro
+---
+// src/pages/blog/[slug].astro
+import { sql, toObjects } from "@/lib/moogo";
+
+export async function getStaticPaths() {
+  const posts = await toObjects(
+    await sql("SELECT slug FROM posts WHERE published = 1")
+  );
+  return posts.map((p) => ({ params: { slug: p.slug } }));
+}
+
+const { slug } = Astro.props;
+const post = (await toObjects(
+  await sql("SELECT * FROM posts WHERE slug = ?", [slug])
+))[0];
+---
+
+<h1>{post.title}</h1>
+<article set:html={post.content} />
+\`\`\`
+
+## Bucket in Astro
+
+\`\`\`astro
+---
+// src/pages/upload.astro
+import { bucketUpload, bucketPublish } from "@/lib/moogo";
+
+if (Astro.request.method === "POST") {
+  const form = await Astro.request.formData();
+  const file = form.get("file") as File;
+  const key = \`uploads/\${file.name}\`;
+  await bucketUpload(key, file, file.type);
+  await bucketPublish(key); // a fresh upload is private until published
+  return Astro.redirect("/upload?success=1");
+}
+---
+
+<form method="POST" enctype="multipart/form-data">
+  <input type="file" name="file" required />
+  <button type="submit">Upload</button>
+</form>
+
+{ Astro.url.searchParams.has("success") && <p>Uploaded!</p> }
+\`\`\`
+
+\`\`\`astro
+---
+// src/components/Avatar.astro (public object)
+import { bucketPublicUrl } from "@/lib/moogo";
+
+const { key } = Astro.props;
+---
+
+<img src={bucketPublicUrl(key)} alt="" />
+\`\`\`
+
+## Edge/Static adapter
+
+\`\`\`ts
+// astro.config.mjs
+import { defineConfig } from "astro/config";
+import vercel from "@astrojs/vercel"; // or netlify, cloudflare
+
+export default defineConfig({
+  output: "server",
+  adapter: vercel(),
+});
+\`\`\`
+
+The \`fetch\`-based client works in all Astro adapters (Node, Edge, Deno, Bun).
+
+## Next
+
+## Production Readiness ⚠️
+
+- **SQL transactions**: Max 100 statements per \`/transaction\` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
+- **Database size limit**: 250 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
+- **Sensitive column names**: Certain names (\`readfile\`, \`writefile\`, \`delete\`, \`vacuum\`, \`attach\`, \`detach\`, \`reindex\`, \`analyze\`, \`pragma\`) are blocked as column names in SQL queries.
+- **Public object URLs**: \`public_url\` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform \`PATCH is_public: true\` after upload if you want to share without credentials.
+- **Error handling**: Use \`error.code\` rather than \`error.message\` for safe branching (retryable vs non-retryable).
+
+## Next
+
+- [Next.js guide](/docs/guides/nextjs) — React equivalent
+- [Nuxt guide](/docs/guides/nuxt) — Vue equivalent
+- [Vanilla JS guide](/docs/guides/javascript-vanilla)
+- [Schema & migrations](/docs/schema-best-practices) — transactions, batch inserts, paging, indexes
+- [Object storage](/docs/object-storage)`;export{e as default};

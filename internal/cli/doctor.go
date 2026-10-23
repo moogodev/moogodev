@@ -6,17 +6,25 @@ import (
 	"strings"
 )
 
+// runConfig prints the configuration the CLI would use and flags anything that
+// looks like a mistake: a missing variable, a value the API would reject, a
+// deprecated name, or an unknown MOOGO_* variable that is probably a typo.
+//
+// It reads the environment only; it makes no request, so an operator can run it
+// before touching a service or a deployment.
 func runConfig(streams Streams, args []string) int {
 	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
 		fmt.Fprint(streams.Out, `Usage: moogo config
 
-Show effective CLI configuration from environment variables and flags, plus warnings.
+Show the effective CLI configuration from the environment, with warnings.
 
 Checks:
-  - known env vars (warns on unknown MOOGO_* vars)
-  - project URL shape
+  - required variables (MOOGO_BASE_URL, MOOGO_PROJECT_ID)
   - credential presence per command type
-  - common typos
+  - value shape (origin without a path, single-segment project id)
+  - deprecated names and unknown MOOGO_* variables
+
+Exits 0 when everything checks out and 2 when there is something to fix.
 `)
 		return ExitOK
 	}
@@ -24,85 +32,98 @@ Checks:
 	fmt.Fprintln(streams.Out, "Moogo CLI configuration")
 	fmt.Fprintln(streams.Out)
 
-	projectURL := first("", os.Getenv(EnvProjectURL))
-	secretKey := first("", os.Getenv(EnvSecretKey))
-	bucketID := first("", os.Getenv(EnvBucketAccessKeyID))
-	bucketKey := first("", os.Getenv(EnvBucketSecretKey))
+	base := strings.TrimRight(strings.TrimSpace(os.Getenv(EnvBaseURL)), "/")
+	projectID := strings.TrimSpace(os.Getenv(EnvProjectID))
+	sqlKey := strings.TrimSpace(os.Getenv(EnvSQLKey))
+	bucketID := strings.TrimSpace(os.Getenv(EnvBucketAccessKeyID))
+	bucketKey := strings.TrimSpace(os.Getenv(EnvBucketSecretKey))
 
-	fmt.Fprintf(streams.Out, "MOOGO_PROJECT_URL:      %s\n", maskOrEmpty(projectURL))
-	fmt.Fprintf(streams.Out, "MOOGO_SECRET_KEY:       %s\n", maskOrEmpty(secretKey))
-	fmt.Fprintf(streams.Out, "MOOGO_STORAGE_ACCESS_KEY_ID: %s\n", maskOrEmpty(bucketID))
-	fmt.Fprintf(streams.Out, "MOOGO_STORAGE_SECRET_KEY:    %s\n", maskOrEmpty(bucketKey))
+	fmt.Fprintf(streams.Out, "%s: %s\n", EnvBaseURL, maskOrEmpty(base))
+	fmt.Fprintf(streams.Out, "%s: %s\n", EnvProjectID, maskOrEmpty(projectID))
+	fmt.Fprintf(streams.Out, "%s: %s\n", EnvSQLKey, maskOrEmpty(sqlKey))
+	fmt.Fprintf(streams.Out, "%s: %s\n", EnvBucketAccessKeyID, maskOrEmpty(bucketID))
+	fmt.Fprintf(streams.Out, "%s: %s\n", EnvBucketSecretKey, maskOrEmpty(bucketKey))
 	fmt.Fprintln(streams.Out)
 
 	var warnings []string
-	var okCount int
 
-	if projectURL == "" {
-		warnings = append(warnings, "MOOGO_PROJECT_URL not set (required for all commands)")
-	} else {
-		if base, pid, err := splitProjectURL(projectURL); err != nil {
-			warnings = append(warnings, fmt.Sprintf("MOOGO_PROJECT_URL invalid: %v", err))
+	if base == "" {
+		warnings = append(warnings, fmt.Sprintf("%s not set (required for all commands)", EnvBaseURL))
+	}
+	if projectID == "" {
+		warnings = append(warnings, fmt.Sprintf("%s not set (required for all commands)", EnvProjectID))
+	}
+	switch {
+	case base != "" && projectID != "":
+		if projectURL, err := buildProjectURL(base, projectID); err != nil {
+			warnings = append(warnings, err.Error())
 		} else {
-			okCount++
-			fmt.Fprintf(streams.Out, "✓ Project URL: %s (project %s)\n", base, pid)
+			fmt.Fprintf(streams.Out, "✓ Project URL: %s\n", projectURL)
 		}
 	}
 
-	if secretKey != "" {
-		okCount++
-		fmt.Fprintln(streams.Out, "✓ MOOGO_SECRET_KEY set (for db commands)")
+	if sqlKey != "" {
+		fmt.Fprintf(streams.Out, "✓ %s set (for db commands)\n", EnvSQLKey)
 	} else {
-		warnings = append(warnings, "MOOGO_SECRET_KEY not set (required for db push/seed/reset)")
+		warnings = append(warnings, fmt.Sprintf("%s not set (required for db push/seed/reset/vacuum)", EnvSQLKey))
 	}
 
-	if bucketID != "" && bucketKey != "" {
-		okCount++
-		fmt.Fprintln(streams.Out, "✓ MOOGO_STORAGE_ACCESS_KEY_ID + MOOGO_STORAGE_SECRET_KEY set (for bucket commands)")
-	} else if bucketID != "" || bucketKey != "" {
-		warnings = append(warnings, "Both MOOGO_STORAGE_ACCESS_KEY_ID and MOOGO_STORAGE_SECRET_KEY must be set for bucket commands")
-	} else {
+	switch {
+	case bucketID != "" && bucketKey != "":
+		fmt.Fprintf(streams.Out, "✓ %s + %s set (for bucket commands)\n", EnvBucketAccessKeyID, EnvBucketSecretKey)
+	case bucketID != "" || bucketKey != "":
+		warnings = append(warnings, fmt.Sprintf(
+			"%s and %s must be set together for bucket commands", EnvBucketAccessKeyID, EnvBucketSecretKey))
+	default:
 		warnings = append(warnings, "Storage credentials not set (required for bucket ls/rm)")
 	}
 
-	fmt.Fprintln(streams.Out)
-	for _, k := range []string{"MOOGO_API_URL", "MOOGO_PROJECT_KEY", "MOOGO_BUCKET_ACCESS_KEY_ID", "MOOGO_BUCKET_SECRET_KEY", "MOOGO_BASE_URL"} {
-		if v := os.Getenv(k); v != "" {
-			warnings = append(warnings, fmt.Sprintf("%s is set but not used by CLI (CLI uses MOOGO_PROJECT_URL + MOOGO_SECRET_KEY)", k))
+	// Names that used to work and no longer do. A deployment that still sets
+	// one is silently misconfigured, so it is called out by name.
+	deprecated := map[string]string{
+		"MOOGO_PROJECT_URL":          "rename it to " + EnvBaseURL + " (origin only) + " + EnvProjectID,
+		"MOOGO_SECRET_KEY":           "rename it to " + EnvSQLKey,
+		"MOOGO_API_URL":              "rename it to " + EnvBaseURL,
+		"MOOGO_PROJECT_KEY":          "rename it to " + EnvSQLKey,
+		"MOOGO_BUCKET_ACCESS_KEY_ID": "rename it to " + EnvBucketAccessKeyID,
+		"MOOGO_BUCKET_SECRET_KEY":    "rename it to " + EnvBucketSecretKey,
+		"MOOGO_BUCKET_ENDPOINT":      "rename it to " + EnvBaseURL + " + " + EnvProjectID,
+	}
+	for name, advice := range deprecated {
+		if os.Getenv(name) != "" {
+			warnings = append(warnings, fmt.Sprintf("%s is deprecated; %s", name, advice))
 		}
 	}
 
-	for _, env := range os.Environ() {
-		parts := strings.SplitN(env, "=", 2)
-		if len(parts) != 2 {
+	for _, entry := range os.Environ() {
+		key, _, found := strings.Cut(entry, "=")
+		if !found || !strings.HasPrefix(key, "MOOGO_") {
 			continue
 		}
-		key := parts[0]
-		if strings.HasPrefix(key, "MOOGO_") {
-			known := false
-			switch key {
-			case EnvProjectURL, EnvSecretKey, EnvBucketAccessKeyID, EnvBucketSecretKey,
-				"MOOGO_API_URL", "MOOGO_PROJECT_KEY", "MOOGO_BUCKET_ACCESS_KEY_ID", "MOOGO_BUCKET_SECRET_KEY",
-				"MOOGO_BASE_URL", "MOOGO_PUBLIC_URL":
-				known = true
-			}
-			if !known {
-				warnings = append(warnings, fmt.Sprintf("Unknown env var: %s (check for typos)", key))
-			}
+		if _, isDeprecated := deprecated[key]; isDeprecated {
+			continue
+		}
+		switch key {
+		case EnvBaseURL, EnvProjectID, EnvSQLKey, EnvBucketAccessKeyID, EnvBucketSecretKey,
+			"MOOGO_PUBLIC_URL", "MOOGO_CDN_URL":
+		default:
+			warnings = append(warnings, fmt.Sprintf("unknown environment variable %s (check for typos)", key))
 		}
 	}
 
+	fmt.Fprintln(streams.Out)
 	if len(warnings) == 0 {
 		fmt.Fprintln(streams.Out, "✓ All checks passed")
 		return ExitOK
 	}
 
 	fmt.Fprintf(streams.Out, "Warnings (%d):\n", len(warnings))
-	for _, w := range warnings {
-		fmt.Fprintf(streams.Out, "  ⚠ %s\n", w)
+	for _, warning := range warnings {
+		fmt.Fprintf(streams.Out, "  ⚠ %s\n", warning)
 	}
 	fmt.Fprintln(streams.Out)
-	fmt.Fprintln(streams.Out, "Tip: set required vars or use flags (--url, --key, --storage-key-id, --storage-key)")
+	fmt.Fprintln(streams.Out,
+		"Tip: set the variables above, or pass flags (--base-url, --project-id, --key, --storage-key-id, --storage-key)")
 	return ExitUsage
 }
 

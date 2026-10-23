@@ -91,20 +91,28 @@ func TestProjectCreatedEmailLinksToTheDashboard(t *testing.T) {
 }
 
 // TestProjectCreatedEmailEndpointsAreTheDataPlane: the endpoint rows must name
-// real routes. MOOGO_PROJECT_URL is the base a client appends "/query" or
-// "/bucket/<key>" to: there is no "/db" under it, and the bucket takes a
-// storage credential rather than the project's SQL secret key.
+// real routes. The API base is MOOGO_BASE_URL joined with /p/{project_id}, the
+// prefix a client appends "/query" or "/bucket/<key>" to: there is no "/db"
+// under it, and the bucket takes a storage credential rather than the project's
+// SQL key.
 func TestProjectCreatedEmailEndpointsAreTheDataPlane(t *testing.T) {
 	const (
 		projectID = "27e6612a-51d8-4d2c-988c-79a06226fcc0"
-		apiBase   = "https://api.moogo.dev/p/" + projectID
+		baseURL   = "https://api.moogo.dev"
+		apiBase   = baseURL + "/p/" + projectID
 	)
 	html := projectCreatedHTML("demo", projectID, "moogo_secret",
-		"https://app.moogo.dev/app/projects/"+projectID, apiBase,
+		"https://app.moogo.dev/app/projects/"+projectID, apiBase, baseURL,
 		"https://app.moogo.dev/static/img/logo-light.png")
 
 	if !strings.Contains(html, apiBase) {
 		t.Errorf("email is missing the API base %q", apiBase)
+	}
+	if !strings.Contains(html, baseURL) {
+		t.Errorf("email is missing the base URL %q", baseURL)
+	}
+	if !strings.Contains(html, "MOOGO_BASE_URL") || !strings.Contains(html, "MOOGO_SQL_KEY") {
+		t.Errorf("email does not name the MOOGO_BASE_URL / MOOGO_SQL_KEY variables")
 	}
 	if !strings.Contains(html, apiBase+"/bucket") {
 		t.Errorf("email is missing the bucket endpoint %q", apiBase+"/bucket")

@@ -122,11 +122,11 @@ func TestDBPushWithoutAProjectKeyStopsBeforeTheRequest(t *testing.T) {
 
 	path := writeSQL(t, "schema.sql", "CREATE TABLE t (id INTEGER);")
 
-	code, _, errOut := api.runEnv(map[string]string{EnvSecretKey: ""}, "db", "push", path)
+	code, _, errOut := api.runEnv(map[string]string{EnvSQLKey: ""}, "db", "push", path)
 	if code != ExitUsage {
 		t.Fatalf("exit = %d, want %d", code, ExitUsage)
 	}
-	if !strings.Contains(errOut, EnvSecretKey) {
+	if !strings.Contains(errOut, EnvSQLKey) {
 		t.Errorf("the message should name the variable: %q", errOut)
 	}
 }

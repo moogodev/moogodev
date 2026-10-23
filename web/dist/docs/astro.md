@@ -11,10 +11,10 @@ Works with SSR, static generation, and server endpoints (API routes).
 **Environment variables** (`.env`):
 
 ```env
-MOOGO_PROJECT_URL=https://api.moogo.dev/p/<project-id>
-MOOGO_SECRET_KEY=moogo_...
-MOOGO_BASE_URL=https://api.moogo.dev/p/<project-id>/bucket
-# Optional — origin public objects are served from; falls back to the bucket endpoint origin when empty.
+MOOGO_BASE_URL=https://api.moogo.dev
+MOOGO_PROJECT_ID=8f3c1a20-5b7e-4a91-9d3c-2f6b81e4a7d0
+MOOGO_SQL_KEY=moogo_...
+# Optional — origin public objects are served from; falls back to the API origin when empty.
 MOOGO_CDN_URL=https://cdn.moogo.dev
 MOOGO_STORAGE_ACCESS_KEY_ID=moogo_ak_...
 MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
@@ -24,15 +24,19 @@ MOOGO_STORAGE_SECRET_KEY=moogo_sk_...
 
 ```ts
 // src/lib/moogo.ts
-const PROJECT_URL = import.meta.env.MOOGO_PROJECT_URL!;
-const SECRET_KEY = import.meta.env.MOOGO_SECRET_KEY!;
-const BUCKET_ENDPOINT = import.meta.env.MOOGO_BASE_URL!;
+const BASE_URL = import.meta.env.MOOGO_BASE_URL!;
+const PROJECT_ID = import.meta.env.MOOGO_PROJECT_ID!;
+const SQL_KEY = import.meta.env.MOOGO_SQL_KEY!;
+// The project URL and the bucket endpoint are built from the origin and the
+// project id, so the environment carries no path and no route layout.
+const PROJECT_URL = `${BASE_URL}/p/${PROJECT_ID}`;
+const BUCKET_ENDPOINT = `${PROJECT_URL}/bucket`;
 const CDN_URL = (import.meta.env.MOOGO_CDN_URL ?? "").replace(/\/+$/, "");
 const BUCKET_ACCESS_KEY_ID = import.meta.env.MOOGO_STORAGE_ACCESS_KEY_ID!;
 const BUCKET_SECRET_KEY = import.meta.env.MOOGO_STORAGE_SECRET_KEY!;
 
 const SQL_HEADERS = {
-  Authorization: `Bearer ${SECRET_KEY}`,
+  Authorization: `Bearer ${SQL_KEY}`,
   "Content-Type": "application/json",
 };
 
@@ -100,7 +104,7 @@ const encodeKey = (key: string) =>
 // one breaks for every private object. This serves published objects only --
 // before you publish, the response's public_url is an empty string.
 function publicBase(): string {
-  const base = BUCKET_ENDPOINT.replace(/\/p\/([^/]+)\/bucket\/?$/, "/pub/$1");
+  const base = `${BASE_URL}/pub/${PROJECT_ID}`;
   return CDN_URL ? base.replace(/^https?:\/\/[^/]+/, CDN_URL) : base;
 }
 
