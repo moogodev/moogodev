@@ -1790,10 +1790,11 @@ func (handler *BucketPlane) SetBucketPublic(w http.ResponseWriter, r *http.Reque
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"success":   true,
-		"affected":  affected,
-		"is_public": *request.IsPublic,
-		"bucket":    handler.bucketResponse(bucket),
+		"success":    true,
+		"affected":   affected,
+		"is_public":  *request.IsPublic,
+		"bucket":     handler.bucketResponse(bucket),
+		"purge_urls": purgeURLs,
 	})
 
 	// Cache purge: when a bucket becomes private, previously-public URLs must

@@ -624,10 +624,8 @@ func New(deps Deps) http.Handler {
 
 		catalog.Route("/{bucket_id}", func(bucket chi.Router) {
 			bucket.Get("/", deps.Bucket.GetBucketInfo)
-			bucket.Patch("/", deps.Bucket.UpdateBucketSettings)
 			bucket.Delete("/", deps.Bucket.DeleteBucket)
-			bucket.Post("/public", deps.Bucket.SetBucketPublic)
-			bucket.Post("/purge-cache", deps.Bucket.PurgeCache)
+			// Toggle and purge are dashboard-only (session cookie), not storage-credential.
 		})
 	})
 
