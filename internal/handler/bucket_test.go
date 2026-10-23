@@ -3005,8 +3005,8 @@ func TestPublicURLUsesTheConfiguredOriginNotTheRequestHost(t *testing.T) {
 	plane := NewBucketPlane(store, fs, 1<<20, "https://moogo.dev", "", signedurl.New("test-secret"), logger.Nop())
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "logo.png", 4, "image/png")
-	if _, err := store.SetObjectPublic(
-		context.Background(), store.projectID, "logo.png", true,
+	if _, _, err := store.SetBucketPublic(
+		context.Background(), store.projectID, bucket.ID, true,
 	); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -3059,8 +3059,8 @@ func TestPublicURLUsesTheCDNOriginWhileTheURLUsesTheAPIOrigin(t *testing.T) {
 		t.Fatalf("public_url = %q, want empty while private", privateResponse.PublicURL)
 	}
 
-	if _, err := store.SetObjectPublic(
-		context.Background(), store.projectID, "logo.png", true,
+	if _, _, err := store.SetBucketPublic(
+		context.Background(), store.projectID, bucket.ID, true,
 	); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
