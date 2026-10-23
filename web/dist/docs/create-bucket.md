@@ -80,7 +80,7 @@ Whether objects uploaded to this bucket from now on are readable by their URL
 without a credential. `false` by default.
 
 Turning a bucket off also makes the objects already in it private. Each object can
-then be published again on its own, and replacing a file never changes its
+then the whole bucket is published via bucket toggle (not per object), and replacing a file never changes its
 visibility either way — overwriting is a storage operation, not a publishing
 decision.
 

@@ -5,7 +5,6 @@ import { DashboardLink } from "./DashboardLink";
 import { homeHref } from "../lib/origin";
 import { ThemeToggle } from "./ThemeToggle";
 import { useSession } from "../lib/session";
-import { currentTheme } from "../lib/theme";
 import { useState } from "react";
 
 // Marketing chrome: sticky header and a small footer. The dashboard uses its own
@@ -58,22 +57,29 @@ function AnnouncementBar() {
 
 function ProductHuntBanner() {
   return (
-    <div className="border-b border-edge bg-transparent py-2.5">
-      <div className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-center gap-3 px-6">
+    <div className="border-b border-edge bg-[#fff0f0] dark:bg-[#2a0a0a] py-3">
+      <div className="mx-auto flex w-full max-w-[1120px] items-center justify-center gap-3 px-6">
         <a
           href="https://www.producthunt.com/products/moogo?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-moogo"
           target="_blank"
           rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 rounded-full border border-[#ff4444]/30 bg-[#ff4444] px-4 py-1.5 text-sm font-bold text-white shadow-sm transition hover:brightness-110"
           aria-label="Moogo on Product Hunt"
         >
-          <img
-            alt="Moogo - A Lightweight Database for Serverless Applications | Product Hunt"
-            width="250"
-            height="54"
-            src={`https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1286307&theme=${currentTheme()}&t=1792732728987`}
-          />
+          <svg
+            className="h-4 w-4 rotate-[-45deg]"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M7 17l9.2-9.2M17 17V7H7" />
+          </svg>
+          <span>Upvote Moogo on Product Hunt</span>
         </a>
-        <span className="text-xs text-muted">→ We&apos;re live at Product Hunt — upvote us!</span>
       </div>
     </div>
   );

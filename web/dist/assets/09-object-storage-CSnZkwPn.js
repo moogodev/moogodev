@@ -393,6 +393,9 @@ record atomically from the caller's point of view; the object keeps its identity
 and \`id\`. A rename never changes visibility — if a body carries both \`new_key\` and
 \`is_public\`, the rename wins and the visibility is left as it was.
 
+
+> **Visibility is bucket-level (R2-compatible).** A whole bucket is either public or private, set via the dashboard or \`POST /buckets/{project_id}/{bucket_id}/public\`. Per-object \`PATCH .../bucket/{key}\` with \`is_public\` is deprecated; objects inherit their bucket's visibility. Upload to a private bucket = always private.
+
 ## Publishing vs bucket visibility
 
 There are two switches, and they do different things.

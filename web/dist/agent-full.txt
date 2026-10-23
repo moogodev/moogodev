@@ -1265,7 +1265,7 @@ Stored with object, used for all subsequent downloads. Defaults:
 
 **A bucket toggle is bulk, not "new uploads only".** `POST /buckets/{project_id}/{bucket_id}/public` — or `PATCH` on the bucket with `is_public` — sets the visibility new uploads inherit **and rewrites `is_public` on every object already in the bucket**. The response reports `affected`, the number of objects it changed. Making a bucket private therefore takes every object in it off `/pub/` immediately; making it public puts every object back.
 
-To change one file only, PATCH that object. Overwriting a key never changes its visibility in either direction.
+To change one file only: visibility is now bucket-level; use the bucket toggle (`POST /buckets/{project_id}/{bucket_id}/public`) to set visibility for the whole bucket. Overwriting a key never changes its visibility in either direction.
 
 ```bash
 # Publish one object
@@ -2789,7 +2789,7 @@ Whether objects uploaded to this bucket from now on are readable by their URL
 without a credential. `false` by default.
 
 Turning a bucket off also makes the objects already in it private. Each object can
-then be published again on its own, and replacing a file never changes its
+then the whole bucket is published via bucket toggle (not per object), and replacing a file never changes its
 visibility either way — overwriting is a storage operation, not a publishing
 decision.
 
@@ -3398,6 +3398,9 @@ private again and empties the field. Renaming moves the file and updates its
 record atomically from the caller's point of view; the object keeps its identity
 and `id`. A rename never changes visibility — if a body carries both `new_key` and
 `is_public`, the rename wins and the visibility is left as it was.
+
+
+> **Visibility is bucket-level (R2-compatible).** A whole bucket is either public or private, set via the dashboard or `POST /buckets/{project_id}/{bucket_id}/public`. Per-object `PATCH .../bucket/{key}` with `is_public` is deprecated; objects inherit their bucket's visibility. Upload to a private bucket = always private.
 
 ## Publishing vs bucket visibility
 
