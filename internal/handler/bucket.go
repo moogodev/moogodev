@@ -747,13 +747,20 @@ func (handler *BucketPlane) serveObject(
 		return
 	}
 
+	// Load bucket status once for visibility and response; avoid N+1.
+	var bucketStatus bool
+	if b, bErr := handler.store.BucketByName(r.Context(), projectID, handler.bucketNameFor(r.Context(), projectID, object.BucketID)); bErr == nil && b != nil {
+		bucketStatus = b.IsPublic
+	}
+
 	// On the public route this is the authorization check. It runs after the load
 	// rather than inside the query because ObjectByKey is shared with the
 	// authenticated route, and hiding the distinction between missing and private
 	// matters more here than saving one indexed lookup. A signed download has
 	// already proven the owner issued a link for this exact key, so it clears
 	// this bar the way a published object does.
-	if access == accessPublished && !handler.getBucketPublicState(r.Context(), projectID, object.BucketID) {
+	// Load bucket-level visibility for public route authorization
+	if access == accessPublished && !bucketStatus {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 		w.Header().Set("Pragma", "no-cache")
 		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
@@ -938,7 +945,7 @@ func (handler *BucketPlane) writeObjectHeaders(
 
 // UpdateRequest is the body of PATCH /bucket/{project_id}/*.
 //
-// Both fields are optional but at least one must be present, which is why they
+// Only new_key is supported; visibility is bucket-level., which is why they
 // are pointers: a plain bool cannot tell "set it to false" from "not mentioned".
 type UpdateRequest struct {
 	NewKey string `json:"new_key"`
@@ -951,8 +958,9 @@ type UpdateRequest struct {
 // both is applied as a rename that keeps the current visibility, since renaming
 // has no reason to change it.
 //
-// Visibility is per object, matching how R2 works: publishing one image does not
-// require publishing everything beside it.
+// Visibility is bucket-level (R2-compatible): a public bucket makes every object
+// public; a private bucket keeps everything private. Per-object visibility is
+// deprecated; use the bucket public toggle from the dashboard.
 func (handler *BucketPlane) Update(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
@@ -977,30 +985,6 @@ func (handler *BucketPlane) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 // setVisibility publishes or unpublishes one object.
-func (handler *BucketPlane) setVisibility(
-	w http.ResponseWriter,
-	r *http.Request,
-	projectID uuid.UUID,
-	key string,
-	isPublic bool,
-) {
-	object, err := handler.store.SetObjectPublic(r.Context(), projectID, key, isPublic)
-	if err != nil {
-		handler.writeStoreError(w, r, projectID, err, "set object visibility")
-		return
-	}
-
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"object": handler.objectResponse(
-			r,
-			projectID,
-			handler.bucketNameFor(r.Context(), projectID, object.BucketID),
-			object,
-		),
-	})
-}
-
 // rename moves an object to a new key, keeping its visibility.
 //
 // The file moves on disk first. If that fails the catalog still points at the old
@@ -1815,7 +1799,11 @@ func (handler *BucketPlane) SetBucketPublic(w http.ResponseWriter, r *http.Reque
 	// Cache purge: when a bucket becomes private, previously-public URLs must
 	// be evicted so they do not linger in edge caches. (If no CDN API is
 	// configured yet this is logged rather than executed.)
-	_ = purgeURLs
+	// Purge URLs collected before toggle; executed when CDN API is configured.
+	for _, url := range purgeURLs {
+		// TODO: call Cloudflare Purge Cache API or similar when credentials available
+		fmt.Printf("purge-url: %s\n", url)
+	}
 }
 
 // PurgeCache handles POST /buckets/{project_id}/{bucket_id}/purge-cache.
