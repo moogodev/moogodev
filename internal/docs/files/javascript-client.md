@@ -157,7 +157,6 @@ const size = await client.getObjectSize('avatars/user.png');
 const etag = await client.getObjectETag('avatars/user.png');
 
 // Update visibility or rename
-await client.updateObject('avatars/user.png', { is_public: true });
 await client.updateObject('avatars/user.png', { new_key: 'avatars/2024/user.png' });
 
 // Delete

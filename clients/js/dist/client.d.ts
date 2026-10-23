@@ -126,7 +126,6 @@ export declare class MoogoClient {
     }): Promise<SignedUploadResponse>;
     /** Update object metadata (visibility, key) */
     updateObject(key: string, updates: {
-        is_public?: boolean;
         new_key?: string;
     }, options?: {
         bucket?: string;

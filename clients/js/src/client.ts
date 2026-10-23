@@ -679,7 +679,7 @@ export class MoogoClient {
   /** Update object metadata (visibility, key) */
   async updateObject(
     key: string,
-    updates: { is_public?: boolean; new_key?: string },
+    updates: { new_key?: string },
     options: { bucket?: string; signal?: AbortSignal } = {}
   ): Promise<ObjectResponse> {
     const { bucket = 'default', signal } = options;
