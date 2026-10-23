@@ -43,21 +43,33 @@ func captureLog(t *testing.T) *bytes.Buffer {
 // TestKnownServerVariablesDoNotWarn pins the bug where the unknown-variable
 // warning used a list that had drifted from the reader: these five are read on
 // every start and were each reported as a typo.
+//
+// Only these keys are asserted on. A deploy gate runs the tests with the
+// deployment's own environment inherited, so unrelated MOOGO_* helper values
+// such as MOOGO_HEALTHCHECK_URL are legitimately unknown to the server and
+// must not turn this regression test into a failure.
 func TestKnownServerVariablesDoNotWarn(t *testing.T) {
+	// Deployment helpers share the MOOGO_ prefix but are not server settings.
+	// Setting one here makes the regression reproduce even on a clean CI box.
+	t.Setenv("MOOGO_HEALTHCHECK_URL", "https://app.moogo.dev")
 	logged := captureLog(t)
 
-	if _, err := loadWith(t, map[string]string{
+	known := map[string]string{
 		"MOOGO_TRUSTED_PROXIES":    "127.0.0.1",
 		"MOOGO_QUERY_TIMEOUT":      "15s",
 		"MOOGO_SESSION_TTL":        "24h",
 		"MOOGO_PASSWORD_RESET_TTL": "1h",
 		"MOOGO_VERIFICATION_TTL":   "24h",
-	}); err != nil {
+	}
+	if _, err := loadWith(t, known); err != nil {
 		t.Fatalf("known settings should be valid: %v", err)
 	}
 
-	if strings.Contains(logged.String(), "unknown MOOGO_*") {
-		t.Errorf("known settings produced an unknown-variable warning:\n%s", logged.String())
+	for key := range known {
+		warning := "unknown MOOGO_* environment variable: " + key + " "
+		if strings.Contains(logged.String(), warning) {
+			t.Errorf("known setting %s produced an unknown-variable warning:\n%s", key, logged.String())
+		}
 	}
 }
 
