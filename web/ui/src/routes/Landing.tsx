@@ -1068,15 +1068,45 @@ function Closing() {
           >
             Read the docs
           </Link>
-          {/* Cross-origin on purpose: the changelog lives on news.moogo.dev
-              (or the local news binary in development), so this is a plain
-              <a> — SPA routing does not apply across origins, and pretending
-              otherwise would render the landing page instead of the news. */}
           <a
             href={newsOrigin()}
             className="inline-flex items-center justify-center rounded-lg border border-edge-strong px-5 py-3 font-semibold transition-colors hover:border-hover-edge hover:bg-hover-bg"
           >
             What&apos;s new in Moogo — Moogo News
+          </a>
+        </div>
+      </div>
+
+      {/* Product Hunt card embed — below closing, above footer */}
+      <div className="mt-8 mx-auto max-w-[500px] px-6">
+        <div
+          style={{
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            border: '1px solid rgb(224, 224, 224)',
+            borderRadius: '12px',
+            padding: '20px',
+            background: 'rgb(255, 255, 255)',
+            boxShadow: 'rgba(0, 0, 0, 0.05) 0px 2px 8px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <img
+              alt="Moogo"
+              src="https://ph-files.imgix.net/e44d7279-c9f2-4029-97b4-88208b7c4c57.png?auto=compress,format&codec=mozjpeg&cs=strip&fit=crop&h=80&w=80"
+              style={{ width: '64px', height: '64px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
+            />
+            <div style={{ flex: '1 1 0%', minWidth: '0px' }}>
+              <h3 style={{ margin: '0px', fontSize: '18px', fontWeight: '600', color: 'rgb(26, 26, 26)', lineHeight: '1.3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Moogo</h3>
+              <p style={{ margin: '4px 0px 0px', fontSize: '14px', color: 'rgb(102, 102, 102)', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>A Lightweight Database for Serverless Applications</p>
+            </div>
+          </div>
+          <a
+            href="https://www.producthunt.com/products/moogo?embed=true&utm_source=embed&utm_medium=post_embed"
+            target="_blank"
+            rel="noopener"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '8px 16px', background: 'rgb(255, 97, 84)', color: 'rgb(255, 255, 255)', textDecoration: 'none', borderRadius: '9999px', fontSize: '16px', fontWeight: '600', lineHeight: '1.5' }}
+          >
+            Check it out on Product Hunt →
           </a>
         </div>
       </div>

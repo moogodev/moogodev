@@ -13,6 +13,7 @@ export function SiteLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
       <AnnouncementBar />
+      <ProductHuntBanner />
       <SiteHeader />
       <main className="flex-1">{children}</main>
       <SiteFooter />
@@ -49,6 +50,29 @@ function AnnouncementBar() {
         >
           Read more
         </Link>
+      </div>
+    </div>
+  );
+}
+
+function ProductHuntBanner() {
+  return (
+    <div className="border-b border-edge bg-[#fff] py-2.5">
+      <div className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-center gap-3 px-6">
+        <a
+          href="https://www.producthunt.com/products/moogo?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-moogo"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Moogo on Product Hunt"
+        >
+          <img
+            alt="Moogo - A Lightweight Database for Serverless Applications | Product Hunt"
+            width="250"
+            height="54"
+            src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1286307&theme=light&t=1792732728987"
+          />
+        </a>
+        <span className="text-xs text-muted">→ We&apos;re live at Product Hunt — upvote us!</span>
       </div>
     </div>
   );
