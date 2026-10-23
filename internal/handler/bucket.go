@@ -924,8 +924,7 @@ func (handler *BucketPlane) writeObjectHeaders(
 // Both fields are optional but at least one must be present, which is why they
 // are pointers: a plain bool cannot tell "set it to false" from "not mentioned".
 type UpdateRequest struct {
-	IsPublic *bool  `json:"is_public"`
-	NewKey   string `json:"new_key"`
+	NewKey string `json:"new_key"`
 }
 
 // Update handles PATCH /bucket/{project_id}/* and the dashboard's equivalent.
@@ -953,18 +952,11 @@ func (handler *BucketPlane) Update(w http.ResponseWriter, r *http.Request) {
 	if !httpx.ReadJSON(w, r, &request) {
 		return
 	}
-	if request.IsPublic == nil && request.NewKey == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_body",
-			"the body must set is_public or new_key")
+	if request.NewKey == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "the body must set new_key")
 		return
 	}
-
-	if request.NewKey != "" {
-		handler.rename(w, r, projectID, key, request.NewKey)
-		return
-	}
-
-	handler.setVisibility(w, r, projectID, key, *request.IsPublic)
+	handler.rename(w, r, projectID, key, request.NewKey)
 }
 
 // setVisibility publishes or unpublishes one object.
