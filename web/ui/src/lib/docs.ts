@@ -172,13 +172,48 @@ function sourceFor(slug: string): string | undefined {
   return match ? sourceCache.get(match) : undefined;
 }
 
+/**
+ * Anchor ids that DOMPurify refuses to keep.
+ *
+ * Sanitization strips any id that would clobber a DOM property -- `links`,
+ * `location`, `title`, `body` and friends all name members of `document` or of
+ * an element, and keeping them in the DOM lets a document shadow those members
+ * (DOM clobbering). ADD_ATTR cannot re-enable them: the protection runs after
+ * attribute filtering. The rendered HTML therefore loses the id while the table
+ * of contents still lists it, and the two disagree.
+ *
+ * Rewriting those slugs as they are generated keeps the anchor, the table of
+ * contents and the heading link pointing at the same id.
+ *
+ * https://github.com/cure53/DOMPurify#what-about-dom-clobbering
+ */
+const RESERVED_IDS = new Set([
+  "attributes",
+  "body",
+  "children",
+  "cookie",
+  "domain",
+  "forms",
+  "head",
+  "images",
+  "links",
+  "location",
+  "name",
+  "scripts",
+  "style",
+  "title",
+]);
+
 /** Slugify a heading into a stable anchor id. */
 function slugify(text: string): string {
-  return text
+  const base = text
     .toLowerCase()
     .replace(/[`*_~]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+  // A reserved word would be stripped by the sanitizer, so it is namespaced
+  // here rather than left to vanish later.
+  return RESERVED_IDS.has(base) ? `${base}-section` : base;
 }
 
 /**

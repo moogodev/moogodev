@@ -50,6 +50,32 @@ function withoutLeadingParagraph(tokens, description) {
   return [...tokens.slice(0, index), ...tokens.slice(index + 1)];
 }
 
+// Anchor ids that DOMPurify refuses to keep.
+//
+// Sanitization strips any id that would clobber a DOM property (DOM
+// clobbering): `links`, `location`, `title`, `body` and friends all name
+// members of `document` or of an element. ADD_ATTR cannot re-enable them -- the
+// protection runs after attribute filtering -- so a heading titled "Links" would
+// render without an id while the table of contents still listed it. Rewriting
+// those slugs as they are generated keeps the anchor and the table of contents
+// in agreement. This list must stay in step with slugify() in src/lib/docs.ts.
+const RESERVED_IDS = new Set([
+  "attributes",
+  "body",
+  "children",
+  "cookie",
+  "domain",
+  "forms",
+  "head",
+  "images",
+  "links",
+  "location",
+  "name",
+  "scripts",
+  "style",
+  "title",
+]);
+
 class Slugger {
   seen = new Map();
   slug(text) {
@@ -59,9 +85,10 @@ class Slugger {
         .replace(/[`*_~]/g, "")
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "") || "section";
-    const count = this.seen.get(base) ?? 0;
-    this.seen.set(base, count + 1);
-    return count === 0 ? base : `${base}-${count}`;
+    const normalized = RESERVED_IDS.has(base) ? `${base}-section` : base;
+    const count = this.seen.get(normalized) ?? 0;
+    this.seen.set(normalized, count + 1);
+    return count === 0 ? normalized : `${normalized}-${count}`;
   }
 }
 
