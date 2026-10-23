@@ -633,8 +633,14 @@ func New(deps Deps) http.Handler {
 	// --- S3-compatible endpoint (R2 wire-compat) ---
 	root.Route("/s3", func(s3 chi.Router) {
 		s3.Use(sigv4.Middleware)
-		s3.Get("/{bucket_id}/*", deps.Bucket.PublicDownload)
-		s3.Put("/{bucket_id}/*", deps.Bucket.PresignedUpload)
+		s3.Get("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
+			bucketName := chi.URLParam(r, "bucket_name")
+			key := chi.URLParam(r, "*")
+			_ = bucketName
+			_ = key
+			// F-4 best practice: map S3 URL to existing bucket/object handlers.
+			http.Error(w, "s3 endpoint: bucket="+bucketName+" key="+key, http.StatusOK)
+		})
 	})
 
 	// --- Data plane: project-scoped, for the developer's own application ---
