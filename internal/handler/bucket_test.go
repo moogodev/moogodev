@@ -1788,8 +1788,8 @@ func TestRenameKeepsVisibility(t *testing.T) {
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "old.png", 4, "image/png")
 	fs.contents["old.png"] = []byte("PNG!")
-	if _, err := store.SetObjectPublic(
-		context.Background(), store.projectID, "old.png", true,
+	if _, _, err := store.SetBucketPublic(
+		context.Background(), store.projectID, bucket.ID, true,
 	); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -3216,10 +3216,13 @@ func TestConcurrentUploadsToTheSameKeyKeepOneWholeObject(t *testing.T) {
 }
 
 func TestBucketPublicServesObjectEvenIfLegacyFlagFalse(t *testing.T) {
-	plane, store, _ := testBucketPlane(t, 1<<20)
+	plane, store, fs := testBucketPlane(t, 1<<20)
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "a.png", 4, "image/png")
-	store.SetBucketPublic(context.Background(), store.projectID, bucket.ID, true)
+	fs.contents["a.png"] = []byte("PNG!")
+	if _, _, err := store.SetBucketPublic(context.Background(), store.projectID, bucket.ID, true); err != nil {
+		t.Fatalf("bucket public: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodGet, "/pub/x/a.png", nil).WithContext(requestContext(store.projectID, "a.png"))
 	rec := httptest.NewRecorder()

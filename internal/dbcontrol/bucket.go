@@ -249,7 +249,7 @@ func (store *Store) PutObject(
 	sizeBytes int64,
 	contentType string,
 	isPublic bool,
-	cacheControl string,
+	cacheControl *string,
 ) (*BucketObject, int64, error) {
 	object := &BucketObject{}
 	var previousSize int64

@@ -41,7 +41,7 @@ func TestListObjectsTreatsPrefixAsAPrefix(t *testing.T) {
 		"50abc/skip.png",
 	}
 	for _, key := range keys {
-		if _, _, err := store.PutObject(ctx, project.ID, bucket.ID, key, 10, "image/png", false, ""); err != nil {
+		if _, _, err := store.PutObject(ctx, project.ID, bucket.ID, key, 10, "image/png", false, nil ); err != nil {
 			t.Fatalf("put %q: %v", key, err)
 		}
 	}
@@ -143,7 +143,7 @@ func TestListObjectsPagesByCursor(t *testing.T) {
 
 	keys := []string{"a.txt", "b.txt", "c.txt", "d.txt", "e.txt"}
 	for _, key := range keys {
-		if _, _, err := store.PutObject(ctx, project.ID, bucket.ID, key, 10, "text/plain", false, ""); err != nil {
+		if _, _, err := store.PutObject(ctx, project.ID, bucket.ID, key, 10, "text/plain", false, nil ); err != nil {
 			t.Fatalf("put %q: %v", key, err)
 		}
 	}
@@ -191,7 +191,7 @@ func TestListObjectsPagesThroughTies(t *testing.T) {
 	// inside the run of them.
 	for index, size := range []int64{10, 5, 10, 10, 5} {
 		key := fmt.Sprintf("object-%d.bin", index)
-		if _, _, err := store.PutObject(ctx, project.ID, bucket.ID, key, size, "application/octet-stream", false, ""); err != nil {
+		if _, _, err := store.PutObject(ctx, project.ID, bucket.ID, key, size, "application/octet-stream", false, nil ); err != nil {
 			t.Fatalf("put %q: %v", key, err)
 		}
 	}
@@ -258,7 +258,7 @@ func TestListObjectsRefusesACursorFromAnotherListing(t *testing.T) {
 		{other.ID, []string{"c.txt", "d.txt"}},
 	} {
 		for _, key := range put.keys {
-			if _, _, err := store.PutObject(ctx, project.ID, put.bucket, key, 1, "text/plain", false, ""); err != nil {
+			if _, _, err := store.PutObject(ctx, project.ID, put.bucket, key, 1, "text/plain", false, nil ); err != nil {
 				t.Fatalf("put %q: %v", key, err)
 			}
 		}
@@ -353,7 +353,7 @@ func TestBucketStatsCountsTheWholeBucket(t *testing.T) {
 	}
 	for _, put := range puts {
 		if _, _, err := store.PutObject(ctx, project.ID, put.bucketID, put.key, put.size,
-			"image/png", false, ""); err != nil {
+			"image/png", false, nil ); err != nil {
 			t.Fatalf("put %q: %v", put.key, err)
 		}
 	}
