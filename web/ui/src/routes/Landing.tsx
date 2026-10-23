@@ -4,6 +4,7 @@ import { SiteLayout } from "../components/Layout";
 import { CodeTabs } from "../components/CodeTabs";
 import { ArrowRight } from "../components/icons";
 import { newsOrigin } from "../lib/origin";
+import { currentTheme } from "../lib/theme";
 import "../landing.css";
 
 // useAutoScroll drifts a horizontal rail and wraps it at one copy's width, so
@@ -1082,11 +1083,11 @@ function Closing() {
         <div
           style={{
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-            border: '1px solid rgb(224, 224, 224)',
+            border: `1px solid ${currentTheme() === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(224, 224, 224)'}`,
             borderRadius: '12px',
             padding: '20px',
-            background: 'rgb(255, 255, 255)',
-            boxShadow: 'rgba(0, 0, 0, 0.05) 0px 2px 8px',
+            background: currentTheme() === 'dark' ? 'rgb(30, 30, 30)' : 'rgb(255, 255, 255)',
+            boxShadow: currentTheme() === 'dark' ? 'rgba(0, 0, 0, 0.3) 0px 2px 8px' : 'rgba(0, 0, 0, 0.05) 0px 2px 8px',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
@@ -1096,8 +1097,8 @@ function Closing() {
               style={{ width: '64px', height: '64px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
             />
             <div style={{ flex: '1 1 0%', minWidth: '0px' }}>
-              <h3 style={{ margin: '0px', fontSize: '18px', fontWeight: '600', color: 'rgb(26, 26, 26)', lineHeight: '1.3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Moogo</h3>
-              <p style={{ margin: '4px 0px 0px', fontSize: '14px', color: 'rgb(102, 102, 102)', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>A Lightweight Database for Serverless Applications</p>
+              <h3 style={{ margin: '0px', fontSize: '18px', fontWeight: '600', color: currentTheme() === 'dark' ? 'rgb(240, 240, 240)' : 'rgb(26, 26, 26)', lineHeight: '1.3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Moogo</h3>
+              <p style={{ margin: '4px 0px 0px', fontSize: '14px', color: currentTheme() === 'dark' ? 'rgb(180, 180, 180)' : 'rgb(102, 102, 102)', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>A Lightweight Database for Serverless Applications</p>
             </div>
           </div>
           <a
