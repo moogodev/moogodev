@@ -189,6 +189,7 @@ you find out immediately instead of after it has written something.
   mode, written for an agent operating the VPS
 - [Quickstart](https://moogo.dev/docs/quickstart) — an account to a working
   query in two minutes (source: [`internal/docs/files/quickstart.md`](internal/docs/files/quickstart.md))
+- [S3 / R2 Wire-Compat](/docs/s3-wire-compat) — `/s3/` endpoint with SigV4 auth (GET/PUT/HEAD), bucket-level visibility, XML errors; HMAC verification fail-closed until architecture change
 - [Architecture decisions](DECISIONS.md) — what is locked in, and why
 - [`deploy/README.md`](deploy/README.md) — systemd unit, nginx site, backup and
   healthcheck scripts
