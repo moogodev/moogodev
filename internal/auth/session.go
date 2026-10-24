@@ -31,6 +31,8 @@ const (
 	ContextKeyObjectKey ContextKey = "moogo.object_key"
 	// ContextKeyCredentialID holds a storage credential's UUID.
 	ContextKeyCredentialID ContextKey = "moogo.credential_id"
+	// ContextKeyBucketID holds the bucket UUID resolved from /s3/{bucket_name}.
+	ContextKeyBucketID ContextKey = "moogo.bucket_id"
 )
 
 // EpochStore reads and bumps the session revocation counter on the account
