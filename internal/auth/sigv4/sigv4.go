@@ -23,25 +23,25 @@ func Middleware(resolver auth.StorageCredentialResolver, next http.Handler) http
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "AWS4-HMAC-SHA256") {
-			http.Error(w, "missing authorization", http.StatusUnauthorized)
+			WriteXMLError(w, http.StatusUnauthorized, "AccessDenied", "missing authorization")
 			return
 		}
 		key, region, ok := Verify(r)
 		if !ok || key == "" || region == "" {
-			http.Error(w, "bad authorization", http.StatusUnauthorized)
+			WriteXMLError(w, http.StatusUnauthorized, "AccessDenied", "bad authorization")
 			return
 		}
 
 		// Look up the credential to get the project ID.
 		credential, err := resolver.StorageCredentialByAccessKeyID(r.Context(), key)
 		if err != nil || credential == nil {
-			http.Error(w, "invalid credential", http.StatusUnauthorized)
+			WriteXMLError(w, http.StatusUnauthorized, "InvalidAccessKeyId", "invalid credential")
 			return
 		}
 
 		// Verify signature — fail-closed until full HMAC is implemented.
 		if !VerifySignature(r.Context(), resolver, r, key, "s3") {
-			http.Error(w, "signature mismatch", http.StatusUnauthorized)
+			WriteXMLError(w, http.StatusForbidden, "SignatureDoesNotMatch", "signature mismatch")
 			return
 		}
 
