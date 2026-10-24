@@ -643,7 +643,7 @@ func New(deps Deps) http.Handler {
 					return
 				}
 				next.ServeHTTP(w, r)
-			}
+			})
 		})
 		s3.Use(func(next http.Handler) http.Handler {
 			return sigv4.Middleware(deps.StorageKeys, next)
