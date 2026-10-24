@@ -14,7 +14,10 @@
 - Project id comes from credential resolution in middleware.
 
 ## Open Items
-- Implement full SigV4 HMAC verification (canonical request, signed headers, signature compare, expiry).
-- Wrong signature → 403/401. Expired → rejected. Unknown access key → 401.
-- Test these cases.
-- Add PUT/HEAD/LIST routes when fully verified.
+- **C.8**: Presigned signer must be SigV4. Current `signedurl` package uses custom HMAC; `PresignURL()` generates query params structurally but signature stays placeholder. Full verification impossible because `SecretKeyHash` is bcrypt-hashed (not reversible). Architectural change required to proceed.
+- **B.6**: ListObjectsV2 on /s3/ — not yet implemented (requires S3 list API).
+- **B.7**: Public URL shape differs (cdn.moogo.dev/pub/ vs R2 bucket-based) — mostly OK given bucket-level model.
+- **F.14**: Multipart upload not supported (R2/S3 client feature).
+- **F.15**: CORS not configured for /s3/.
+- **E.12**: SDK `s3Download()` added; rebuild `clients/js/dist`.
+- **Test**: unit tests for each stage (parser, signature, XML, presign).
