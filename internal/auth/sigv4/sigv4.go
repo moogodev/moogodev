@@ -39,8 +39,8 @@ func Middleware(resolver auth.StorageCredentialResolver, next http.Handler) http
 			return
 		}
 
-		// Verify signature if needed (placeholder for full HMAC).
-		if !VerifySignature(r.Context(), key, "s3") {
+		// Verify signature — fail-closed until full HMAC is implemented.
+		if !VerifySignature(r.Context(), resolver, r, key, "s3") {
 			http.Error(w, "signature mismatch", http.StatusUnauthorized)
 			return
 		}

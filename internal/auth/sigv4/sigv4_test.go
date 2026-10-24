@@ -59,7 +59,8 @@ func TestMiddleware_MissingAuthorization(t *testing.T) {
 }
 
 func TestVerifySignature_RejectsAllWhenUnimplemented(t *testing.T) {
-	if VerifySignature(context.Background(), "AKIAIOSFODNN7EXAMPLE", "s3") {
+	req := httptest.NewRequest("GET", "/s3/", nil)
+	if VerifySignature(context.Background(), stubResolver{}, req, "AKIAIOSFODNN7EXAMPLE", "s3") {
 		t.Error("VerifySignature must reject until full HMAC is implemented")
 	}
 }
