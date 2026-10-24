@@ -977,7 +977,9 @@ function Pricing() {
             {[
               "2 projects, 256 MB of SQLite each",
               "256 MB of object storage per project",
-              "The full dashboard and SQL console",
+              "S3 / R2 endpoint (`/s3/`) — bucket-level visibility, SigV4 auth, fail-closed",
+              "Public download (`/pub/`) + SDK `0.2.2` (`s3Download`)",
+              "The full dashboard, SQL console, and XML error responses",
               "No idle pause and no cold start",
             ].map((line) => (
               <li key={line} className="flex items-start gap-2.5 text-[0.93rem] text-muted">
