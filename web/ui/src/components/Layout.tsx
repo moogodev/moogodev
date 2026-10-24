@@ -97,6 +97,7 @@ const navLinks = [
   { label: "Features", to: "/#features" },
   { label: "SQL API", to: "/docs/sql-api" },
   { label: "Storage", to: "/docs/object-storage" },
+  { label: "S3 Wire-Compat", to: "/docs/s3-wire-compat" },
   // The pricing page rather than the landing section: the plans outlive the
   // current offer, and a nav entry that scrolls halfway down a marketing page
   // cannot grow into more than one card.
