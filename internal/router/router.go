@@ -639,8 +639,22 @@ func New(deps Deps) http.Handler {
 			bucketName := chi.URLParam(r, "bucket_name")
 			key := chi.URLParam(r, "*")
 			r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyObjectKey, key))
-			_ = bucketName // bucket-level visibility handled by bucket-level settings
+			_ = bucketName
 			deps.Bucket.PublicDownload(w, r)
+		})
+		s3.Head("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
+			bucketName := chi.URLParam(r, "bucket_name")
+			key := chi.URLParam(r, "*")
+			r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyObjectKey, key))
+			_ = bucketName
+			deps.Bucket.PublicDownload(w, r)
+		})
+		s3.Put("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
+			bucketName := chi.URLParam(r, "bucket_name")
+			key := chi.URLParam(r, "*")
+			r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyObjectKey, key))
+			_ = bucketName
+			deps.Bucket.PresignedUpload(w, r)
 		})
 	})
 
