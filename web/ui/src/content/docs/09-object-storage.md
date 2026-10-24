@@ -11,6 +11,7 @@ whichever fits your client.
 | Route | Credential | Use it for |
 |---|---|---|
 | `/p/{project_id}/bucket/*` | Storage credential | **Your application.** This is the one to use. |
+| `/s3/{bucket_name}/*` | SigV4 / Storage | R2-compatible download (unverified — fail-closed until full HMAC). |
 | `/bucket/{project_id}/*` | Storage credential | The original form, kept working. |
 | `/api/projects/{project_id}/bucket/*` | Session cookie | The dashboard. Not for applications. |
 
