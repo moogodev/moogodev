@@ -2770,6 +2770,10 @@ func parseByteRange(header string, size int64) ([]byteRange, bool) {
 }
 
 // GetBucketInfo handles GET /buckets/{project_id}/{bucket_id}.
+func (handler *BucketPlane) ResolveBucketByName(ctx context.Context, projectID uuid.UUID, name string) (*dbcontrol.Bucket, error) {
+	return handler.store.BucketByName(ctx, projectID, name)
+}
+
 func (handler *BucketPlane) GetBucketInfo(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {

@@ -639,7 +639,7 @@ func New(deps Deps) http.Handler {
 			bucketName := chi.URLParam(r, "bucket_name")
 			key := chi.URLParam(r, "*")
 			r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyObjectKey, key))
-			_ = bucketName
+			_ = bucketName // bucket-level visibility handled by bucket-level settings
 			deps.Bucket.PublicDownload(w, r)
 		})
 	})
