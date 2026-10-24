@@ -168,7 +168,7 @@ const pillars = [
       },
       {
         title: "Public URLs without ceremony",
-        body: "Publish an object and it is readable at a stable URL with no header, no cookie and no session. Private objects answer 404, so an unlisted file is indistinguishable from one that does not exist.",
+        body: "Publish an object and it is readable at a stable URL with no header, no cookie and no session. Private objects answer 404, so an unlisted file is indistinguishable from one that does not exist. The `GET /pub/` path is the public download endpoint; `/s3/{bucket_name}/*` is the R2-compatible endpoint (bucket-level visibility, SigV4 auth, fail-closed until full HMAC).
       },
       {
         title: "Policies enforced server-side",
