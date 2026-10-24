@@ -6,6 +6,17 @@ Cloudflare R2, AWS S3, and MinIO all share one protocol: you send an `Authorizat
 
 **S3/R2 clients cannot use Moogo's public download path.** They need a bucket namespace — `GET /s3/{bucket_name}/{object_key}` — not `GET /pub/{project_id}/{object_key}`, and they expect XML error responses (`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`), not JSON. This document is the tracking sheet for adding that path.
 
+## Quickstart (curl)
+```bash
+# Public /s3/ endpoint (fail-closed — requires SigV4 for success)
+export MOOGO_BASE_URL=https://moogo.dev
+curl -i "$MOOGO_BASE_URL/s3/my-bucket/photo.png"
+# → 401 AccessDenied (fail-closed until full HMAC verified)
+
+# With storage credentials (current public path — not S3 wire-compat)
+curl -H "Authorization: Basic ..." "$MOOGO_BASE_URL/pub/123/photo.png"
+```
+
 ## Current state of /s3/
 
 | Item | Status | Meaning |
