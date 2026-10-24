@@ -58,8 +58,8 @@ func TestMiddleware_MissingAuthorization(t *testing.T) {
 	}
 }
 
-func TestVerifySignature_PlaceholderAcceptsKey(t *testing.T) {
-	if !VerifySignature(context.Background(), "AKIAIOSFODNN7EXAMPLE", "s3") {
-		t.Error("VerifySignature should accept any non-empty access key (placeholder)")
+func TestVerifySignature_RejectsAllWhenUnimplemented(t *testing.T) {
+	if VerifySignature(context.Background(), "AKIAIOSFODNN7EXAMPLE", "s3") {
+		t.Error("VerifySignature must reject until full HMAC is implemented")
 	}
 }

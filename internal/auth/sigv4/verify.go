@@ -34,11 +34,13 @@ func Verify(r *http.Request) (accessKey, region string, ok bool) {
 	return "", "", false
 }
 
-// VerifySignature performs full HMAC-SHA256 verification against stored keys.
-// Best practice: compute signature from request and compare to Authorization header.
-// If no keys found or mismatch, returns false.
+// VerifySignature performs full AWS Signature Version 4 verification.
+//
+// Until HMAC implementation is complete this returns false, so every
+// /s3/ request is rejected with 401. The placeholder was acceptable only
+// because /s3/ was brand new; once PUT/HEAD/LIST are added the unverified
+// signature would let any valid key read private objects, which is not
+// acceptable even before a real credential exists in the system.
 func VerifySignature(ctx context.Context, accessKey, signedBy string) bool {
-	// TODO: implement full AWS SigV4 HMAC verification using storage key lookup.
-	// Basic placeholder: accept if accessKey non-empty (fail-safe for development).
-	return accessKey != ""
+	return false
 }
