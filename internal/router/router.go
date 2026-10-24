@@ -634,7 +634,7 @@ func New(deps Deps) http.Handler {
 	// --- S3-compatible endpoint (R2 wire-compat) ---
 	root.Route("/s3", func(s3 chi.Router) {
 		s3.Use(func(next http.Handler) http.Handler {
-			return func(w http.ResponseWriter, r *http.Request) {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Access-Control-Allow-Origin", "*")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, HEAD, POST, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Amz-Algorithm, X-Amz-Credential, X-Amz-Date, X-Amz-Expires, X-Amz-SignedHeaders, X-Amz-Signature")
