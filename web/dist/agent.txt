@@ -1,21 +1,5 @@
 # Moogo
 
-# Moogo — Agent Quick Reference
-
-**What:** Hosted SQLite (per project file) + object storage over plain HTTP. No drivers, no connection strings.
-**Current deploy:** `c0b10e2` (master). `go vet` + `test -race` green. `MOOGO_BASE_URL` = origin only.
-
-**Key endpoints (all return JSON except `/s3/` XML errors):**
-- `POST /sql` — run SQL with project key (`MOOGO_SQL_KEY`)
-- `GET /pub/{project}/{key}` — public download (no auth)
-- `GET /s3/{bucket_name}/*` — R2/S3 wire-compat (SigV4 auth, **fail-closed** → `401 AccessDenied` until HMAC architecture complete; CORS `OPTIONS` → `200`)
-- `PUT /s3/{bucket_name}/*` — presigned upload (structural only)
-
-**Storage / visibility:** Bucket-level (`UpdateRequest` only `new_key`; `is_public` blocked at data-plane; only dashboard toggle; purge before toggle; `CacheControl *string`)
-**SDK:** `clients/js/src/client.ts` `0.2.2`; `s3Download(bucket, key)` builds `/s3/` URL with SigV4 params.
-**Docs:** `/docs/s3-wire-compat` (full tracking), `/docs/object-storage`, `/docs/quickstart`, `/docs/javascript-client` (includes `s3Download`).
-**Status:** HMAC full (`C.8`) blocked by `StorageCredential.SecretKeyHash` (bcrypt, not reversible for signing key derivation). All other F features active.
-
 > Moogo is a hosted backend that gives every project its own SQLite database and object storage, reachable over plain HTTP: no connection string, driver, or database client to install.
 
 ## Getting started
