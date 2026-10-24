@@ -64,6 +64,10 @@ export declare class MoogoClient {
     updateBucket(bucketId: string, request: UpdateBucketRequest): Promise<Bucket>;
     /** Delete a bucket and all its objects */
     deleteBucket(bucketId: string): Promise<void>;
+    /** S3-compatible download (R2 wire-compat) via /s3/{bucket}/{key} */
+    s3Download(bucketName: string, key: string, opts?: {
+        signal?: AbortSignal;
+    }): Promise<Response>;
     /** Toggle bucket public/private (fans out to all objects) */
     setBucketPublic(bucketId: string, isPublic: boolean): Promise<Bucket>;
     /**

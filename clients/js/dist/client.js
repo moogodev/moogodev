@@ -260,6 +260,10 @@ class MoogoClient {
     async deleteBucket(bucketId) {
         await this.requestStorage('DELETE', `${this.getCatalogPath()}/${bucketId}`);
     }
+    /** S3-compatible download (R2 wire-compat) via /s3/{bucket}/{key} */
+    async s3Download(bucketName, key, opts) {
+        return fetch(`${this.baseUrl}/s3/${encodeURIComponent(bucketName)}/${encodeURIComponent(key)}`, { signal: opts?.signal });
+    }
     /** Toggle bucket public/private (fans out to all objects) */
     async setBucketPublic(bucketId, isPublic) {
         const response = await this.requestStorage('POST', `${this.getCatalogPath()}/${bucketId}/public`, { body: JSON.stringify({ is_public: isPublic }) });
