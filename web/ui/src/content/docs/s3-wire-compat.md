@@ -1,4 +1,4 @@
-# R2 / S3 Wire-Compat (Plan F)
+# R2 / S3 Wire-Compat
 
 ## SigV4 Middleware
 - `internal/auth/sigv4/`: parses `AWS4-HMAC-SHA256` Authorization header
