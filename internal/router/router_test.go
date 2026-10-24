@@ -330,6 +330,10 @@ func (stub *stubBucket) SignURL(w http.ResponseWriter, r *http.Request) {
 func (stub *stubBucket) PurgeCache(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "PurgeCache")
 }
+func (stub *stubBucket) ResolveBucketByName(ctx context.Context, projectID uuid.UUID, name string) (*dbcontrol.Bucket, error) {
+	stub.mark(nil, "ResolveBucketByName")
+	return &dbcontrol.Bucket{ID: uuid.MustParse("00000000-0000-0000-0000-000000000001"), ProjectID: projectID, Name: name, IsPublic: true}, nil
+}
 
 // stubDocs is a minimal docs handler for tests.
 type stubDocs struct{ called string }
