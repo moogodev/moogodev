@@ -133,6 +133,7 @@ type BucketHandlers interface {
 	PurgeCache(http.ResponseWriter, *http.Request)
 	// SignURL mints a time-limited URL for one object on the public plane.
 	SignURL(http.ResponseWriter, *http.Request)
+	ResolveBucketByName(ctx context.Context, projectID uuid.UUID, name string) (*dbcontrol.Bucket, error)
 }
 
 // DocsHandlers are the documentation endpoints.
@@ -639,6 +640,12 @@ func New(deps Deps) http.Handler {
 			bucketName := chi.URLParam(r, "bucket_name")
 			key := chi.URLParam(r, "*")
 			r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyObjectKey, key))
+			projectID, ok := auth.ProjectIDFromContext(r.Context())
+			if ok {
+				if b, err := deps.Bucket.ResolveBucketByName(r.Context(), projectID, bucketName); err == nil && b != nil {
+					r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyBucketID, b.ID))
+				}
+			}
 			_ = bucketName
 			deps.Bucket.PublicDownload(w, r)
 		})
@@ -646,6 +653,12 @@ func New(deps Deps) http.Handler {
 			bucketName := chi.URLParam(r, "bucket_name")
 			key := chi.URLParam(r, "*")
 			r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyObjectKey, key))
+			projectID, ok := auth.ProjectIDFromContext(r.Context())
+			if ok {
+				if b, err := deps.Bucket.ResolveBucketByName(r.Context(), projectID, bucketName); err == nil && b != nil {
+					r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyBucketID, b.ID))
+				}
+			}
 			_ = bucketName
 			deps.Bucket.PublicDownload(w, r)
 		})
