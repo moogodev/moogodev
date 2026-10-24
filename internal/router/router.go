@@ -636,6 +636,18 @@ func New(deps Deps) http.Handler {
 		s3.Use(func(next http.Handler) http.Handler {
 			return sigv4.Middleware(deps.StorageKeys, next)
 		})
+		s3.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, HEAD, POST, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Amz-Date, X-Amz-Expires")
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		})
 		s3.Get("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
 			bucketName := chi.URLParam(r, "bucket_name")
 			key := chi.URLParam(r, "*")
