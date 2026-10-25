@@ -21,7 +21,7 @@ curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
   -d '{"query":"SELECT id, email FROM users WHERE plan = ?","args":["pro"]}'
 ```
 
-That is the whole integration. No SDK, no ORM, no connection pool to manage.
+That is the whole integration. No ORM, no connection pool to manage.
 
 ## The two planes
 

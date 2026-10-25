@@ -53,7 +53,7 @@ This is the fundamental difference you must understand before starting:
   - **The two planes never mix** — a bug in the control plane cannot reach data plane data
 - **Physical isolation:** Each project has its own `.db` file at `/data/dbs/{project_id}.db`. No shared tables, no shared buffer pool.
 - **Activity reported** — every limit (256 MB, 15 seconds, 1 MB request body) returned in API response, not "hanged tab" or "surprise bill"
-- **No SDK needed** — just `curl` with header `Authorization: Bearer ...` and `Content-Type: application/json`
+- **Official SDK available** — just `curl` with header `Authorization: Bearer ...` and `Content-Type: application/json`
 - **Honest limits** — every limit reported by API, so you know when you exceed limits
 - **Managed infrastructure** — all infrastructure handled by Moogo
 - **Off-site backups built in** — every database is copied off-site on a schedule and can be restored from the dashboard, so you are not on your own for backup. See [Backups](/docs/backups).
