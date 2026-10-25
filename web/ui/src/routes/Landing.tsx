@@ -590,7 +590,7 @@ function Showcase() {
             That is the entire integration.
           </h2>
           <p className="mx-auto max-w-[46em] text-muted">
-            A URL and a key. No SDK, no ORM, no connection string. Copy the
+            A URL and a key. No ORM, no connection string. Copy the
             request and paste it into your own project.
           </p>
         </div>
