@@ -978,7 +978,7 @@ function Pricing() {
               "2 projects, 256 MB of SQLite each",
               "256 MB of object storage per project",
               "S3 / R2 endpoint (`/s3/`) — bucket-level visibility, SigV4 auth, fail-closed",
-              "Public download (`/pub/`) + SDK `0.2.2` (`s3Download`)",
+              "Public download (`/pub/`) + SDK `0.x.x` (`s3Download`)",
               "The full dashboard, SQL console, and XML error responses",
               "No idle pause and no cold start",
             ].map((line) => (

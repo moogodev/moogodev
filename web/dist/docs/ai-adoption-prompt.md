@@ -22,7 +22,7 @@ Three surfaces, each with its own credential:
 - **Dashboard** — `/app`, session cookie, for browsing tables, running queries
   by hand, and downloading backups. Not for applications.
 
-The SDK (`clients/js`) is at `0.2.2` and includes `s3Download()` for the R2 endpoint. The service deploy (`c0b10e2`) passes `go vet` and `test -race`; `/s3/` is active but fail-closed (`401 AccessDenied`) until the full SigV4 HMAC verification is completed. Read [Limits](/docs/limits) and [S3 Wire-Compat](/docs/s3-wire-compat) before designing around it.
+The SDK (`clients/js`) is at `0.x.x` and includes `s3Download()` for the R2 endpoint. The service deploy (`c0b10e2`) passes `go vet` and `test -race`; `/s3/` is active but fail-closed (`401 AccessDenied`) until the full SigV4 HMAC verification is completed. Read [Limits](/docs/limits) and [S3 Wire-Compat](/docs/s3-wire-compat) before designing around it.
 
 ## How it is used
 
