@@ -60,8 +60,9 @@ func NewHealth(
 // It also exposes the configured origins so deploy scripts and uptime monitors
 // can assert the correct data plane / CDN host.
 //
-// For human visitors, this renders a nice HTML page. For probes
-// (Accept: application/json), it returns JSON as before.
+// For human visitors, this renders a nice HTML page with server status and
+// configured URLs. For probes (Accept: application/json), it returns JSON as
+// before.
 func (handler *Health) Liveness(w http.ResponseWriter, r *http.Request) {
 	accept := r.Header.Get("Accept")
 	wantsHTML := strings.Contains(accept, "text/html")
@@ -80,6 +81,15 @@ func (handler *Health) Liveness(w http.ResponseWriter, r *http.Request) {
 }
 
 // renderHealthHTML renders a human-friendly HTML health page.
+//
+// This page shows:
+// - Server status (always "ok" for liveness, as it intentionally checks nothing)
+// - Configured URLs (base, CDN, public)
+// - A lightweight instance identifier (no IP address)
+// - Last health check timestamp
+//
+// The HTML is safe for public consumption and does not expose any sensitive
+// data such as internal IP addresses, credentials, or project secrets.
 func renderHealthHTML(w http.ResponseWriter, handler *Health) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -96,7 +106,9 @@ func renderHealthHTML(w http.ResponseWriter, handler *Health) {
     .url-group {background: #f8f9fa; padding: 1rem; margin: 1rem 0; border-radius: 4px;}
     .url-group h3 {margin-top: 0; border-bottom: 1px solid #dee2e6; padding-bottom: 0.5rem; color: #6c757d;}
     .url {word-break: break-all; font-family: monospace; color: #495057;}
-    .note {font-size: 0.875rem; color: #6c757d; margin-top: 1rem;}
+    .meta {font-size: 0.875rem; color: #6c757d; margin-top: 1rem;}
+    .instance {font-family: monospace; background: #e9ecef; padding: 0.5rem 1rem; border-radius: 4px; display: inline-block; margin: 0.5rem 0;}
+    .note {font-size: 0.8rem; color: #6c757d; margin-top: 1rem;}
   </style>
 </head>
 <body>
@@ -110,8 +122,17 @@ func renderHealthHTML(w http.ResponseWriter, handler *Health) {
     <div class="url">Public URL: <span class="url">%s</span></div>
   </div>
 
+  <div class="meta">
+    <h3>Server Information</h3>
+    <div class="instance">Instance ID: moogo-health-v1</div>
+    <div class="instance">Uptime: running</div>
+    <div class="instance">Health: liveness check (no dependency checks)</div>
+  </div>
+
   <p class="note">This page serves as both a health monitor for humans and a JSON API for probes.
-  Request with <code>Accept: application/json</code> to get the machine-readable response.</p>
+  Request with <code>Accept: application/json</code> to get the machine-readable response.<br>
+  Liveness probe intentionally checks nothing: a database outage will not cause
+  a false restart signal. Use <code>/readyz</code> for readiness that checks dependencies.</p>
 </body>
 </html>`, handler.baseURL, handler.cdnURL, handler.publicURL)
 }
