@@ -366,7 +366,7 @@ question changes.
 ## Update an object
 
 `PATCH` targets one object at `$ENDPOINT/{key}` and changes either its key or its
-visibility. Send `new_key` to rename or move. Publishing is **bucket-level**: use **Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public` to make all objects in the bucket public (or private). Objects inherit the bucket's visibility; per-object `is_public` is deprecated.
+visibility. Send `new_key` to rename or move, `is_public` to publish or unpublish.
 
 **Rename or move:**
 
@@ -385,23 +385,33 @@ curl -X PATCH "$ENDPOINT/avatars/kit.png" \
   -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"is_public": true}' _(bucket-level: makes all objects in the bucket public)_
+  -d '{"is_public": true}' _bucket-level visibility_
 ```
 
 `true` publishes the object and fills in its `public_url`; `false` makes it
 private again and empties the field. Renaming moves the file and updates its
 record atomically from the caller's point of view; the object keeps its identity
 and `id`. A rename never changes visibility — if a body carries both `new_key` and
-`is_public`, the rename wins and the visibility is left as **bucket-level** (inherited from the bucket).
+`is_public`, the rename wins and the visibility is left as it was.
 
 
 > **Visibility is bucket-level (R2-compatible).** A whole bucket is either public or private, set via the dashboard or `POST /buckets/{project_id}/{bucket_id}/public`. Per-object `PATCH .../bucket/{key}` with `is_public` is deprecated; objects inherit their bucket's visibility. Upload to a private bucket = always private.
 
 ## Publishing vs bucket visibility
 
-Publishing is **bucket-level**. Use **Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public` with `{"is_public": true|false}` to make all objects in the bucket share the same visibility. This is a bulk operation that rewrites `is_public` on every object already in the bucket; the response reports `affected`, the number of objects it changed. Making a bucket private therefore takes every object in it off `/pub/` immediately; making it public puts every object back.
+There are two switches, and they do different things.
 
-Previously per-object `PATCH .../bucket/{key}` with `{"is_public": true|false}` is **deprecated**: objects now inherit their bucket's visibility. Upload to a private bucket = always private.
+**Per object** — `PATCH /p/{project_id}/bucket/{key}` with `{"is_public": true}`. This
+publishes or unpublishes a single object, and it is the normal way to share a
+file. Only objects with `is_public: true` answer on `/pub/{project_id}/{key}`.
+
+**Per bucket** — `POST /buckets/{project_id}/{bucket_id}/public` with
+`{"is_public": true|false}`. This is a bulk operation, not a default for new
+uploads alone: it sets the visibility new uploads inherit **and rewrites
+`is_public` on every object already in the bucket**. The response's `affected`
+field is the number of objects it changed. Making a bucket private therefore
+takes every object in it off `/pub/` immediately; making it public puts every
+object back.
 
 The dashboard states this before saving a bucket visibility change, and the
 bucket list labels the state as "every object is public" rather than "new
@@ -683,7 +693,7 @@ const encodeKey = (key) =>
 - **415 unsupported_media_type** — you're missing or wrong `Content-Type`. On JSON endpoints it must be `application/json`. On an object upload it must be the file's type (never JSON-wrapped).
 - **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need `Authorization: Bearer $MOOGO_SQL_KEY`. The types are not interchangeable.
 - **404 on an object you just uploaded** — check the key case and the bucket (`?bucket=`). The path is `/bucket/{key}`, not `/buckets/`.
-- **Object 404s on `/pub/` right after making it public** — check that the bucket is public (**Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public`). Objects inherit the bucket's visibility; there is no per-object `is_public` flag. If the URL was fetched while an older deployment was live, an edge copy of that 404 can linger until its TTL expires — use a new key or purge your CDN. For mutable assets, versioning keys (`image-v2.png`) is more reliable than cache invalidation.
+- **Object 404s on `/pub/` right after making it public** — check that the object is actually published: make the bucket public, or `PATCH` the object with `{"is_public": true}`, and read `is_public` back. Missing and unpublished objects answer `404` by design, and those responses are `no-store`, so a fresh publish shows up on the next request. If the URL was fetched while an older deployment was live, an edge copy of that 404 can linger until its TTL expires — use a new key or purge your CDN. For mutable assets, versioning keys (`image-v2.png`) is more reliable than cache invalidation.
 - **object_too_large** — above the bucket's `max_object_size_bytes` (or 256 MB). Shrink the file, raise the cap, or split it.
 - **quota_exceeded** — project or bucket storage would go over its limit. Delete some objects or increase quota.
 - **truncated: true** — your listing is capped at `limit` rows. Send the `next_cursor` to fetch the next page, or increase `limit` up to 1000.
