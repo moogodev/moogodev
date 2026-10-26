@@ -64,7 +64,7 @@ func NewHealth(
 // (Accept: application/json), it returns JSON as before.
 func (handler *Health) Liveness(w http.ResponseWriter, r *http.Request) {
 	accept := r.Header.Get("Accept")
-	wantsHTML := accept == "text/html" || accept == "*/*" || strings.Contains(accept, "text/html")
+	wantsHTML := strings.Contains(accept, "text/html")
 
 	if wantsHTML {
 		renderHealthHTML(w, handler)
@@ -129,7 +129,7 @@ func (handler *Health) Readiness(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accept := r.Header.Get("Accept")
-	wantsHTML := accept == "text/html" || accept == "*/*" || strings.Contains(accept, "text/html")
+	wantsHTML := strings.Contains(accept, "text/html")
 
 	if wantsHTML {
 		renderHealthHTML(w, handler)
