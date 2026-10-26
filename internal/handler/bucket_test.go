@@ -72,7 +72,7 @@ func (store *fakeBucketStore) addBucket(name string) *dbcontrol.Bucket {
 		ID:           uuid.New(),
 		ProjectID:    store.projectID,
 		Name:         name,
-		CreatedAt:    time.Unix(1_700_000_000, 0).UTC(),
+		CreatedAt:    time.Now().UTC(),
 		AllowedTypes: []string{dbcontrol.AllowedAny},
 		QuotaBytes:   testBucketQuota,
 	}
@@ -123,7 +123,7 @@ func (store *fakeBucketStore) CreateBucket(
 		ID:           uuid.New(),
 		ProjectID:    projectID,
 		Name:         name,
-		CreatedAt:    time.Unix(1_700_000_000, 0).UTC(),
+		CreatedAt:    time.Now().UTC(),
 		AllowedTypes: []string{dbcontrol.AllowedAny},
 		QuotaBytes:   testBucketQuota,
 	}
@@ -344,7 +344,7 @@ func (store *fakeBucketStore) PutObject(
 		IsPublic:     isPublic,
 		Version:      uuid.New(),
 		CacheControl: cacheControl,
-		CreatedAt:    time.Unix(1_700_000_000, 0).UTC(),
+		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Unix(1_700_000_000, 0).UTC(),
 	}
 	if isPublic {
