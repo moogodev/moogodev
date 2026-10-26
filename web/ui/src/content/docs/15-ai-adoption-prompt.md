@@ -391,12 +391,12 @@ To change one file only: visibility is now bucket-level; use the bucket toggle (
 # Publish one object
 curl -X PATCH "$ENDPOINT/avatars/kit.png" \
   -H "Content-Type: application/json" \
-  -d '{"is_public": true}'
+  -d '{"is_public": true}' _bucket-level visibility_
 
 # Publish a whole bucket — this also publishes everything already in it
 curl -X POST "$CATALOG/bucket-id/public" \
   -H "Content-Type: application/json" \
-  -d '{"is_public": true}'
+  -d '{"is_public": true}' _bucket-level visibility_
 ```
 
 ### Bucket info endpoint

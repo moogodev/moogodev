@@ -385,7 +385,7 @@ curl -X PATCH "$ENDPOINT/avatars/kit.png" \
   -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"is_public": true}'
+  -d '{"is_public": true}' _bucket-level visibility_
 ```
 
 `true` publishes the object and fills in its `public_url`; `false` makes it
