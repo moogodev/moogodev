@@ -80,10 +80,10 @@ type BucketStore interface {
 
 // FileSystem is the disk operations for bucket storage.
 type FileSystem interface {
-	WriteObject(projectID, bucketID uuid.UUID, key string, r io.Reader) (int64, error)
-	ReadObject(projectID, bucketID uuid.UUID, key string) (io.ReadCloser, int64, error)
-	MoveObject(projectID, bucketID uuid.UUID, fromKey, toKey string) error
-	DeleteObject(projectID, bucketID uuid.UUID, key string) error
+	WriteObject(projectID uuid.UUID, key string, r io.Reader) (int64, error)
+	ReadObject(projectID uuid.UUID, key string) (io.ReadCloser, int64, error)
+	MoveObject(projectID uuid.UUID, fromKey string, toKey string) error
+	DeleteObject(projectID uuid.UUID, key string) error
 	StorageUsed(projectID uuid.UUID) (int64, error)
 }
 
