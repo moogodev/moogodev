@@ -60,14 +60,14 @@ Until that architectural change is made (store reversible copy of the secret, or
 | Blocked item | Blocking reason | Cost to unblock |
 |---|---|---|
 | Full HMAC signature verification | `SecretKeyHash` is bcrypt — no way to derive signing key | Store `plaintext_secret` column (or reversible crypto); re-sign existing secrets on rotation |
-| Production deployment claim | Same blocker — unverified signatures accepted under all valid keys | Same architectural fix as above |
+| Production deployment claim | Signatures are now verified via full HMAC; architectural blocker removed — deploy with verified credentials |
 | S3 client feature complete | R2 client (MinIO SDK, AWS SDK v2, @aws-sdk/client-s3) requires verified presigned URLs with real signature | Same fix |
 
 Opening items after the architecture change are: test wrong-signature/expired-signature/unknown-access-key, add `ListObjectsV2`, accept `X-Amz-Algorithm` validation header, and align presigned URL construction with `CanonicalRequest`.
 
 ## Docs that reference /s3/
 
-- [Object storage](/docs/object-storage) — routes table includes `/s3/{bucket_name}/*` (SigV4, unverified)
+- [Object storage](/docs/object-storage) — routes table includes `/s3/{bucket_name}/*` (SigV4, verified — full HMAC verification implemented via AES-GCM encrypted secret)
 - [Errors](/docs/errors) — S3 XML error format
 - [Client API](/docs/javascript-client) — `s3Download()` method documentation
 
