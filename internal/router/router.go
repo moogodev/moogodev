@@ -674,6 +674,10 @@ func New(deps Deps) http.Handler {
 			_ = bucketName
 			deps.Bucket.PublicDownload(w, r)
 		})
+		s3.Delete("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
+			// Phase 2 — DeleteObject endpoint (P1)
+			httpx.WriteError(w, http.StatusNotImplemented, "not_implemented", "DELETE /s3/ requires handler integration")
+		})
 		s3.Put("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
 			bucketName := chi.URLParam(r, "bucket_name")
 			key := chi.URLParam(r, "*")

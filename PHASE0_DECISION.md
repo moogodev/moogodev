@@ -15,3 +15,10 @@ Status: Secret disimpan sebagai bcrypt hash (irreversible). SigV4 HMAC memerluka
 - Phase 3 (namespace): perlu schema migration terpisah.
 === Decision locked ===
 Option B (Native/Bearer auth) — Phase 1 deferred.
+
+## Phase Roadmap (dengan Option B)
+- Phase 0 ✅ keputusan + dokumen (commit ab551df)
+- Phase 2-4-5 ✅ dugaan perbaikan sebelumnya (Bug P0-P2, SDK 0.2.4, SQLite opt)
+- Phase 2 API: ListObjectsV2 / DeleteObject masih dibangun (router DELETE placeholder). Copy/batch ditunda.
+- Phase 4 XML/Headers: Wire format dasar (internal/auth/sigv4/xml.go ada), belum konsisten semua route.
+- Phase 3 schema migration (UNIQUE bucket_id, key): ditunda, besar scope.
