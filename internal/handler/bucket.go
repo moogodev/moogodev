@@ -443,15 +443,15 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 
 	if r.ContentLength > limit {
 		if budget.bucketRemaining < budget.remaining {
-			handler.writeBucketQuotaExceeded(w, budget.bucketUsed, bucket)
+			handler.writeBucketQuotaExceeded(w, r, budget.bucketUsed, bucket)
 			return
 		}
-		handler.writeQuotaExceeded(w, budget.used)
+		handler.writeQuotaExceeded(w, r, budget.used)
 		return
 	}
 	if objectCap > 0 {
 		if r.ContentLength > objectCap {
-			handler.writeObjectTooLarge(w, objectCap)
+			handler.writeObjectTooLarge(w, r, objectCap)
 			return
 		}
 		limit = min(limit, objectCap)
@@ -497,17 +497,17 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 	// does not exist.
 	if objectCap > 0 && size > objectCap {
 		_ = handler.fs.DeleteObject(projectID, key)
-		handler.writeObjectTooLarge(w, objectCap)
+		handler.writeObjectTooLarge(w, r, objectCap)
 		return
 	}
 	if size > budget.bucketRemaining {
 		_ = handler.fs.DeleteObject(projectID, key)
-		handler.writeBucketQuotaExceeded(w, budget.bucketUsed, bucket)
+		handler.writeBucketQuotaExceeded(w, r, budget.bucketUsed, bucket)
 		return
 	}
 	if size > budget.remaining {
 		_ = handler.fs.DeleteObject(projectID, key)
-		handler.writeQuotaExceeded(w, budget.used)
+		handler.writeQuotaExceeded(w, r, budget.used)
 		return
 	}
 
@@ -1662,7 +1662,7 @@ func (handler *BucketPlane) UpdateBucketSettings(w http.ResponseWriter, r *http.
 			return
 		}
 		if used > quotaBytes {
-			httpx.WriteErrorWithDetail(w, http.StatusConflict, "quota_below_usage",
+			handler.writeErrDetail(w, r, http.StatusConflict, "quota_below_usage",
 				fmt.Sprintf("this bucket already holds %d bytes, more than the requested quota", used),
 				fmt.Sprintf("delete objects first, or set the quota above %d bytes", used))
 			return
@@ -2095,14 +2095,10 @@ func bucketPolicyTypes(bucket *dbcontrol.Bucket) []string {
 // The message names the numbers so the dashboard can show what happened instead
 // of a bare failure. The usage figure is the total before this upload, which is
 // what the client needs to decide whether to delete something first.
-func (handler *BucketPlane) writeQuotaExceeded(w http.ResponseWriter, used int64) {
-	httpx.WriteErrorWithDetail(
-		w,
-		http.StatusInsufficientStorage,
-		"quota_exceeded",
+func (handler *BucketPlane) writeQuotaExceeded(w http.ResponseWriter, r *http.Request, used int64) {
+	handler.writeErrDetail(w, r, http.StatusInsufficientStorage, "quota_exceeded",
 		"project storage quota exceeded",
-		fmt.Sprintf("in use %d bytes, quota %d bytes", used, handler.quota),
-	)
+		fmt.Sprintf("in use %d bytes, quota %d bytes", used, handler.quota))
 }
 
 // writeBucketQuotaExceeded answers an upload that does not fit in the bucket.
@@ -2114,16 +2110,13 @@ func (handler *BucketPlane) writeQuotaExceeded(w http.ResponseWriter, used int64
 // to the one they uploaded to.
 func (handler *BucketPlane) writeBucketQuotaExceeded(
 	w http.ResponseWriter,
+	r *http.Request,
 	used int64,
 	bucket *dbcontrol.Bucket,
 ) {
-	httpx.WriteErrorWithDetail(
-		w,
-		http.StatusInsufficientStorage,
-		"bucket_quota_exceeded",
+	handler.writeErrDetail(w, r, http.StatusInsufficientStorage, "bucket_quota_exceeded",
 		fmt.Sprintf("bucket %q storage quota exceeded", bucket.Name),
-		fmt.Sprintf("in use %d bytes, quota %d bytes", used, bucket.QuotaBytes),
-	)
+		fmt.Sprintf("in use %d bytes, quota %d bytes", used, bucket.QuotaBytes))
 }
 
 // writeObjectTooLarge reports a refusal caused by the bucket's per-object cap.
@@ -2131,14 +2124,10 @@ func (handler *BucketPlane) writeBucketQuotaExceeded(
 // 413 rather than 507: the request is larger than the server will accept in one
 // piece, which is what 413 is for. 507 is reserved for the project total, where
 // the request is individually fine and the project as a whole is full.
-func (handler *BucketPlane) writeObjectTooLarge(w http.ResponseWriter, cap int64) {
-	httpx.WriteErrorWithDetail(
-		w,
-		http.StatusRequestEntityTooLarge,
-		"object_too_large",
+func (handler *BucketPlane) writeObjectTooLarge(w http.ResponseWriter, r *http.Request, cap int64) {
+	handler.writeErrDetail(w, r, http.StatusRequestEntityTooLarge, "object_too_large",
 		"the object is larger than this bucket accepts",
-		fmt.Sprintf("bucket limit is %d bytes", cap),
-	)
+		fmt.Sprintf("bucket limit is %d bytes", cap))
 }
 
 // writeStoreError maps a store error onto an HTTP status.
@@ -2179,7 +2168,7 @@ func (handler *BucketPlane) writeError(
 		"path":       r.URL.Path,
 		"error":      err.Error(),
 	})
-	httpx.WriteErrorWithDetail(w, http.StatusInternalServerError, "storage_error",
+	handler.writeErrDetail(w, r, http.StatusInternalServerError, "storage_error",
 		"the request could not be completed", err.Error())
 }
 
@@ -2912,4 +2901,12 @@ func (handler *BucketPlane) writeErr(w http.ResponseWriter, r *http.Request, sta
 		return
 	}
 	httpx.WriteError(w, status, code, msg)
+}
+
+func (handler *BucketPlane) writeErrDetail(w http.ResponseWriter, r *http.Request, status int, code, msg, detail string) {
+	if strings.HasPrefix(r.URL.Path, "/s3/") {
+		sigv4.WriteXMLError(w, status, code, msg+": "+detail)
+		return
+	}
+	httpx.WriteErrorWithDetail(w, status, code, msg, detail)
 }
