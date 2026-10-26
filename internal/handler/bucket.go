@@ -1017,6 +1017,15 @@ func (handler *BucketPlane) rename(
 	releaseProject := handler.projectLocks.lock(projectID)
 	defer releaseProject()
 
+	// Acquire per-object locks to serialize with concurrent uploads/deletes
+	// on the source and destination keys. This prevents an upload to
+	// fromKey or toKey from interleaving with the disk move and catalog
+	// rename.
+	releaseFrom := handler.objectLocks.lock(objectLockKey{projectID: projectID, key: fromKey})
+	defer releaseFrom()
+	releaseTo := handler.objectLocks.lock(objectLockKey{projectID: projectID, key: toKey})
+	defer releaseTo()
+
 	// Refuse a rename onto a key that already exists, before touching the disk.
 	// os.Rename replaces its target silently, so moving first would destroy the
 	// bytes under toKey and then fail on the catalog's unique index, leaving
@@ -1093,13 +1102,17 @@ func (handler *BucketPlane) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove from disk first (idempotent).
-	if err := handler.fs.DeleteObject(projectID, key); err != nil {
-		handler.writeError(w, r, projectID, err, "delete object from disk")
-		return
-	}
+	// Serialize with uploads and other deletes/renames for this key: the
+	// disk delete and catalog delete below must not interleave with a write
+	// to the same key, or the metadata can be removed while bytes land.
+	releaseObject := handler.objectLocks.lock(objectLockKey{projectID: projectID, key: key})
+	defer releaseObject()
 
-	// Remove metadata.
+	// Remove metadata first, consistent with deletePrefix: the catalog row
+	// is the source of truth. If the DB delete fails we have not torn the file
+	// out from under a row that still points at it. The disk delete that
+	// follows is idempotent, so a failure there is reported but does not
+	// leave metadata claiming an object that is gone.
 	freed, err := handler.store.DeleteObject(r.Context(), projectID, key)
 	if err != nil {
 		if errors.Is(err, dbcontrol.ErrNotFound) {
@@ -1107,6 +1120,12 @@ func (handler *BucketPlane) Delete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		handler.writeStoreError(w, r, projectID, err, "delete object metadata")
+		return
+	}
+
+	// Remove from disk.
+	if err := handler.fs.DeleteObject(projectID, key); err != nil {
+		handler.writeError(w, r, projectID, err, "delete object from disk")
 		return
 	}
 

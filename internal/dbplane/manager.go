@@ -863,6 +863,12 @@ func (manager *Manager) StorageUsed(projectID uuid.UUID) (int64, error) {
 			return err
 		}
 		if !d.IsDir() {
+			// Skip temporary upload files (.moogo-upload-*) that may be left behind
+			// after an interrupted upload. They are not catalogued metadata, so they
+		 // would otherwise inflate the quota count.
+			if strings.HasPrefix(d.Name(), ".moogo-upload-") {
+				return nil
+			}
 			info, err := d.Info()
 			if err == nil {
 				total += info.Size()
