@@ -145,6 +145,10 @@ export interface Bucket {
   max_object_size_bytes: number;
   // This bucket's own storage limit, independent of the project's total.
   quota_bytes: number;
+  // Optional custom domain mapped to this bucket.
+  custom_domain: string;
+  // Allowed CORS origins for this bucket.
+  cors_origins: string[];
 }
 
 // BucketAllowedTypes is the set of things a bucket accepts.

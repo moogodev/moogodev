@@ -2,7 +2,9 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +20,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/auth/sigv4"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
 	"github.com/moogodev/moogodev/internal/dbplane"
 	"github.com/moogodev/moogodev/internal/signedurl"
@@ -113,6 +116,8 @@ type BucketPlane struct {
 
 	// cdnBase is the origin public objects are served from, used for the
 	// public_url of an object that has been made public.
+
+	// cdnPurgeZoneID / cdnPurgeAPIToken enable real CDN cache purge.
 	//
 	// It is separate from publicBase so a published object can be handed out
 	// on a CDN host while the authenticated url stays on the API host: a
@@ -121,6 +126,10 @@ type BucketPlane struct {
 	// back to publicBase, and then to the request, which is what a deployment
 	// with no CDN host and a test want.
 	cdnBase string
+
+	// cdnPurgeZoneID / cdnPurgeAPIToken enable real CDN cache purge.
+	cdnPurgeZoneID   string
+	cdnPurgeAPIToken string
 
 	// projectLocks serializes the final quota check and the catalog insert
 	// per project.
@@ -226,6 +235,8 @@ func NewBucketPlane(
 	quota int64,
 	publicBase string,
 	cdnBase string,
+	cdnPurgeZoneID string,
+	cdnPurgeAPIToken string,
 	signer *signedurl.Signer,
 	log *logger.Logger,
 ) *BucketPlane {
@@ -234,9 +245,11 @@ func NewBucketPlane(
 		fs:         fs,
 		quota:      quota,
 		maxKeyLen:  1024,
-		publicBase: strings.TrimRight(publicBase, "/"),
-		cdnBase:    strings.TrimRight(cdnBase, "/"),
-		signer:     signer,
+		publicBase:       strings.TrimRight(publicBase, "/"),
+		cdnBase:          strings.TrimRight(cdnBase, "/"),
+		cdnPurgeZoneID:   cdnPurgeZoneID,
+		cdnPurgeAPIToken: cdnPurgeAPIToken,
+		signer:           signer,
 		log:        log,
 	}
 }
@@ -362,7 +375,7 @@ type ObjectResponse struct {
 func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
@@ -371,17 +384,17 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 	// dashboard /api/projects/{id}/bucket/... share it).
 	rawKey, found := auth.ObjectKeyFromContext(r.Context())
 	if !found {
-		httpx.WriteError(w, http.StatusBadRequest, "missing_key", "object key is required")
+		handler.writeErr(w, r, http.StatusBadRequest, "missing_key", "object key is required")
 		return
 	}
 
 	key, err := normalizeKey(rawKey)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_key", err.Error())
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_key", err.Error())
 		return
 	}
 	if len(key) > handler.maxKeyLen {
-		httpx.WriteError(w, http.StatusBadRequest, "key_too_long", "object key exceeds maximum length")
+		handler.writeErr(w, r, http.StatusBadRequest, "key_too_long", "object key exceeds maximum length")
 		return
 	}
 
@@ -399,7 +412,7 @@ func (handler *BucketPlane) Upload(w http.ResponseWriter, r *http.Request) {
 	// The bucket's own rules are checked before anything else, so a refused
 	// upload costs one lookup and no disk write.
 	if !bucketAcceptsContentType(bucket, contentType) {
-		httpx.WriteError(w, http.StatusUnsupportedMediaType, "type_not_allowed",
+		handler.writeErr(w, r, http.StatusUnsupportedMediaType, "type_not_allowed",
 			fmt.Sprintf("bucket %q accepts %s uploads only", bucket.Name, describeAllowedTypes(bucket)))
 		return
 	}
@@ -590,7 +603,7 @@ func (handler *BucketPlane) PublicDownload(w http.ResponseWriter, r *http.Reques
 		if !ok || !found || err != nil {
 			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 			w.Header().Set("Pragma", "no-cache")
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+			handler.writeErr(w, r, http.StatusNotFound, "not_found", "object not found")
 			return
 		}
 
@@ -603,13 +616,13 @@ func (handler *BucketPlane) PublicDownload(w http.ResponseWriter, r *http.Reques
 		case errors.Is(err, signedurl.ErrExpired):
 			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 			w.Header().Set("Pragma", "no-cache")
-			httpx.WriteError(w, http.StatusForbidden, "link_expired",
+			handler.writeErr(w, r, http.StatusForbidden, "link_expired",
 				"the signed link has expired; request a new one")
 			return
 		case err != nil:
 			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 			w.Header().Set("Pragma", "no-cache")
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+			handler.writeErr(w, r, http.StatusNotFound, "not_found", "object not found")
 			return
 		default:
 			access = accessSigned
@@ -637,7 +650,7 @@ func (handler *BucketPlane) PresignedUpload(w http.ResponseWriter, r *http.Reque
 	rawKey, found := auth.ObjectKeyFromContext(r.Context())
 	key, err := normalizeKey(rawKey)
 	if !ok || !found || err != nil {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+		handler.writeErr(w, r, http.StatusNotFound, "not_found", "object not found")
 		return
 	}
 
@@ -654,11 +667,11 @@ func (handler *BucketPlane) PresignedUpload(w http.ResponseWriter, r *http.Reque
 		query.Get("exp"), query.Get("sig"), time.Now(),
 	); {
 	case errors.Is(err, signedurl.ErrExpired):
-		httpx.WriteError(w, http.StatusForbidden, "link_expired",
+		handler.writeErr(w, r, http.StatusForbidden, "link_expired",
 			"the signed link has expired; request a new one")
 		return
 	case err != nil:
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+		handler.writeErr(w, r, http.StatusNotFound, "not_found", "object not found")
 		return
 	}
 
@@ -668,15 +681,15 @@ func (handler *BucketPlane) PresignedUpload(w http.ResponseWriter, r *http.Reque
 	// SQL and the dashboard while a link minted a minute earlier kept writing.
 	project, err := handler.store.ProjectByID(r.Context(), projectID)
 	if err != nil || project == nil {
-		httpx.WriteError(w, http.StatusNotFound, "project_not_found", "no such project")
+		handler.writeErr(w, r, http.StatusNotFound, "project_not_found", "no such project")
 		return
 	}
 	if project.Paused() {
-		httpx.WriteError(w, http.StatusForbidden, "project_paused", "project is paused")
+		handler.writeErr(w, r, http.StatusForbidden, "project_paused", "project is paused")
 		return
 	}
 	if !project.Ready() {
-		httpx.WriteError(w, http.StatusForbidden, "project_not_ready", "project is not ready yet")
+		handler.writeErr(w, r, http.StatusForbidden, "project_not_ready", "project is not ready yet")
 		return
 	}
 
@@ -709,7 +722,7 @@ func (handler *BucketPlane) serveObject(
 			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 			w.Header().Set("Pragma", "no-cache")
 		}
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
@@ -719,7 +732,7 @@ func (handler *BucketPlane) serveObject(
 			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 			w.Header().Set("Pragma", "no-cache")
 		}
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+		handler.writeErr(w, r, http.StatusNotFound, "not_found", "object not found")
 		return
 	}
 
@@ -729,7 +742,7 @@ func (handler *BucketPlane) serveObject(
 			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 			w.Header().Set("Pragma", "no-cache")
 		}
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+		handler.writeErr(w, r, http.StatusNotFound, "not_found", "object not found")
 		return
 	}
 
@@ -740,7 +753,7 @@ func (handler *BucketPlane) serveObject(
 				w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 				w.Header().Set("Pragma", "no-cache")
 			}
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+			handler.writeErr(w, r, http.StatusNotFound, "not_found", "object not found")
 			return
 		}
 		handler.writeStoreError(w, r, projectID, err, "load object metadata")
@@ -763,7 +776,7 @@ func (handler *BucketPlane) serveObject(
 	if access == accessPublished && !bucketStatus {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 		w.Header().Set("Pragma", "no-cache")
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+		handler.writeErr(w, r, http.StatusNotFound, "not_found", "object not found")
 		return
 	}
 
@@ -791,7 +804,7 @@ func (handler *BucketPlane) serveObject(
 				w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 				w.Header().Set("Pragma", "no-cache")
 			}
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+			handler.writeErr(w, r, http.StatusNotFound, "not_found", "object not found")
 			return
 		}
 		handler.writeError(w, r, projectID, err, "read object from disk")
@@ -810,7 +823,7 @@ func (handler *BucketPlane) serveObject(
 			start, end := ranges[0].start, ranges[0].end
 			if start > end || start < 0 || end >= size {
 				w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
-				httpx.WriteError(w, http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "the requested range cannot be satisfied")
+				handler.writeErr(w, r, http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "the requested range cannot be satisfied")
 				return
 			}
 			if seeker, ok := reader.(io.Seeker); ok {
@@ -835,7 +848,7 @@ func (handler *BucketPlane) serveObject(
 			return
 		} else {
 			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
-			httpx.WriteError(w, http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "the requested range cannot be satisfied")
+			handler.writeErr(w, r, http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "the requested range cannot be satisfied")
 			return
 		}
 	}
@@ -964,7 +977,7 @@ type UpdateRequest struct {
 func (handler *BucketPlane) Update(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
@@ -978,7 +991,7 @@ func (handler *BucketPlane) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if request.NewKey == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "the body must set new_key")
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_body", "the body must set new_key")
 		return
 	}
 	handler.rename(w, r, projectID, key, request.NewKey)
@@ -999,15 +1012,15 @@ func (handler *BucketPlane) rename(
 ) {
 	toKey, err := normalizeKey(rawToKey)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_key", err.Error())
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_key", err.Error())
 		return
 	}
 	if len(toKey) > handler.maxKeyLen {
-		httpx.WriteError(w, http.StatusBadRequest, "key_too_long", "object key exceeds maximum length")
+		handler.writeErr(w, r, http.StatusBadRequest, "key_too_long", "object key exceeds maximum length")
 		return
 	}
 	if toKey == fromKey {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_key", "the new key is the same as the old one")
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_key", "the new key is the same as the old one")
 		return
 	}
 
@@ -1033,7 +1046,7 @@ func (handler *BucketPlane) rename(
 	// existing object intact.
 	switch _, err := handler.store.ObjectByKey(r.Context(), projectID, toKey); {
 	case err == nil:
-		httpx.WriteError(w, http.StatusConflict, "key_taken",
+		handler.writeErr(w, r, http.StatusConflict, "key_taken",
 			"an object with that key already exists in this project")
 		return
 	case !errors.Is(err, dbcontrol.ErrNotFound):
@@ -1045,7 +1058,7 @@ func (handler *BucketPlane) rename(
 		// The disk layer refuses to clobber too, so a race that created the
 		// destination after the check above still surfaces as a conflict.
 		if errors.Is(err, dbplane.ErrObjectExists) {
-			httpx.WriteError(w, http.StatusConflict, "key_taken",
+			handler.writeErr(w, r, http.StatusConflict, "key_taken",
 				"an object with that key already exists in this project")
 			return
 		}
@@ -1084,7 +1097,7 @@ func (handler *BucketPlane) rename(
 func (handler *BucketPlane) Delete(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
@@ -1116,7 +1129,7 @@ func (handler *BucketPlane) Delete(w http.ResponseWriter, r *http.Request) {
 	freed, err := handler.store.DeleteObject(r.Context(), projectID, key)
 	if err != nil {
 		if errors.Is(err, dbcontrol.ErrNotFound) {
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "object not found")
+			handler.writeErr(w, r, http.StatusNotFound, "not_found", "object not found")
 			return
 		}
 		handler.writeStoreError(w, r, projectID, err, "delete object metadata")
@@ -1149,13 +1162,13 @@ func (handler *BucketPlane) deletePrefix(
 ) {
 	rawPrefix, found := auth.ObjectKeyFromContext(r.Context())
 	if !found {
-		httpx.WriteError(w, http.StatusBadRequest, "missing_key", "object key is required")
+		handler.writeErr(w, r, http.StatusBadRequest, "missing_key", "object key is required")
 		return
 	}
 
 	prefix, err := normalizePrefix(rawPrefix)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_prefix", err.Error())
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_prefix", err.Error())
 		return
 	}
 
@@ -1199,7 +1212,7 @@ func (handler *BucketPlane) deletePrefix(
 func (handler *BucketPlane) List(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
@@ -1268,7 +1281,7 @@ func (handler *BucketPlane) List(w http.ResponseWriter, r *http.Request) {
 func (handler *BucketPlane) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
@@ -1331,7 +1344,7 @@ type SignURLResponse struct {
 func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
@@ -1339,7 +1352,7 @@ func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 		// A deployment that never constructed a signer cannot mint links that
 		// anything would accept, so it says so instead of returning one that
 		// always fails later.
-		httpx.WriteError(w, http.StatusServiceUnavailable, "signing_unavailable",
+		handler.writeErr(w, r, http.StatusServiceUnavailable, "signing_unavailable",
 			"signed URLs are not configured on this deployment")
 		return
 	}
@@ -1351,11 +1364,11 @@ func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 
 	key, err := normalizeKey(request.Key)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_key", err.Error())
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_key", err.Error())
 		return
 	}
 	if len(key) > handler.maxKeyLen {
-		httpx.WriteError(w, http.StatusBadRequest, "key_too_long", "object key exceeds maximum length")
+		handler.writeErr(w, r, http.StatusBadRequest, "key_too_long", "object key exceeds maximum length")
 		return
 	}
 
@@ -1364,7 +1377,7 @@ func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 		method = http.MethodGet
 	}
 	if method != http.MethodGet && method != http.MethodPut {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_method",
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_method",
 			"method must be GET or PUT")
 		return
 	}
@@ -1377,7 +1390,7 @@ func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 	bucketName := ""
 	if method == http.MethodGet {
 		if request.Bucket != "" {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket",
+			handler.writeErr(w, r, http.StatusBadRequest, "invalid_bucket",
 				"bucket is only meaningful for method PUT")
 			return
 		}
@@ -1386,7 +1399,7 @@ func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 		if request.Bucket != "" {
 			bucketName, err = normalizeBucketName(request.Bucket)
 			if err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket_name", err.Error())
+				handler.writeErr(w, r, http.StatusBadRequest, "invalid_bucket_name", err.Error())
 				return
 			}
 		}
@@ -1397,7 +1410,7 @@ func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 		if bucketName != defaultBucketName {
 			if _, err := handler.store.BucketByName(r.Context(), projectID, bucketName); err != nil {
 				if errors.Is(err, dbcontrol.ErrNotFound) {
-					httpx.WriteError(w, http.StatusNotFound, "bucket_not_found", "no such bucket")
+					handler.writeErr(w, r, http.StatusNotFound, "bucket_not_found", "no such bucket")
 					return
 				}
 				handler.writeStoreError(w, r, projectID, err, "resolve bucket for signing")
@@ -1411,7 +1424,7 @@ func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 		expiresIn = signedurl.DefaultTTL
 	}
 	if expiresIn < signedurl.MinTTL || expiresIn > signedurl.MaxTTL {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_expires_in",
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_expires_in",
 			"expires_in must be between 60 and 604800 seconds")
 		return
 	}
@@ -1450,7 +1463,7 @@ func (handler *BucketPlane) SignURL(w http.ResponseWriter, r *http.Request) {
 func (handler *BucketPlane) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
@@ -1461,25 +1474,25 @@ func (handler *BucketPlane) CreateBucket(w http.ResponseWriter, r *http.Request)
 
 	name, err := normalizeBucketName(request.Name)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket_name", err.Error())
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_bucket_name", err.Error())
 		return
 	}
 
 	allowedTypes, err := normalizeAllowedTypes(
 		defaultAllowedTypes(request.AllowedTypes))
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_allowed_types", err.Error())
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_allowed_types", err.Error())
 		return
 	}
 	if err := validateMaxObjectSize(request.MaxObjectSizeBytes); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_max_object_size", err.Error())
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_max_object_size", err.Error())
 		return
 	}
 	// Zero means the caller did not ask for a quota on create, so the row keeps
 	// the default. Validating it here would refuse every create that omits it.
 	if request.QuotaBytes != 0 {
 		if err := validateBucketQuota(request.QuotaBytes, handler.quota); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_quota_bytes", err.Error())
+			handler.writeErr(w, r, http.StatusBadRequest, "invalid_quota_bytes", err.Error())
 			return
 		}
 	}
@@ -1489,7 +1502,7 @@ func (handler *BucketPlane) CreateBucket(w http.ResponseWriter, r *http.Request)
 	// request inserted first (Bug 16: upsert used to answer 201 for existing).
 	reqStart := time.Now()
 	if _, err := handler.store.BucketByName(r.Context(), projectID, name); err == nil {
-		httpx.WriteError(w, http.StatusConflict, "bucket_exists",
+		handler.writeErr(w, r, http.StatusConflict, "bucket_exists",
 			"a bucket with this name already exists in this project")
 		return
 	} else if !errors.Is(err, dbcontrol.ErrNotFound) {
@@ -1508,7 +1521,7 @@ func (handler *BucketPlane) CreateBucket(w http.ResponseWriter, r *http.Request)
 	// is the database server's clock at execution, which is after reqStart, so
 	// answering 409 keeps the conflict observable instead of a phantom 201.
 	if !bucket.CreatedAt.After(reqStart.Add(-time.Second)) {
-		httpx.WriteError(w, http.StatusConflict, "bucket_exists",
+		handler.writeErr(w, r, http.StatusConflict, "bucket_exists",
 			"a bucket with this name already exists in this project")
 		return
 	}
@@ -1557,13 +1570,13 @@ func defaultAllowedTypes(raw []string) []string {
 func (handler *BucketPlane) UpdateBucketSettings(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
 	bucketID, err := uuidParam(r, "bucket_id")
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket_id",
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_bucket_id",
 			"the bucket id is not a valid UUID")
 		return
 	}
@@ -1580,7 +1593,7 @@ func (handler *BucketPlane) UpdateBucketSettings(w http.ResponseWriter, r *http.
 		request.MaxObjectSizeBytes == nil &&
 		request.IsPublic == nil &&
 		request.QuotaBytes == nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_body",
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_body",
 			"the body must set allowed_types, max_object_size_bytes, is_public or quota_bytes")
 		return
 	}
@@ -1595,7 +1608,7 @@ func (handler *BucketPlane) UpdateBucketSettings(w http.ResponseWriter, r *http.
 	if request.AllowedTypes != nil {
 		allowedTypes, err = normalizeAllowedTypes(*request.AllowedTypes)
 		if err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_allowed_types", err.Error())
+			handler.writeErr(w, r, http.StatusBadRequest, "invalid_allowed_types", err.Error())
 			return
 		}
 	}
@@ -1604,7 +1617,7 @@ func (handler *BucketPlane) UpdateBucketSettings(w http.ResponseWriter, r *http.
 	if request.MaxObjectSizeBytes != nil {
 		maxObjectSize = *request.MaxObjectSizeBytes
 		if err := validateMaxObjectSize(maxObjectSize); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_max_object_size", err.Error())
+			handler.writeErr(w, r, http.StatusBadRequest, "invalid_max_object_size", err.Error())
 			return
 		}
 	}
@@ -1618,7 +1631,7 @@ func (handler *BucketPlane) UpdateBucketSettings(w http.ResponseWriter, r *http.
 	if request.QuotaBytes != nil {
 		quotaBytes = *request.QuotaBytes
 		if err := validateBucketQuota(quotaBytes, handler.quota); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_quota_bytes", err.Error())
+			handler.writeErr(w, r, http.StatusBadRequest, "invalid_quota_bytes", err.Error())
 			return
 		}
 		// Shrinking a quota below what the bucket already holds would leave every
@@ -1727,13 +1740,13 @@ func validateBucketQuota(size int64, projectQuota int64) error {
 func (handler *BucketPlane) DeleteBucket(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
 	bucketID, err := uuidParam(r, "bucket_id")
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket_id",
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_bucket_id",
 			"the bucket id is not a valid UUID")
 		return
 	}
@@ -1750,7 +1763,7 @@ func (handler *BucketPlane) DeleteBucket(w http.ResponseWriter, r *http.Request)
 
 	if err := handler.store.DeleteBucket(r.Context(), projectID, bucketID); err != nil {
 		if errors.Is(err, dbcontrol.ErrNotFound) {
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "no such bucket")
+			handler.writeErr(w, r, http.StatusNotFound, "not_found", "no such bucket")
 			return
 		}
 		handler.writeStoreError(w, r, projectID, err, "delete bucket")
@@ -1781,13 +1794,13 @@ func (handler *BucketPlane) DeleteBucket(w http.ResponseWriter, r *http.Request)
 func (handler *BucketPlane) SetBucketPublic(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
 	bucketID, err := uuidParam(r, "bucket_id")
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket_id",
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_bucket_id",
 			"the bucket id is not a valid UUID")
 		return
 	}
@@ -1799,7 +1812,7 @@ func (handler *BucketPlane) SetBucketPublic(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if request.IsPublic == nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", "is_public is required")
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_body", "is_public is required")
 		return
 	}
 
@@ -1847,13 +1860,13 @@ func (handler *BucketPlane) SetBucketPublic(w http.ResponseWriter, r *http.Reque
 func (handler *BucketPlane) PurgeCache(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
 	bucketID, err := uuidParam(r, "bucket_id")
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket_id",
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_bucket_id",
 			"the bucket id is not a valid UUID")
 		return
 	}
@@ -1879,13 +1892,30 @@ func (handler *BucketPlane) PurgeCache(w http.ResponseWriter, r *http.Request) {
 		urls = append(urls, fmt.Sprintf("%s/pub/%s/%s", base, projectID, escapedKey))
 	}
 
+	purged := false
+	if handler.cdnPurgeZoneID != "" && handler.cdnPurgeAPIToken != "" && len(urls) > 0 {
+		body := map[string]any{"files": urls}
+		b, _ := json.Marshal(body)
+		req, err := http.NewRequest("POST", "https://api.cloudflare.com/client/v4/zones/"+handler.cdnPurgeZoneID+"/purge_cache", bytes.NewReader(b))
+		if err == nil {
+			req.Header.Set("Authorization", "Bearer "+handler.cdnPurgeAPIToken)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err == nil && resp != nil {
+				resp.Body.Close()
+				purged = resp.StatusCode >= 200 && resp.StatusCode < 300
+			}
+		}
+	}
+
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"success":      true,
 		"bucket_id":    bucketID,
 		"bucket_name":  bucket.Name,
 		"purged_count": len(urls),
 		"urls":         urls,
-		"note":         "These URLs should be purged from your CDN. If using Cloudflare, call the Purge Cache API with these URLs. For manual purge, use the dashboard or Cloudflare API with your zone ID and API token.",
+		"purged":       purged,
+		"note":         "CDN purge attempted when configured.",
 	})
 }
 
@@ -1928,17 +1958,17 @@ func (handler *BucketPlane) keyFromRequest(
 ) (string, bool) {
 	rawKey, found := auth.ObjectKeyFromContext(r.Context())
 	if !found {
-		httpx.WriteError(w, http.StatusBadRequest, "missing_key", "object key is required")
+		handler.writeErr(w, r, http.StatusBadRequest, "missing_key", "object key is required")
 		return "", false
 	}
 
 	key, err := normalizeKey(rawKey)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_key", err.Error())
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_key", err.Error())
 		return "", false
 	}
 	if len(key) > handler.maxKeyLen {
-		httpx.WriteError(w, http.StatusBadRequest, "key_too_long", "object key exceeds maximum length")
+		handler.writeErr(w, r, http.StatusBadRequest, "key_too_long", "object key exceeds maximum length")
 		return "", false
 	}
 	return key, true
@@ -2106,15 +2136,15 @@ func (handler *BucketPlane) writeStoreError(
 ) {
 	switch {
 	case errors.Is(err, dbcontrol.ErrNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such bucket")
+		handler.writeErr(w, r, http.StatusNotFound, "not_found", "no such bucket")
 	case errors.Is(err, dbcontrol.ErrObjectKeyTaken):
-		httpx.WriteError(w, http.StatusConflict, "key_taken",
+		handler.writeErr(w, r, http.StatusConflict, "key_taken",
 			"an object with that key already exists in this project")
 	case errors.Is(err, dbcontrol.ErrInvalidCursor):
 		// The cursor, not the storage, is what refused: the listing is
 		// perfectly readable from the first page, and the message says which
 		// part of the cursor stopped matching.
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_cursor", err.Error())
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_cursor", err.Error())
 	default:
 		handler.writeError(w, r, projectID, err, action)
 	}
@@ -2810,13 +2840,13 @@ func (handler *BucketPlane) ResolveBucketByName(ctx context.Context, projectID u
 func (handler *BucketPlane) GetBucketInfo(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := auth.ProjectIDFromContext(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		handler.writeErr(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 
 	bucketID, err := uuidParam(r, "bucket_id")
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_bucket_id",
+		handler.writeErr(w, r, http.StatusBadRequest, "invalid_bucket_id",
 			"the bucket id is not a valid UUID")
 		return
 	}
@@ -2855,4 +2885,14 @@ func (handler *BucketPlane) GetBucketInfo(w http.ResponseWriter, r *http.Request
 		"public_url_base": handler.publicCDNURL(r),
 		"url_base":        handler.publicBaseURL(r),
 	})
+}
+
+// writeErr writes an error response, using XML when the request targets the
+// S3-compatible /s3/ plane so R2/S3 clients can parse it.
+func (handler *BucketPlane) writeErr(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+	if strings.HasPrefix(r.URL.Path, "/s3/") {
+		sigv4.WriteXMLError(w, status, code, msg)
+		return
+	}
+	httpx.WriteError(w, status, code, msg)
 }

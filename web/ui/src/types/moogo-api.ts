@@ -805,6 +805,8 @@ export interface components {
             max_object_size_bytes: number;
             /** Format: int64 */
             quota_bytes: number;
+            custom_domain: string;
+            cors_origins: string[];
         };
         BucketObject: {
             /** Format: uuid */

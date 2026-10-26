@@ -17,12 +17,12 @@ Three surfaces, each with its own credential:
 
 - **SQL** — `POST {PROJECT_URL}/query` for reads, `POST {PROJECT_URL}/exec`
   for writes, authorized with the project's secret key.
-- **Object storage** — `POST/GET/DELETE {PROJECT_URL}/bucket/{key}` (custom public), and `GET/PUT/HEAD {MOOGO_BASE_URL}/s3/{bucket_name}/*` (R2/S3 wire-compat, SigV4 auth, bucket-level visibility, XML errors; fail-closed until HMAC architecture complete),
+- **Object storage** — `POST/GET/DELETE {PROJECT_URL}/bucket/{key}` (custom public), and `GET/PUT/HEAD {MOOGO_BASE_URL}/s3/{bucket_name}/*` (R2/S3 wire-compat, SigV4 HMAC auth, bucket-level visibility, XML errors),
   authorized with a separate storage credential.
 - **Dashboard** — `/app`, session cookie, for browsing tables, running queries
   by hand, and downloading backups. Not for applications.
 
-The SDK (`clients/js`) is at `0.x.x` and includes `s3Download()` for the R2 endpoint. The service deploy (`c0b10e2`) passes `go vet` and `test -race`; `/s3/` is active but fail-closed (`401 AccessDenied`) until the full SigV4 HMAC verification is completed. Read [Limits](/docs/limits) and [S3 Wire-Compat](/docs/s3-wire-compat) before designing around it.
+The SDK (`clients/js`) is at `0.x.x` and includes `s3Download()` for the R2 endpoint. The service passes `go vet` and `test -race`; `/s3/` is active with SigV4 HMAC verification. Read [Limits](/docs/limits) and [S3 Wire-Compat](/docs/s3-wire-compat) before designing around it.
 
 ## How it is used
 

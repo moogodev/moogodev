@@ -648,7 +648,7 @@ func testBucketPlane(t *testing.T, quota int64) (*BucketPlane, *fakeBucketStore,
 	projectID := uuid.New()
 	store := newFakeBucketStore(projectID)
 	fs := newFakeObjectFS()
-	return NewBucketPlane(store, fs, quota, "", "", signedurl.New("test-secret"), logger.Nop()), store, fs
+	return NewBucketPlane(store, fs, quota, "", "", "", "", signedurl.New("test-secret"), logger.Nop()), store, fs
 }
 
 // requestContext builds a context carrying a project id and an object key, which
@@ -1164,7 +1164,7 @@ func TestSignURLFailsClosedWithoutASigner(t *testing.T) {
 	// A deployment with no signer must not mint links that verification would
 	// always reject later; it says the feature is unavailable.
 	store := newFakeBucketStore(uuid.New())
-	plane := NewBucketPlane(store, newFakeObjectFS(), 1<<20, "", "", nil, logger.Nop())
+	plane := NewBucketPlane(store, newFakeObjectFS(), 1<<20, "", "", "", "", nil, logger.Nop())
 
 	body := `{"key":"secret.png"}`
 	request := httptest.NewRequest(http.MethodPost, "/buckets/x/sign", strings.NewReader(body)).WithContext(
@@ -3002,7 +3002,7 @@ func TestPublicURLUsesTheConfiguredOriginNotTheRequestHost(t *testing.T) {
 	// that will still work when they paste it into their own site.
 	store := newFakeBucketStore(uuid.New())
 	fs := newFakeObjectFS()
-	plane := NewBucketPlane(store, fs, 1<<20, "https://moogo.dev", "", signedurl.New("test-secret"), logger.Nop())
+	plane := NewBucketPlane(store, fs, 1<<20, "https://moogo.dev", "", "", "", signedurl.New("test-secret"), logger.Nop())
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "logo.png", 4, "image/png")
 	if _, _, err := store.SetBucketPublic(
@@ -3038,7 +3038,7 @@ func TestPublicURLUsesTheCDNOriginWhileTheURLUsesTheAPIOrigin(t *testing.T) {
 	fs := newFakeObjectFS()
 	plane := NewBucketPlane(
 		store, fs, 1<<20,
-		"https://api.moogo.dev", "https://cdn.moogo.dev", signedurl.New("test-secret"), logger.Nop(),
+		"https://api.moogo.dev", "https://cdn.moogo.dev", "", "", signedurl.New("test-secret"), logger.Nop(),
 	)
 	bucket := store.addBucket("default")
 	store.addObject(bucket, "logo.png", 4, "image/png")

@@ -11,7 +11,7 @@ whichever fits your client.
 | Route | Credential | Use it for |
 |---|---|---|
 | \`/p/{project_id}/bucket/*\` | Storage credential | **Your application.** This is the one to use. |
-| \`/s3/{bucket_name}/*\` | SigV4 / Storage | R2-compatible download (unverified — fail-closed until full HMAC). |
+| \`/s3/{bucket_name}/*\` | SigV4 / Storage | R2-compatible download (SigV4 HMAC verification supported; native Bearer also accepted). |
 | \`/bucket/{project_id}/*\` | Storage credential | The original form, kept working. |
 | \`/api/projects/{project_id}/bucket/*\` | Session cookie | The dashboard. Not for applications. |
 
@@ -523,7 +523,7 @@ curl -X POST https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/purge-ca
     "https://cdn.moogo.dev/pub/8f3c.../avatars/kit.png",
     "https://cdn.moogo.dev/pub/8f3c.../avatars/logo.png"
   ],
-  "note": "These URLs should be purged from your CDN. If using Cloudflare, call the Purge Cache API with these URLs. For manual purge, use the dashboard or Cloudflare API with your zone ID and API token."
+  "note": "CDN purge attempted when configured (MOOGO_CDN_PURGE_ZONE_ID + MOOGO_CDN_PURGE_API_TOKEN)."
 }
 \`\`\`
 

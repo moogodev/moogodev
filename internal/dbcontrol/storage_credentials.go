@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/moogodev/moogodev/internal/secretbox"
 	"github.com/moogodev/moogodev/pkg/bucketkey"
 )
 
@@ -27,7 +28,7 @@ const MaxStorageCredentialsPerProject = 5
 
 // selectCredentialColumns is the shared projection for credential reads.
 const selectCredentialColumns = `
-	SELECT id, project_id, access_key_id, secret_key_hash, secret_key_preview,
+	SELECT id, project_id, access_key_id, secret_key_hash, secret_key_encrypted, secret_key_preview,
 	       label, created_at, rotated_at, revoked_at
 	FROM storage_credentials`
 
@@ -44,6 +45,7 @@ func scanCredential(row interface{ Scan(...any) error }) (*StorageCredential, er
 		&credential.ProjectID,
 		&credential.AccessKeyID,
 		&credential.SecretKeyHash,
+		&credential.SecretKeyEncrypted,
 		&credential.SecretKeyPreview,
 		&credential.Label,
 		&credential.CreatedAt,
@@ -102,10 +104,15 @@ func (store *Store) CreateStorageCredential(
 			ErrStorageCredentialLimit, MaxStorageCredentialsPerProject)
 	}
 
+	encrypted, err := secretbox.Seal(store.storageSecretKey, key.SecretKeyPlaintext)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt storage secret: %w", err)
+	}
+
 	const insertQuery = `
 		INSERT INTO storage_credentials (
-		    project_id, access_key_id, secret_key_hash, secret_key_preview, label)
-		VALUES ($1, $2, $3, $4, $5)
+		    project_id, access_key_id, secret_key_hash, secret_key_encrypted, secret_key_preview, label)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, created_at`
 
 	var (
@@ -113,7 +120,7 @@ func (store *Store) CreateStorageCredential(
 		createdAt    time.Time
 	)
 	if err := transaction.QueryRow(ctx, insertQuery,
-		projectID, key.AccessKeyID, key.SecretKeyHash, key.SecretKeyPreview, label,
+		projectID, key.AccessKeyID, key.SecretKeyHash, encrypted, key.SecretKeyPreview, label,
 	).Scan(&credentialID, &createdAt); err != nil {
 		return nil, fmt.Errorf("insert storage credential: %w", err)
 	}
@@ -202,18 +209,24 @@ func (store *Store) RotateStorageCredentialSecret(
 	credentialID uuid.UUID,
 	key bucketkey.Generated,
 ) (*StorageCredential, error) {
+	encrypted, err := secretbox.Seal(store.storageSecretKey, key.SecretKeyPlaintext)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt storage secret: %w", err)
+	}
+
 	const query = `
 		UPDATE storage_credentials
 		   SET secret_key_hash     = $3,
-		       secret_key_preview  = $4,
+		       secret_key_encrypted = $4,
+		       secret_key_preview  = $5,
 		       rotated_at          = now()
 		 WHERE id = $2 AND project_id = $1 AND revoked_at IS NULL
-		RETURNING id, project_id, access_key_id, secret_key_hash,
+		RETURNING id, project_id, access_key_id, secret_key_hash, secret_key_encrypted,
 		          secret_key_preview, label, created_at, rotated_at, revoked_at`
 
 	credential, err := scanCredential(
 		store.pool.QueryRow(ctx, query, projectID, credentialID,
-			key.SecretKeyHash, key.SecretKeyPreview))
+			key.SecretKeyHash, encrypted, key.SecretKeyPreview))
 	if err != nil {
 		if isNoRows(err) {
 			return nil, ErrNotFound

@@ -130,6 +130,12 @@ type Bucket struct {
 	// the database uses NULL for it.
 	MaxObjectSizeBytes int64
 
+	// CustomDomain is an optional domain mapped to this bucket for public delivery.
+	CustomDomain string
+
+	// CORSOrigins is the list of allowed origins for cross-origin requests.
+	CORSOrigins []string
+
 	// QuotaBytes caps this bucket's own storage, separately from the project
 	// quota. A project can hold StorageCeilingBytes across all of its buckets,
 	// and a single bucket must not be able to take all of it.
@@ -170,6 +176,9 @@ type StorageCredential struct {
 
 	// SecretKeyHash never leaves the server.
 	SecretKeyHash string
+	// SecretKeyEncrypted is the AES-GCM sealed plaintext secret, used for
+	// SigV4 HMAC signing (R2 compatibility). Empty for legacy credentials.
+	SecretKeyEncrypted string
 	// SecretKeyPreview is a few leading characters, enough to tell two
 	// credentials apart in a list and useless on its own.
 	SecretKeyPreview string

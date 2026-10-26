@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/moogodev/moogodev/internal/auth"
+	"github.com/moogodev/moogodev/internal/auth/sigv4"
 	"github.com/moogodev/moogodev/internal/backup"
 	"github.com/moogodev/moogodev/internal/config"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
@@ -59,6 +60,8 @@ type Options struct {
 // the router can both assume the schema exists.
 func Build(ctx context.Context, options Options) (*App, error) {
 	cfg := options.Config
+
+	sigv4.SetStorageSecretKey(cfg.StorageSecretKey)
 
 	// Log all origins at startup for immediate misconfig detection
 	options.Log.Info("moogo origins configured", logger.Fields{
@@ -166,7 +169,7 @@ func Build(ctx context.Context, options Options) (*App, error) {
 	// single-host deployment building the same URLs it always did. Using the
 	// dashboard origin is what handed the dashboard app.moogo.dev public links
 	// while the /pub/ route was live on api.moogo.dev.
-	bucketHandler := handler.NewBucketPlane(store, databases, cfg.MaxStorageBytes, cfg.BaseURL, cfg.CDNURL, signedurl.New(cfg.SessionSecret), options.Log)
+	bucketHandler := handler.NewBucketPlane(store, databases, cfg.MaxStorageBytes, cfg.BaseURL, cfg.CDNURL, cfg.CDNPurgeZoneID, cfg.CDNPurgeAPIToken, signedurl.New(cfg.SessionSecret), options.Log)
 	docsHandler := handler.NewDocsHandler(handler.GetDocsFS(), options.Log)
 	updatesHandler := handler.NewUpdatesHandler(cfg.NewsURL, options.Log)
 	metaHandler := handler.NewMeta(cfg.PublicURL, docsHandler, options.Log)

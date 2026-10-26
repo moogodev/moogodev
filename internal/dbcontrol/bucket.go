@@ -24,7 +24,9 @@ import (
 // compile error, and the mismatch only shows up on the query that was edited.
 const bucketColumns = `
 	id, project_id, name, created_at, is_public, allowed_types,
-	COALESCE(max_object_size_bytes, 0)::bigint AS max_object_size_bytes, quota_bytes`
+	COALESCE(max_object_size_bytes, 0)::bigint AS max_object_size_bytes, quota_bytes,
+	COALESCE(custom_domain, '') AS custom_domain,
+	COALESCE(cors_origins, '{}') AS cors_origins`
 
 // bucketStatsColumns is bucketColumns with the aggregate the bucket list shows.
 // Prefixed with the table alias because it is the one query that joins.
@@ -39,6 +41,8 @@ const bucketStatsColumns = `
 	b.id, b.project_id, b.name, b.created_at, b.is_public, b.allowed_types,
 	COALESCE(b.max_object_size_bytes, 0)::bigint AS max_object_size_bytes,
 	b.quota_bytes,
+	COALESCE(b.custom_domain, '') AS custom_domain,
+	COALESCE(b.cors_origins, '{}') AS cors_origins,
 	COALESCE(COUNT(o.id), 0)::bigint,
 	COALESCE(SUM(o.size_bytes), 0)::bigint`
 
@@ -64,6 +68,8 @@ func scanBucket(row rowScanner, extra ...any) (*Bucket, error) {
 		&bucket.AllowedTypes,
 		&bucket.MaxObjectSizeBytes,
 		&bucket.QuotaBytes,
+		&bucket.CustomDomain,
+		&bucket.CORSOrigins,
 	}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
 		return nil, err

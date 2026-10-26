@@ -15,14 +15,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/moogodev/moogodev/internal/config"
+	"github.com/moogodev/moogodev/internal/secretbox"
 	"github.com/moogodev/moogodev/pkg/logger"
 )
 
 // Store is the handle to the control plane.
 type Store struct {
-	pool      *pgxpool.Pool
-	logger    *logger.Logger
-	closeOnce bool
+	pool               *pgxpool.Pool
+	logger             *logger.Logger
+	closeOnce          bool
+	storageSecretKey   []byte
 }
 
 // Sentinel errors. Handlers map these onto HTTP status codes, which is why they
@@ -93,7 +95,7 @@ func New(ctx context.Context, cfg config.Config, log *logger.Logger) (*Store, er
 		"min_conns": cfg.DBMinConns,
 	})
 
-	store := &Store{pool: pool, logger: log}
+	store := &Store{pool: pool, logger: log, storageSecretKey: secretbox.KeyFromSecret(cfg.StorageSecretKey)}
 
 	// Migrations run at startup rather than as a separate deploy step. A
 	// deployment then cannot ship code that expects a schema the database does

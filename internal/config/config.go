@@ -41,6 +41,9 @@ type Config struct {
 	// Defaults to BaseURL, which is what a deployment with no separate CDN
 	// host wants.
 	CDNURL string
+	// CDN purge (Cloudflare) for cache invalidation.
+	CDNPurgeZoneID string
+	CDNPurgeAPIToken string
 	// NewsURL is the What's-new service whose published posts feed the
 	// dashboard's update list. The list is fetched over loopback and served
 	// on this origin, so the news service needs no CORS route. The default
@@ -88,6 +91,9 @@ type Config struct {
 	GoogleClientSecret string
 	SessionSecret      string
 	SessionTTL         time.Duration
+	// StorageSecretKey encrypts storage credential secrets at rest so they can
+	// be recovered for SigV4 HMAC signing. Required for R2-compatible auth.
+	StorageSecretKey string
 	CookieSecure       bool
 	// CookieDomain scopes the session cookie to a domain instead of a single
 	// host, so the landing page on the apex and the dashboard on a subdomain
@@ -305,7 +311,9 @@ func Load() (Config, error) {
 		Addr:            reader.string("MOOGO_ADDR", "127.0.0.1:8080"),
 		PublicURL:       strings.TrimRight(reader.string("MOOGO_PUBLIC_URL", "http://localhost:8080"), "/"),
 		BaseURL:         strings.TrimRight(reader.string("MOOGO_BASE_URL", ""), "/"),
-		CDNURL:          strings.TrimRight(reader.string("MOOGO_CDN_URL", ""), "/"),
+		CDNURL:           strings.TrimRight(reader.string("MOOGO_CDN_URL", ""), "/"),
+		CDNPurgeZoneID:   reader.string("MOOGO_CDN_PURGE_ZONE_ID", ""),
+		CDNPurgeAPIToken: reader.string("MOOGO_CDN_PURGE_API_TOKEN", ""),
 		NewsURL:         strings.TrimRight(reader.string("MOOGO_NEWS_URL", "http://127.0.0.1:8081"), "/"),
 		ReadTimeout:     reader.duration("MOOGO_READ_TIMEOUT", 15*time.Second),
 		IdleTimeout:     reader.duration("MOOGO_IDLE_TIMEOUT", 120*time.Second),
@@ -327,6 +335,7 @@ func Load() (Config, error) {
 		GoogleClientID:     reader.string("MOOGO_GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret: reader.string("MOOGO_GOOGLE_CLIENT_SECRET", ""),
 		SessionSecret:      reader.requiredString("MOOGO_SESSION_SECRET"),
+		StorageSecretKey:   reader.string("MOOGO_STORAGE_SECRET_KEY", "dev-storage-secret-key-32bytes!!"),
 		SessionTTL:         reader.duration("MOOGO_SESSION_TTL", 7*24*time.Hour),
 		CookieSecure:       reader.bool("MOOGO_COOKIE_SECURE", true),
 		CookieDomain:       reader.string("MOOGO_COOKIE_DOMAIN", ""),

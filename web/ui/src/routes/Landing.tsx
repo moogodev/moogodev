@@ -168,7 +168,7 @@ const pillars = [
       },
       {
         title: "Public URLs without ceremony",
-        body: "Publish an object and it is readable at a stable URL with no header, no cookie and no session. Private objects answer 404, so an unlisted file is indistinguishable from one that does not exist. The `GET /pub/` path is the public download endpoint; `/s3/{bucket_name}/*` is the R2-compatible endpoint (bucket-level visibility, SigV4 auth, fail-closed until full HMAC)."
+        body: "Publish an object and it is readable at a stable URL with no header, no cookie and no session. Private objects answer 404, so an unlisted file is indistinguishable from one that does not exist. The `GET /pub/` path is the public download endpoint; `/s3/{bucket_name}/*` is the R2-compatible endpoint (bucket-level visibility, SigV4 HMAC auth)."
       },
       {
         title: "Policies enforced server-side",
@@ -977,7 +977,7 @@ function Pricing() {
             {[
               "2 projects, 256 MB of SQLite each",
               "256 MB of object storage per project",
-              "S3 / R2 endpoint (`/s3/`) — bucket-level visibility, SigV4 auth, fail-closed",
+              "S3 / R2 endpoint (`/s3/`) — bucket-level visibility, SigV4 HMAC auth",
               "Public download (`/pub/`) + SDK `0.x.x` (`s3Download`)",
               "The full dashboard, SQL console, and XML error responses",
               "No idle pause and no cold start",
