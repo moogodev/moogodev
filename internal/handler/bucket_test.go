@@ -139,6 +139,8 @@ func (store *fakeBucketStore) UpdateBucketSettings(
 	maxObjectSize int64,
 	isPublic bool,
 	quotaBytes int64,
+	customDomain string,
+	corsOrigins []string,
 ) (*dbcontrol.Bucket, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -154,6 +156,8 @@ func (store *fakeBucketStore) UpdateBucketSettings(
 			bucket.MaxObjectSizeBytes = maxObjectSize
 			bucket.IsPublic = isPublic
 			bucket.QuotaBytes = quotaBytes
+			bucket.CustomDomain = customDomain
+			bucket.CORSOrigins = corsOrigins
 			updated := *bucket
 			return &updated, nil
 		}

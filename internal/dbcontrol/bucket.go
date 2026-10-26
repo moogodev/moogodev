@@ -534,6 +534,8 @@ func (store *Store) UpdateBucketSettings(
 	maxObjectSize int64,
 	isPublic bool,
 	quotaBytes int64,
+	customDomain string,
+	corsOrigins []string,
 ) (*Bucket, error) {
 	// $1 is the id and $2 the project, matching the order of the WHERE clause.
 	// These were the other way round in the version this replaced, which is why
@@ -544,12 +546,14 @@ func (store *Store) UpdateBucketSettings(
 		   SET allowed_types = $3,
 		       max_object_size_bytes = NULLIF($4, 0),
 		       is_public = $5,
-		       quota_bytes = $6
+		       quota_bytes = $6,
+		       custom_domain = $7,
+		       cors_origins = $8
 		 WHERE id = $1 AND project_id = $2
 		RETURNING ` + bucketColumns
 
 	bucket, err := scanBucket(store.pool.QueryRow(
-		ctx, query, bucketID, projectID, allowedTypes, maxObjectSize, isPublic, quotaBytes))
+		ctx, query, bucketID, projectID, allowedTypes, maxObjectSize, isPublic, quotaBytes, customDomain, corsOrigins))
 	if err != nil {
 		if isNoRows(err) {
 			return nil, ErrNotFound

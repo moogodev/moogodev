@@ -42,6 +42,8 @@ type BucketStore interface {
 		maxObjectSize int64,
 		isPublic bool,
 		quotaBytes int64,
+		customDomain string,
+		corsOrigins []string,
 	) (*dbcontrol.Bucket, error)
 	DeleteBucket(ctx context.Context, projectID uuid.UUID, bucketID uuid.UUID) error
 	DeleteBucketKeys(ctx context.Context, bucketID uuid.UUID) ([]string, error)
@@ -1540,7 +1542,8 @@ func (handler *BucketPlane) CreateBucket(w http.ResponseWriter, r *http.Request)
 		}
 		bucket, err = handler.store.UpdateBucketSettings(
 			r.Context(), projectID, bucket.ID, allowedTypes,
-			request.MaxObjectSizeBytes, bucket.IsPublic, quotaBytes)
+			request.MaxObjectSizeBytes, bucket.IsPublic, quotaBytes,
+			bucket.CustomDomain, bucket.CORSOrigins)
 		if err != nil {
 			handler.writeStoreError(w, r, projectID, err, "set bucket settings")
 			return
@@ -1592,7 +1595,9 @@ func (handler *BucketPlane) UpdateBucketSettings(w http.ResponseWriter, r *http.
 	if request.AllowedTypes == nil &&
 		request.MaxObjectSizeBytes == nil &&
 		request.IsPublic == nil &&
-		request.QuotaBytes == nil {
+		request.QuotaBytes == nil &&
+		request.CustomDomain == nil &&
+		request.CORSOrigins == nil {
 		handler.writeErr(w, r, http.StatusBadRequest, "invalid_body",
 			"the body must set allowed_types, max_object_size_bytes, is_public or quota_bytes")
 		return
@@ -1627,6 +1632,16 @@ func (handler *BucketPlane) UpdateBucketSettings(w http.ResponseWriter, r *http.
 		isPublic = *request.IsPublic
 	}
 
+	customDomain := current.CustomDomain
+	if request.CustomDomain != nil {
+		customDomain = *request.CustomDomain
+	}
+
+	corsOrigins := current.CORSOrigins
+	if request.CORSOrigins != nil {
+		corsOrigins = *request.CORSOrigins
+	}
+
 	quotaBytes := current.QuotaBytes
 	if request.QuotaBytes != nil {
 		quotaBytes = *request.QuotaBytes
@@ -1655,7 +1670,7 @@ func (handler *BucketPlane) UpdateBucketSettings(w http.ResponseWriter, r *http.
 	}
 
 	updated, err := handler.store.UpdateBucketSettings(
-		r.Context(), projectID, bucketID, allowedTypes, maxObjectSize, isPublic, quotaBytes)
+		r.Context(), projectID, bucketID, allowedTypes, maxObjectSize, isPublic, quotaBytes, customDomain, corsOrigins)
 	if err != nil {
 		handler.writeStoreError(w, r, projectID, err, "update bucket settings")
 		return
@@ -2753,6 +2768,8 @@ type BucketSettingsRequest struct {
 	MaxObjectSizeBytes *int64    `json:"max_object_size_bytes"`
 	IsPublic           *bool     `json:"is_public"`
 	QuotaBytes         *int64    `json:"quota_bytes"`
+	CustomDomain       *string   `json:"custom_domain"`
+	CORSOrigins        *[]string `json:"cors_origins"`
 }
 
 // ifRangeMatches checks the If-Range header against the current entity.

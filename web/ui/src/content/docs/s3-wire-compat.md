@@ -17,8 +17,8 @@ Cloudflare R2, AWS S3, and MinIO all share one protocol: you send an `Authorizat
 | Route /s3/ HEAD | ✅ Done | Reuses GET handler |
 | XML error response | ✅ Done | `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch` in `application/xml` |
 | Bucket name resolution | ✅ Done | `ResolveBucketByName(projectID, bucketName)` → `ContextKeyBucketID` |
-| SigV4 full HMAC verification | ⏳ Blocked | Secret key is bcrypt-hashed (`SecretKeyHash`); cannot derive signing key for HMAC |
-| Presigned URL generation | ✅ Done structurally | `PresignURL()` builds query params; `X-Amz-Signature` placeholder |
+| SigV4 full HMAC verification | ✅ Done | Secret stored encrypted (AES-GCM); full HMAC verification implemented |
+| Presigned URL generation | ✅ Done | `PresignURL()` builds query params with real signature |
 | SDK `s3Download()` | ✅ Done | Client method added in `clients/js/src/client.ts` |
 | CORS | ✅ Done | OPTIONS preflight allowed, methods `GET/PUT/HEAD/POST` |
 | Error format for S3 SDK | ✅ Done | XML matches AWS/R2 contract |
