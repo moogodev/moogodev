@@ -21,10 +21,10 @@ Status: ⚠️ PARTIAL
 - GET /s3/{bucket}/{key}: ✅ (PublicDownload)
 - HEAD /s3/{bucket}/{key}: ✅ (PublicDownload)
 - PUT /s3/{bucket}/{key}: ✅ (PresignedUpload)
-- DeleteObject: ⚠️ Placeholder di router (6e78382); handler real belum
-- ListObjectsV2: ❌ (perlu GET /s3/{bucket}?list-type=2)
-- CopyObject: ❌
-- DeleteObjects (batch): ❌
+- DeleteObject: ✅ (native auth; DELETE /s3/{bucket}/{key} -> Bucket.Delete)
+- ListObjectsV2: ✅ (GET /s3/{bucket} -> Bucket.ListObjectsV2; XML)
+- CopyObject: ✅ (PUT /s3/{bucket}/{key} dengan x-amz-copy-source)
+- DeleteObjects (batch): ✅ (POST /s3/{bucket}?delete)
 
 ## Phase 3 — Bucket Namespace (P1)
 Status: ⚠️ PARTIAL
@@ -51,7 +51,7 @@ Status: ✅ SELESAI (commit 4e33588 / 782044e / 0.2.4 npm)
 
 ## Phase 6 — Optimal (P3)
 Status: ❌ DITUNDA
-- Multipart upload: ❌
+- Multipart upload: ✅ (Create/UploadPart/Complete/Abort)
 - Copy object: ❌
 - Batch delete: ❌
 - Bucket policy / CORS: ❌

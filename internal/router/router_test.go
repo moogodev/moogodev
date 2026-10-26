@@ -302,9 +302,26 @@ func (stub *stubBucket) PublicDownload(w http.ResponseWriter, r *http.Request) {
 func (stub *stubBucket) PresignedUpload(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "PresignedUpload")
 }
+func (stub *stubBucket) CopyObject(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "CopyObject")
+}
+func (stub *stubBucket) CreateMultipartUpload(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "CreateMultipartUpload")
+}
+func (stub *stubBucket) UploadPart(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "UploadPart")
+}
+func (stub *stubBucket) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "CompleteMultipartUpload")
+}
+func (stub *stubBucket) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) {
+	stub.mark(w, "AbortMultipartUpload")
+}
 func (stub *stubBucket) Update(w http.ResponseWriter, r *http.Request) { stub.mark(w, "Update") }
 func (stub *stubBucket) Delete(w http.ResponseWriter, r *http.Request) { stub.mark(w, "Delete") }
-func (stub *stubBucket) List(w http.ResponseWriter, r *http.Request)   { stub.mark(w, "List") }
+func (stub *stubBucket) DeleteObjects(w http.ResponseWriter, r *http.Request) { stub.mark(w, "DeleteObjects") }
+func (stub *stubBucket) List(w http.ResponseWriter, r *http.Request)            { stub.mark(w, "List") }
+func (stub *stubBucket) ListObjectsV2(w http.ResponseWriter, r *http.Request)   { stub.mark(w, "ListObjectsV2") }
 
 func (stub *stubBucket) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	stub.mark(w, "ListBuckets")

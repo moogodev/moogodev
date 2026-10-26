@@ -121,9 +121,16 @@ type BucketHandlers interface {
 	PublicDownload(http.ResponseWriter, *http.Request)
 	// PresignedUpload accepts an upload authorized by a signed URL.
 	PresignedUpload(http.ResponseWriter, *http.Request)
+	CopyObject(http.ResponseWriter, *http.Request)
+	CreateMultipartUpload(http.ResponseWriter, *http.Request)
+	UploadPart(http.ResponseWriter, *http.Request)
+	CompleteMultipartUpload(http.ResponseWriter, *http.Request)
+	AbortMultipartUpload(http.ResponseWriter, *http.Request)
 	Update(http.ResponseWriter, *http.Request)
 	Delete(http.ResponseWriter, *http.Request)
+	DeleteObjects(http.ResponseWriter, *http.Request)
 	List(http.ResponseWriter, *http.Request)
+	ListObjectsV2(http.ResponseWriter, *http.Request)
 	ListBuckets(http.ResponseWriter, *http.Request)
 	CreateBucket(http.ResponseWriter, *http.Request)
 	UpdateBucketSettings(http.ResponseWriter, *http.Request)
@@ -646,7 +653,42 @@ func New(deps Deps) http.Handler {
 			})
 		})
 		s3.Use(func(next http.Handler) http.Handler {
-			return sigv4.Middleware(deps.StorageKeys, next)
+			return sigv4.NativeMiddleware(deps.StorageKeys, deps.ProjectKeys, next)
+		})
+		s3.Post("/{bucket_name}", func(w http.ResponseWriter, r *http.Request) {
+			bucketName := chi.URLParam(r, "bucket_name")
+			q := r.URL.Query()
+			q.Set("bucket", bucketName)
+			r.URL.RawQuery = q.Encode()
+			if r.URL.Query().Has("delete") {
+				deps.Bucket.DeleteObjects(w, r)
+				return
+			}
+			sigv4.WriteXMLError(w, http.StatusNotImplemented, "NotImplemented", "not implemented")
+		})
+		s3.Get("/{bucket_name}", func(w http.ResponseWriter, r *http.Request) {
+			bucketName := chi.URLParam(r, "bucket_name")
+			q := r.URL.Query()
+			q.Set("bucket", bucketName)
+			r.URL.RawQuery = q.Encode()
+			deps.Bucket.ListObjectsV2(w, r)
+		})
+		s3.Post("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
+			bucketName := chi.URLParam(r, "bucket_name")
+			key := chi.URLParam(r, "*")
+			r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyObjectKey, key))
+			q := r.URL.Query()
+			q.Set("bucket", bucketName)
+			r.URL.RawQuery = q.Encode()
+			if r.URL.Query().Has("uploads") {
+				deps.Bucket.CreateMultipartUpload(w, r)
+				return
+			}
+			if r.URL.Query().Get("uploadId") != "" {
+				deps.Bucket.CompleteMultipartUpload(w, r)
+				return
+			}
+			sigv4.WriteXMLError(w, http.StatusNotImplemented, "NotImplemented", "not implemented")
 		})
 		s3.Get("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
 			bucketName := chi.URLParam(r, "bucket_name")
@@ -675,14 +717,40 @@ func New(deps Deps) http.Handler {
 			deps.Bucket.PublicDownload(w, r)
 		})
 		s3.Delete("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
-			// Phase 2 — DeleteObject endpoint (P1)
-			httpx.WriteError(w, http.StatusNotImplemented, "not_implemented", "DELETE /s3/ requires handler integration")
+			bucketName := chi.URLParam(r, "bucket_name")
+			key := chi.URLParam(r, "*")
+			r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyObjectKey, key))
+			q := r.URL.Query()
+			q.Set("bucket", bucketName)
+			r.URL.RawQuery = q.Encode()
+			if r.URL.Query().Get("uploadId") != "" {
+				deps.Bucket.AbortMultipartUpload(w, r)
+				return
+			}
+			projectID, ok := auth.ProjectIDFromContext(r.Context())
+			if ok {
+				if b, err := deps.Bucket.ResolveBucketByName(r.Context(), projectID, bucketName); err == nil && b != nil {
+					r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyBucketID, b.ID))
+				}
+			}
+			_ = bucketName
+			deps.Bucket.Delete(w, r)
 		})
 		s3.Put("/{bucket_name}/*", func(w http.ResponseWriter, r *http.Request) {
 			bucketName := chi.URLParam(r, "bucket_name")
 			key := chi.URLParam(r, "*")
 			r = r.WithContext(context.WithValue(r.Context(), auth.ContextKeyObjectKey, key))
-			_ = bucketName
+			q := r.URL.Query()
+			q.Set("bucket", bucketName)
+			r.URL.RawQuery = q.Encode()
+			if r.URL.Query().Get("uploadId") != "" && r.URL.Query().Get("partNumber") != "" {
+				deps.Bucket.UploadPart(w, r)
+				return
+			}
+			if r.Header.Get("X-Amz-Copy-Source") != "" {
+				deps.Bucket.CopyObject(w, r)
+				return
+			}
 			deps.Bucket.PresignedUpload(w, r)
 		})
 	})
