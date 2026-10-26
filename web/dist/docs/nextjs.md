@@ -156,7 +156,8 @@ export async function bucketPublish(key: string) {
   const res = await fetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
     method: "PATCH",
     headers: { ...STORAGE_HEADERS, "Content-Type": "application/json" },
-    body: JSON.stringify({ is_public: true }),
+    body: JSON.stringify({ is_public: true }) // _bucket-level visibility_
+    // _(bucket-level: makes all objects in the bucket public)_,
   });
   return handle(res);
 }

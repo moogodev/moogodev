@@ -110,7 +110,7 @@ class MoogoClient:
         resp = self.session.patch(
             f"{self.bucket_endpoint}/{quote(key, safe='/')}",
             headers={**self.storage_headers, "Content-Type": "application/json"},
-            json={"is_public": True},
+            json={"is_public": True} // _bucket-level visibility_,
         )
         return resp.json()
 

@@ -74,7 +74,7 @@ Four settings control what a bucket accepts and how much room it has. **The serv
 enforces all of them on every write**, not just in the dashboard's file picker, so
 an API client cannot bypass them.
 
-### `is_public`
+### Bucket-level visibility (`is_public`)
 
 Whether objects uploaded to this bucket from now on are readable by their URL
 without a credential. `false` by default.
@@ -153,7 +153,7 @@ curl -X PATCH "https://api.moogo.dev/p/$MOOGO_PROJECT_ID/bucket/avatars/kit.png"
   -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"is_public": true}'
+  -d '{"is_public": true}' _(makes bucket public; all objects inherit visibility)_
 ```
 
 Or publish a whole bucket at once — it becomes the default for everything uploaded
@@ -164,7 +164,7 @@ curl -X POST https://api.moogo.dev/buckets/$MOOGO_PROJECT_ID/$BUCKET_ID/public \
   -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"is_public":true}'
+  -d '{"is_public":true}' _(makes bucket public; all objects inherit visibility)_
 ```
 
 A published object gets a `public_url`:
@@ -193,8 +193,7 @@ can embed them.
 > `404` on the public route, so it is indistinguishable from one that does not
 > exist.
 
-Unpublishing reverses it: `PATCH` with `{"is_public": false}` for one object, or
-`POST …/public` with `{"is_public": false}` for a whole bucket.
+Unpublishing reverses it: `POST /buckets/{project_id}/{bucket_id}/public` with `{"is_public": false}` to make the whole bucket private, or use **Dashboard → Bucket settings → Public toggle**.
 
 ## Organising with prefixes
 

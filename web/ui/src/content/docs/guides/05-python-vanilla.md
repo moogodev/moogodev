@@ -142,7 +142,7 @@ def bucket_list(prefix: str = None) -> dict:
         return json.load(resp)
 
 def bucket_publish(key: str) -> dict:
-    body = json.dumps({"is_public": True}).encode()
+    body = json.dumps({"is_public": True}) // _bucket-level visibility_
     return _storage_request(
         "PATCH", f"/{quote(key, safe='/')}", body=body, headers={"Content-Type": "application/json"}
     )

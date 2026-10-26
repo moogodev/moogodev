@@ -299,11 +299,6 @@ class MoogoClient {
         }
         return fetch(url, { headers, signal: opts?.signal });
     }
-    /** Toggle bucket public/private (fans out to all objects) */
-    async setBucketPublic(bucketId, isPublic) {
-        const response = await this.requestStorage('POST', `${this.getCatalogPath()}/${bucketId}/public`, { body: JSON.stringify({ is_public: isPublic }) });
-        return response.bucket;
-    }
     // ==================== Object Operations ====================
     /**
      * Upload an object to a bucket.
@@ -553,27 +548,6 @@ class MoogoClient {
         };
         if (bucket !== 'default')
             body.bucket = bucket;
-        return this.requestStorage('POST', path, {
-            body: JSON.stringify(body),
-            signal,
-        });
-    }
-    /** Create a signed upload URL (returns upload URL + object metadata) */
-    async createSignedUpload(key, request, options = {}) {
-        const { bucket = 'default', signal } = options;
-        // The server exposes one signing route: POST /buckets/{project_id}/sign.
-        // A PUT grant is minted by passing method: "PUT" in the body, which is
-        // what the client does here. The old /sign-upload path does not exist on
-        // the server and always answered 404.
-        const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}/sign`;
-        const body = {
-            method: 'PUT',
-            expires_in: request.expires_in,
-        };
-        if (bucket !== 'default')
-            body.bucket = bucket;
-        if (request.content_type)
-            body.content_type = request.content_type;
         return this.requestStorage('POST', path, {
             body: JSON.stringify(body),
             signal,

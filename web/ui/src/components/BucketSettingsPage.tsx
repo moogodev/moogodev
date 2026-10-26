@@ -252,8 +252,8 @@ export default function BucketSettingsPage({ projectId }: BucketSettingsPageProp
         <SectionHeading>Visibility</SectionHeading>
         <p className="mt-2 max-w-[68ch] text-[0.82rem] font-medium leading-relaxed text-muted">
           This applies to <strong className="text-foreground">every object in the bucket</strong>,
-          not only to new uploads. Saving a change updates the objects already here as well; each
-          file can then be published or unpublished on its own from the Bucket tab. Replacing an
+          not only to new uploads. Saving a change updates the objects already here as well. Publishing
+          is bucket-level: all objects in this bucket share the same visibility. Replacing an
           existing file never changes its visibility either way.
         </p>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">

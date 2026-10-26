@@ -191,7 +191,7 @@ export async function publishFile(key: string) {
   const res = await fetch(\`\${BUCKET_ENDPOINT}/\${encodeKey(key)}\`, {
     method: "PATCH",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ is_public: true }),
+    body: JSON.stringify({ is_public: true }) // _bucket-level visibility_,
   });
   return res.json();
 }

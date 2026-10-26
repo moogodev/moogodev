@@ -145,7 +145,7 @@ class Moogo
 
   def self.bucket_publish(key)
     path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
-    body = JSON.generate({ is_public: true })
+    body = JSON.generate({ is_public: true }) // _bucket-level visibility_
     bucket_request(:patch, "/#{path}", body: body, extra_headers: { 'Content-Type' => 'application/json' })
   end
 
@@ -301,7 +301,7 @@ class Moogo
     path = key.split('/').map { |segment| ERB::Util.url_encode(segment) }.join('/')
     res = storage_client.patch("/#{path}") do |req|
       req.headers.merge!(STORAGE_HEADERS.merge('Content-Type' => 'application/json'))
-      req.body = JSON.generate({ is_public: true })
+      req.body = JSON.generate({ is_public: true }) // _bucket-level visibility_
     end
     raise Error.new(res.body['error'], res.status) unless res.success?
     res.body

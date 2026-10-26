@@ -737,12 +737,6 @@ export const api = {
       )}`,
       { method: "DELETE" },
     ),
-  // setObjectPublic publishes or unpublishes one object.
-  dashboardSetObjectPublic: (projectId: string, key: string, isPublic: boolean) =>
-    request<{ object: BucketObject }>(
-      `/api/projects/${projectId}/bucket/${encodeKey(key)}`,
-      { method: "PATCH", body: JSON.stringify({ is_public: isPublic }) },
-    ),
   // renameObject moves an object to a new key.
   dashboardRenameObject: (projectId: string, key: string, newKey: string) =>
     request<{ object: BucketObject }>(

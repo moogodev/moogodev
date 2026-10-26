@@ -383,7 +383,7 @@ Stored with object, used for all subsequent downloads. Defaults:
 
 ### Publishing — per object, and the bucket toggle is bulk
 
-**A bucket toggle is bulk, not "new uploads only".** `POST /buckets/{project_id}/{bucket_id}/public` — or `PATCH` on the bucket with `is_public` — sets the visibility new uploads inherit **and rewrites `is_public` on every object already in the bucket**. The response reports `affected`, the number of objects it changed. Making a bucket private therefore takes every object in it off `/pub/` immediately; making it public puts every object back.
+**A bucket toggle is bulk, not "new uploads only".** `POST /buckets/{project_id}/{bucket_id}/public` — sets the visibility new uploads inherit **and rewrites `is_public` on every object already in the bucket**. The response reports `affected`, the number of objects it changed. Making a bucket private therefore takes every object in it off `/pub/` immediately; making it public puts every object back.
 
 To change one file only: visibility is now bucket-level; use the bucket toggle (`POST /buckets/{project_id}/{bucket_id}/public`) to set visibility for the whole bucket. Overwriting a key never changes its visibility in either direction.
 
@@ -391,12 +391,12 @@ To change one file only: visibility is now bucket-level; use the bucket toggle (
 # Publish one object
 curl -X PATCH "$ENDPOINT/avatars/kit.png" \
   -H "Content-Type: application/json" \
-  -d '{"is_public": true}'
+  -d '{"is_public": true}' _(bucket-level: makes all objects in the bucket public)_
 
 # Publish a whole bucket — this also publishes everything already in it
 curl -X POST "$CATALOG/bucket-id/public" \
   -H "Content-Type: application/json" \
-  -d '{"is_public": true}'
+  -d '{"is_public": true}' _(bucket-level: makes all objects in the bucket public)_
 ```
 
 ### Bucket info endpoint

@@ -286,35 +286,6 @@ export default function BucketView({
     [announce, projectId, refreshAll],
   );
 
-  const togglePublic = useCallback(
-    async (object: BucketObject) => {
-      setBusy(object.id);
-      try {
-        const response = await api.dashboardSetObjectPublic(
-          projectId,
-          object.key,
-          !object.is_public,
-        );
-        // The preview drawer holds the old row, so it is updated from the
-        // response rather than left showing a public URL that 404s.
-        setPreview((current) => (current && current.id === object.id ? response.object : current));
-        setListing((current) => ({
-          ...current,
-          objects: current.objects.map((row) =>
-            row.id === object.id ? response.object : row,
-          ),
-        }));
-        announce(response.object.is_public ? "Published." : "Made private.");
-        await loadBuckets();
-      } catch (cause) {
-        announce(messageOf(cause));
-      } finally {
-        setBusy(null);
-      }
-    },
-    [announce, loadBuckets, projectId],
-  );
-
   const rename = useCallback(
     async (object: BucketObject) => {
       const next = window.prompt("New key", object.key);
@@ -452,25 +423,6 @@ export default function BucketView({
     }
     setBusy(null);
     announce(failed === 0 ? `Deleted ${keys.length} object${keys.length === 1 ? "" : "s"}.` : `Deleted ${keys.length - failed}, ${failed} failed.`);
-    clearSelection();
-    await refreshAll();
-  }, [announce, clearSelection, projectId, refreshAll, selectedKeys]);
-
-  const bulkPublish = useCallback(async (makePublic: boolean) => {
-    if (selectedKeys.size === 0) return;
-    const keys = Array.from(selectedKeys);
-    setBusy("bulk-publish");
-    let failed = 0;
-    for (const key of keys) {
-      try {
-        await api.dashboardSetObjectPublic(projectId, key, makePublic);
-      } catch {
-        failed += 1;
-      }
-    }
-    setBusy(null);
-    const verb = makePublic ? "Published" : "Made private";
-    announce(failed === 0 ? `${verb} ${keys.length} object${keys.length === 1 ? "" : "s"}.` : `${verb} ${keys.length - failed}, ${failed} failed.`);
     clearSelection();
     await refreshAll();
   }, [announce, clearSelection, projectId, refreshAll, selectedKeys]);
@@ -703,7 +655,6 @@ export default function BucketView({
             objects={listing.objects}
             busy={busy}
             onPreview={setPreview}
-            onTogglePublic={togglePublic}
             onRename={rename}
             onDelete={remove}
             onCopy={copy}
@@ -712,7 +663,6 @@ export default function BucketView({
             onSelectAll={selectAll}
             onClearSelection={clearSelection}
             onBulkDelete={bulkDelete}
-            onBulkPublish={bulkPublish}
             hasSelection={hasSelection}
           />
         )}
@@ -895,7 +845,6 @@ interface ObjectTableProps {
   objects: BucketObject[];
   busy: string | null;
   onPreview: (object: BucketObject) => void;
-  onTogglePublic: (object: BucketObject) => void;
   onRename: (object: BucketObject) => void;
   onDelete: (object: BucketObject) => void;
   onCopy: (label: string, value: string) => void;
@@ -904,7 +853,6 @@ interface ObjectTableProps {
   onSelectAll: () => void;
   onClearSelection: () => void;
   onBulkDelete: () => void;
-  onBulkPublish: (makePublic: boolean) => void;
   hasSelection: boolean;
 }
 
@@ -912,7 +860,6 @@ function ObjectTable({
   objects,
   busy,
   onPreview,
-  onTogglePublic,
   onRename,
   onDelete,
   onCopy,
@@ -921,7 +868,6 @@ function ObjectTable({
   onSelectAll,
   onClearSelection,
   onBulkDelete,
-  onBulkPublish,
   hasSelection,
 }: ObjectTableProps) {
   const allSelected = objects.length > 0 && selectedKeys.size === objects.length;
@@ -941,22 +887,7 @@ function ObjectTable({
           >
             Delete selected
           </button>
-          <button
-            type="button"
-            onClick={() => onBulkPublish(true)}
-            disabled={busy === "bulk-publish"}
-            className="cursor-pointer rounded-md border border-accent/40 px-3 py-1.5 text-xs text-accent-strong hover:bg-accent/10 disabled:opacity-50"
-          >
-            Publish selected
-          </button>
-          <button
-            type="button"
-            onClick={() => onBulkPublish(false)}
-            disabled={busy === "bulk-publish"}
-            className="cursor-pointer rounded-md border border-edge px-3 py-1.5 text-xs text-muted hover:bg-panel-raised disabled:opacity-50"
-          >
-            Make private
-          </button>
+
           <button
             type="button"
             onClick={onClearSelection}
@@ -1030,23 +961,20 @@ function ObjectTable({
                   {formatBytes(object.size_bytes)}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => onTogglePublic(object)}
-                    disabled={busy === object.id || busy === "bulk-publish"}
+                  <span
                     title={
                       object.is_public
-                        ? "Reachable without a credential"
-                        : "Only reachable with a credential"
+                        ? "Reachable without a credential (bucket-level)"
+                        : "Only reachable with a credential (bucket-level)"
                     }
-                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                    className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
                       object.is_public
-                        ? "border-accent/40 bg-accent/10 text-accent-strong hover:bg-accent/20"
-                        : "border-edge text-muted hover:bg-panel-raised"
+                        ? "border-accent/40 bg-accent/10 text-accent-strong"
+                        : "border-edge text-muted"
                     }`}
                   >
-                    {object.is_public ? "Public" : "Private"}
-                  </button>
+                    {object.is_public ? "Bucket public" : "Bucket private"}
+                  </span>
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-muted">
                   {new Date(object.created_at).toLocaleDateString()}

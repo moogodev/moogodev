@@ -102,10 +102,10 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 | Term | Definition |
 |------|------------|
 | **Bucket** | Container for grouping objects (files) with different usage patterns in a project. Common structure examples: `avatars` (profile photos), `exports` (data export files), `templates` (config templates). Each bucket has `max_object_size_bytes` and plays role in storage quota management. |
-| **Object** | Individual file stored inside a bucket. Each object has key (filename), size_bytes, content_type, is_public flag. |
+| **Object** | Individual file stored inside a bucket. Each object has key (filename), size_bytes, content_type. The `is_public` flag is derived from the bucket's visibility, not set per-object. |
 | **Key** | Full filename inside bucket. Structure: `/{prefix}/{filename}`. Example: `avatars/kit.png` — where `avatars` is bucket name and `kit.png` is filename. **First part before `/` is part of bucket name.** |
 | **Upload** | Process of putting object into bucket via HTTP POST. Must add `?bucket=bucket_name` parameter if you want to put object in a specific bucket (not default bucket). Object is private by default after upload. |
-| **Publish** | Mechanism to change object from private to publicly readable (no credentials). Set `is_public: true` via PATCH request or dashboard. After publishing, `public_url` is populated with `https://cdn.moogo.dev/pub/{project_id}/{key}` (if CDN enabled) or `https://api.moogo.dev/pub/{project_id}/{key}`. |
+| **Publish** | Mechanism to make a bucket public (no credentials). Set the bucket's `is_public` flag via **Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public`. All objects in the bucket inherit this visibility immediately. After publishing, `public_url` is populated with `https://cdn.moogo.dev/pub/{project_id}/{key}` (if CDN enabled) or `https://api.moogo.dev/pub/{project_id}/{key}`. |
 | **Public URL** | URL shareable by anyone without credentials. **IMPORTANT:** `public_url` is a **bearer token** — it is a URL that can be shared with anyone and **cannot be revoked** without rotating the key or unpublishing the object. If you share `public_url`, as long as object remains published, anyone with the URL can access it. **Recommended workflow:** after upload, do `PATCH is_public: true` if you want object readable without credentials. |
 | **`/pub/{project_id}/{key}`** | Public path for published objects. **`project_id` is required** in this path. **Never use `/pub/{key}` alone**, because `project_id` is required to identify the project. |
 | **`max_object_size_bytes`** | Maximum object size per bucket. If bucket doesn't set size, project ceiling of 256 MB applies. |
@@ -149,7 +149,7 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 | **Monitor Daily Usage** | If approaching 256 MB, migrate to a new project before reaching the 256 MB ceiling. |
 | **Session cookie has HttpOnly + Secure + SameSite=Lax** | Prevents XSS from stealing session and cross-site CSRF. |
 | **SQL key never sent to browser** | Dashboard uses session cookie, but SQL API needs secret key stored server-side. |
-| **Public URL requires publish first** | Private objects have empty `public_url`. Ensure object is published (`PATCH is_public: true`) before sharing URL. |
+| **Public URL requires publish first** | Private objects have empty `public_url`. Make the bucket public first (**Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public`), then `public_url` will be populated for all objects in the bucket. |
 
 ---
 
@@ -179,7 +179,7 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
      -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
      -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
      -H "Content-Type: application/json" \
-     -d '{"is_public": true}'
+     -d '{"is_public": true}' _(deprecated: bucket-level visibility preferred)_
    ```
 
 ---

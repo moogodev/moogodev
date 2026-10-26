@@ -208,7 +208,7 @@ func BucketList(prefix string) (map[string]any, error) {
 }
 
 func BucketPublish(key string) (map[string]any, error) {
-	payload, err := json.Marshal(map[string]any{"is_public": true})
+	payload, err := json.Marshal(map[string]any{"is_public": true}) // _bucket-level visibility_
 	if err != nil {
 		return nil, err
 	}

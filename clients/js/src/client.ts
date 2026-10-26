@@ -16,7 +16,6 @@ import type {
   ListObjectsResponse,
   PresignedUrlRequest,
   PresignedUrlResponse,
-  SignedUploadResponse,
   StorageCredential,
   ListCredentialsResponse,
   CreateCredentialRequest,
@@ -393,16 +392,6 @@ export class MoogoClient {
     return fetch(url, { headers, signal: opts?.signal });
   }
 
-  /** Toggle bucket public/private (fans out to all objects) */
-  async setBucketPublic(bucketId: string, isPublic: boolean): Promise<Bucket> {
-    const response = await this.requestStorage<{ success: true; bucket: Bucket }>(
-      'POST',
-      `${this.getCatalogPath()}/${bucketId}/public`,
-      { body: JSON.stringify({ is_public: isPublic }) }
-    );
-    return response.bucket;
-  }
-
   // ==================== Object Operations ====================
 
   /**
@@ -703,32 +692,6 @@ export class MoogoClient {
     if (bucket !== 'default') body.bucket = bucket;
 
     return this.requestStorage<PresignedUrlResponse>('POST', path, {
-      body: JSON.stringify(body),
-      signal,
-    });
-  }
-
-  /** Create a signed upload URL (returns upload URL + object metadata) */
-  async createSignedUpload(
-    key: string,
-    request: PresignedUrlRequest & { content_type?: string },
-    options: { bucket?: string; signal?: AbortSignal } = {}
-  ): Promise<SignedUploadResponse> {
-    const { bucket = 'default', signal } = options;
-
-    // The server exposes one signing route: POST /buckets/{project_id}/sign.
-    // A PUT grant is minted by passing method: "PUT" in the body, which is
-    // what the client does here. The old /sign-upload path does not exist on
-    // the server and always answered 404.
-    const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}/sign`;
-    const body: Record<string, any> = {
-      method: 'PUT',
-      expires_in: request.expires_in,
-    };
-    if (bucket !== 'default') body.bucket = bucket;
-    if (request.content_type) body.content_type = request.content_type;
-
-    return this.requestStorage<SignedUploadResponse>('POST', path, {
       body: JSON.stringify(body),
       signal,
     });

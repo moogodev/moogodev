@@ -88,7 +88,7 @@ export default function ObjectPreview({
             </p>
             <p className="mt-1 text-xs text-muted">
               {object.content_type} · {formatBytes(object.size_bytes)}
-              {object.is_public ? " · public" : " · private"}
+              {object.is_public ? " · bucket public" : " · bucket private"}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">

@@ -2,7 +2,7 @@
  * Moogo JavaScript/TypeScript Client
  * Official client for Moogo object storage API.
  */
-import type { ClientConfig, Bucket, CreateBucketRequest, UpdateBucketRequest, BucketInfoResponse, ObjectResponse, UploadResponse, ListObjectsQuery, ListObjectsResponse, PresignedUrlRequest, PresignedUrlResponse, SignedUploadResponse, StorageCredential, CreateCredentialRequest, CreateCredentialResponse, RotateCredentialResponse, QueryRequest, QueryResponse, ExecRequest, ExecResponse, TransactionRequest, TransactionResponse } from './types.js';
+import type { ClientConfig, Bucket, CreateBucketRequest, UpdateBucketRequest, BucketInfoResponse, ObjectResponse, UploadResponse, ListObjectsQuery, ListObjectsResponse, PresignedUrlRequest, PresignedUrlResponse, StorageCredential, CreateCredentialRequest, CreateCredentialResponse, RotateCredentialResponse, QueryRequest, QueryResponse, ExecRequest, ExecResponse, TransactionRequest, TransactionResponse } from './types.js';
 /**
  * Moogo client for object storage operations.
  *
@@ -73,8 +73,6 @@ export declare class MoogoClient {
     s3Download(bucketName: string, key: string, opts?: {
         signal?: AbortSignal;
     }): Promise<Response>;
-    /** Toggle bucket public/private (fans out to all objects) */
-    setBucketPublic(bucketId: string, isPublic: boolean): Promise<Bucket>;
     /**
      * Upload an object to a bucket.
      *
@@ -126,13 +124,6 @@ export declare class MoogoClient {
         bucket?: string;
         signal?: AbortSignal;
     }): Promise<PresignedUrlResponse>;
-    /** Create a signed upload URL (returns upload URL + object metadata) */
-    createSignedUpload(key: string, request: PresignedUrlRequest & {
-        content_type?: string;
-    }, options?: {
-        bucket?: string;
-        signal?: AbortSignal;
-    }): Promise<SignedUploadResponse>;
     /** Update object metadata (visibility, key) */
     updateObject(key: string, updates: {
         new_key?: string;
