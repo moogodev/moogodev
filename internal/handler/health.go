@@ -113,7 +113,7 @@ func renderHealthHTML(w http.ResponseWriter, handler *Health) {
   </style>
 </head>
 <body>
-  <h1>Moogo Health Check</h1>
+  <img src="https://moogo.dev/static/img/logo-light.png" alt="Moogo" style="max-width: 200px; height: auto;">
   <div class="status-ok">Status: ok</div>
 
   <div class="url-group">
