@@ -810,11 +810,25 @@ func (manager *Manager) MoveObject(projectID uuid.UUID, fromKey string, toKey st
 		return fmt.Errorf("stat move target: %w", err)
 	}
 
-	if err := os.Rename(sourcePath, targetPath); err != nil {
+	// Use os.Link + os.Remove instead of os.Rename to close the race
+	// between the Lstat check above and the move (Bug 14). Link fails with
+	// EEXIST if the target was created after the Lstat, so no silent
+	// clobber is possible. On the same filesystem both are atomic and the
+	// link call is what enforces the uniqueness the catalog expects.
+	if err := os.Link(sourcePath, targetPath); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return ErrObjectExists
+		}
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrNotFound
 		}
-		return fmt.Errorf("move object: %w", err)
+		return fmt.Errorf("link move target: %w", err)
+	}
+	if err := os.Remove(sourcePath); err != nil {
+		// The link succeeded but the source could not be removed; leave the
+		// duplicate in place rather than silently losing bytes.
+		_ = os.Remove(targetPath)
+		return fmt.Errorf("remove move source: %w", err)
 	}
 
 	manager.cleanupEmptyDirs(filepath.Dir(sourcePath), projectPath)

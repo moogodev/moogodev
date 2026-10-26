@@ -1484,6 +1484,10 @@ func (handler *BucketPlane) CreateBucket(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Record the request time before the pre-check so the post-create check
+	// below can distinguish a row this request inserted from one a concurrent
+	// request inserted first (Bug 16: upsert used to answer 201 for existing).
+	reqStart := time.Now()
 	if _, err := handler.store.BucketByName(r.Context(), projectID, name); err == nil {
 		httpx.WriteError(w, http.StatusConflict, "bucket_exists",
 			"a bucket with this name already exists in this project")
@@ -1496,6 +1500,16 @@ func (handler *BucketPlane) CreateBucket(w http.ResponseWriter, r *http.Request)
 	bucket, err := handler.store.CreateBucket(r.Context(), projectID, name)
 	if err != nil {
 		handler.writeStoreError(w, r, projectID, err, "create bucket")
+		return
+	}
+
+	// A concurrent create that won the race reaches the upsert and returns a
+	// row whose created_at predates this request. The new insert's created_at
+	// is the database server's clock at execution, which is after reqStart, so
+	// answering 409 keeps the conflict observable instead of a phantom 201.
+	if !bucket.CreatedAt.After(reqStart.Add(-time.Second)) {
+		httpx.WriteError(w, http.StatusConflict, "bucket_exists",
+			"a bucket with this name already exists in this project")
 		return
 	}
 

@@ -356,15 +356,18 @@ func (store *Store) ObjectByKey(ctx context.Context, projectID uuid.UUID, key st
 		&object.CreatedAt,
 		&object.UpdatedAt,
 	)
-	if cacheControl != nil {
-		val := *cacheControl
-		object.CacheControl = &val
-	}
 	if err != nil {
 		if isNoRows(err) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("load object by key: %w", err)
+	}
+	// Only set CacheControl after a successful scan; checking it before the
+	// error return meant a nil pointer dereference was possible on a failed
+	// query (Bug 17: cacheControl check before err).
+	if cacheControl != nil {
+		val := *cacheControl
+		object.CacheControl = &val
 	}
 	return object, nil
 }

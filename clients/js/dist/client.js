@@ -11,6 +11,25 @@ exports.createClientFromEnv = createClientFromEnv;
 const errors_js_1 = require("./errors.js");
 /** Default timeout: 30 seconds */
 const DEFAULT_TIMEOUT = 30_000;
+// Polyfill for AbortSignal.any — available natively in Node 20+ / modern
+// browsers but not in older runtimes, which made every abort-aware client
+// method throw on invocation. Combines multiple signals into one AbortSignal.
+if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any !== 'function') {
+    AbortSignal.any = function (signals) {
+        const controller = new AbortController();
+        const onAbort = () => controller.abort();
+        for (const signal of signals) {
+            signal.addEventListener('abort', onAbort, { once: true });
+        }
+        const cleanup = () => {
+            for (const signal of signals) {
+                signal.removeEventListener('abort', onAbort);
+            }
+        };
+        controller.signal.addEventListener('abort', cleanup, { once: true });
+        return controller.signal;
+    };
+}
 /**
  * Moogo client for object storage operations.
  *
@@ -84,7 +103,9 @@ class MoogoClient {
     /** Detect auth mode from secret key prefix */
     detectAuthMode() {
         // moogo_sk_ = Bearer token (current API)
-        // moogo_hmac_ = HMAC-SHA256 (legacy/enterprise)
+        // moogo_hmac_ = HMAC-SHA256 (legacy/enterprise) — dead code because
+        // the server expects Bearer for storage credentials; HMAC signing is
+        // not implemented in this client version (Bug 10).
         if (this.secretKey?.startsWith('moogo_hmac_'))
             return 'hmac';
         return 'bearer';
@@ -671,23 +692,33 @@ function createSQLClient(config) {
 /** Convenience function to create a client from environment variables */
 function createClientFromEnv(env) {
     const getEnv = (key) => env?.[key] ?? process.env[key];
-    // Standard env vars only (no legacy fallbacks)
     const rawBase = getEnv('MOOGO_BASE_URL') || 'https://api.moogo.dev';
     const baseUrl = rawBase.replace(/\/p\/[^/]+\/bucket.*$/, '').replace(/\/+$/, '');
+    const projectId = getEnv('MOOGO_PROJECT_ID');
+    if (!projectId) {
+        throw new Error('MOOGO_PROJECT_ID is required (Bug 18 fix: non-null assertions removed)');
+    }
     // SQL key
     const projectKey = getEnv('MOOGO_SQL_KEY');
     if (projectKey) {
+        if (!projectId)
+            throw new Error('MOOGO_PROJECT_ID is required');
         return new MoogoClient({
             baseUrl,
-            projectId: getEnv('MOOGO_PROJECT_ID'),
+            projectId,
             projectKey,
         });
     }
     // Storage keys
+    const accessKeyId = getEnv('MOOGO_STORAGE_ACCESS_KEY_ID');
+    const secretKey = getEnv('MOOGO_STORAGE_SECRET_KEY');
+    if (!accessKeyId || !secretKey) {
+        throw new Error('MOOGO_STORAGE_ACCESS_KEY_ID and MOOGO_STORAGE_SECRET_KEY are required when MOOGO_SQL_KEY is not set');
+    }
     return new MoogoClient({
         baseUrl,
-        projectId: getEnv('MOOGO_PROJECT_ID'),
-        accessKeyId: getEnv('MOOGO_STORAGE_ACCESS_KEY_ID'),
-        secretKey: getEnv('MOOGO_STORAGE_SECRET_KEY'),
+        projectId,
+        accessKeyId,
+        secretKey,
     });
 }
