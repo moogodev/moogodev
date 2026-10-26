@@ -102,6 +102,9 @@ func (manager *Manager) Maintain(ctx context.Context, projectID uuid.UUID) (*Mai
 		manager.logSlowStatement("maintain", projectID, time.Since(started), 0)
 	}()
 
+	// PRAGMA optimize updates index statistics based on query patterns.
+	_, _ = connection.db.Exec("PRAGMA optimize")
+
 	statementCtx, cancel := context.WithTimeout(ctx, manager.queryTimeout)
 	defer cancel()
 

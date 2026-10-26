@@ -145,6 +145,9 @@ type projectHandle struct {
 // handles and idle connections alive after the project is evicted or
 // removed.
 func (handle *projectHandle) close() error {
+	// Checkpoint WAL before closing so sidecar files are truncated rather
+	// than left behind (cleanup). Best-effort; ignore errors.
+	_, _ = handle.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	return errors.Join(handle.db.Close(), handle.readDB.Close())
 }
 
@@ -416,7 +419,8 @@ func openProjectPool(path string, queryTimeout time.Duration, maxDBBytes int64, 
 	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)" +
 		"&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate" +
 		"&_pragma=cache_size(-4000)&_pragma=temp_store(MEMORY)" +
-		"&_pragma=journal_size_limit(67108864)&_pragma=wal_autocheckpoint(1000)"
+		"&_pragma=journal_size_limit(67108864)&_pragma=wal_autocheckpoint(4000)" +
+		"&_pragma=mmap_size(268435456)"
 	if readOnly {
 		// The database is already in WAL mode when this pool opens, so
 		// journal_mode(WAL) above is a no-op, and query_only only blocks SQL
@@ -443,7 +447,7 @@ func openProjectPool(path string, queryTimeout time.Duration, maxDBBytes int64, 
 	// and a warm page cache open forever.
 	database.SetMaxOpenConns(8)
 	database.SetMaxIdleConns(4)
-	database.SetConnMaxLifetime(0)
+	database.SetConnMaxLifetime(1 * time.Hour)
 	database.SetConnMaxIdleTime(5 * time.Minute)
 
 	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
