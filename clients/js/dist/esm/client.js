@@ -254,9 +254,23 @@ export class MoogoClient {
     async deleteBucket(bucketId) {
         await this.requestStorage('DELETE', `${this.getCatalogPath()}/${bucketId}`);
     }
-    /** S3-compatible download (R2 wire-compat) via /s3/{bucket}/{key} */
+    /** S3-compatible download (R2 wire-compat) via /s3/{bucket}/{key}
+     * Note: This endpoint is protected by SigV4 middleware. For private objects,
+     * the SDK must send a valid HMAC-SHA256 signature (not implemented in this
+     * version). Public objects are accessible without auth; private objects require
+     * either the signed URL from getPresignedUrl or the storage credential with
+     * full SigV4 signing. */
     async s3Download(bucketName, key, opts) {
-        return fetch(`${this.baseUrl}/s3/${encodeURIComponent(bucketName)}/${encodeURIComponent(key)}`, { signal: opts?.signal });
+        const url = `${this.baseUrl}/s3/${encodeURIComponent(bucketName)}/${encodeURIComponent(key)}`;
+        // Pass storage auth headers when available; the SigV4 middleware can
+        // fall back to bearer token for some deployments, but full HMAC signing
+        // (dead code in detectAuthMode) remains unimplemented.
+        const headers = {};
+        if (this.hasStorageCredentials()) {
+            const auth = this.getStorageAuthHeaders();
+            Object.assign(headers, auth);
+        }
+        return fetch(url, { headers, signal: opts?.signal });
     }
     /** Toggle bucket public/private (fans out to all objects) */
     async setBucketPublic(bucketId, isPublic) {
@@ -501,26 +515,40 @@ export class MoogoClient {
     /** Get a presigned URL for an object */
     async getPresignedUrl(key, request, options = {}) {
         const { bucket = 'default', signal } = options;
+        // The bucket is folded into the signed grant, so it goes in the body
+        // alongside the key, method and expiry. The server reads request.Bucket
+        // from the body; sending it as a query parameter is ignored and every
+        // PUT grant silently signs for the default bucket.
         const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}/sign`;
-        const query = {};
+        const body = {
+            method: request.method,
+            expires_in: request.expires_in,
+        };
         if (bucket !== 'default')
-            query.bucket = bucket;
+            body.bucket = bucket;
         return this.requestStorage('POST', path, {
-            query,
-            body: JSON.stringify(request),
+            body: JSON.stringify(body),
             signal,
         });
     }
     /** Create a signed upload URL (returns upload URL + object metadata) */
     async createSignedUpload(key, request, options = {}) {
         const { bucket = 'default', signal } = options;
-        const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}/sign-upload`;
-        const query = {};
+        // The server exposes one signing route: POST /buckets/{project_id}/sign.
+        // A PUT grant is minted by passing method: "PUT" in the body, which is
+        // what the client does here. The old /sign-upload path does not exist on
+        // the server and always answered 404.
+        const path = `/p/${this.projectId}/bucket/${encodeURIComponent(key)}/sign`;
+        const body = {
+            method: 'PUT',
+            expires_in: request.expires_in,
+        };
         if (bucket !== 'default')
-            query.bucket = bucket;
+            body.bucket = bucket;
+        if (request.content_type)
+            body.content_type = request.content_type;
         return this.requestStorage('POST', path, {
-            query,
-            body: JSON.stringify(request),
+            body: JSON.stringify(body),
             signal,
         });
     }

@@ -61,9 +61,8 @@ export interface CreateBucketRequest {
     max_object_size_bytes?: number;
     quota_bytes?: number;
 }
-/** Bucket update request */
+/** Bucket update request (dashboard-only; visibility is handled via /public endpoint) */
 export interface UpdateBucketRequest {
-    is_public?: boolean;
     allowed_types?: string[];
     max_object_size_bytes?: number;
     quota_bytes?: number;

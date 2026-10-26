@@ -64,7 +64,12 @@ export declare class MoogoClient {
     updateBucket(bucketId: string, request: UpdateBucketRequest): Promise<Bucket>;
     /** Delete a bucket and all its objects */
     deleteBucket(bucketId: string): Promise<void>;
-    /** S3-compatible download (R2 wire-compat) via /s3/{bucket}/{key} */
+    /** S3-compatible download (R2 wire-compat) via /s3/{bucket}/{key}
+     * Note: This endpoint is protected by SigV4 middleware. For private objects,
+     * the SDK must send a valid HMAC-SHA256 signature (not implemented in this
+     * version). Public objects are accessible without auth; private objects require
+     * either the signed URL from getPresignedUrl or the storage credential with
+     * full SigV4 signing. */
     s3Download(bucketName: string, key: string, opts?: {
         signal?: AbortSignal;
     }): Promise<Response>;

@@ -134,7 +134,7 @@ class LinkExpiredError extends MoogoError {
 exports.LinkExpiredError = LinkExpiredError;
 class NotFoundError extends MoogoError {
     constructor(detail) {
-        super('not_found', 'Bucket/object missing or not published. For public URLs: ensure object is published (PATCH is_public: true) and check key spelling. Private objects return 404 on /pub/ routes.', 404, detail);
+        super('not_found', 'Bucket/object missing or not published. Visibility is bucket-level: make the bucket public (POST /buckets/{id}/public) rather than toggling per-object. Private objects return 404 on /pub/ routes.', 404, detail);
         this.name = 'NotFoundError';
         Object.setPrototypeOf(this, NotFoundError.prototype);
     }
