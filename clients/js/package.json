@@ -1,6 +1,6 @@
 {
   "name": "@moogodev/client",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Official JavaScript/TypeScript client for Moogo object storage",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
