@@ -98,6 +98,7 @@ func renderHealthHTML(w http.ResponseWriter, handler *Health) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="https://moogo.dev/static/img/logo-light.png" type="image/png">
   <title>Moogo Health Check</title>
   <style>
     body {font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 1rem; line-height: 1.5; color: #333;}
