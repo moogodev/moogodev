@@ -89,6 +89,80 @@ Response:
 
 ## 4. Insert data
 
+
+### FormData vs File blob per framework
+
+Penggunaan `FormData` dan `Blob` sedikit berbeda tergantung framework yang digunakan. Berikut perbandingannya:
+
+**React (useRef + onChange)**
+```jsx
+<InputType
+  ref={fileRef}
+  onChange={e => {
+    const file = e.target.files[0]
+    // Untuk FormData: langsung kirim files[0]
+    // Untuk Blob: wrapper ke Blob terlebih dahulu
+    setSelectedFile(fileRef.current.files[0])
+  }}
+```
+
+**Next.js Server Actions**
+```ts
+// action.ts
+'use server'
+import { prisma } from '@/prisma'
+
+export async function uploadFile(prevState: any, formData: FormData) {
+  const file = formData.get('file') // ambil file dari FormData
+  // Kirim ke Moogo API
+  const res = await fetch('$ENDPOINT/avatars/kit.png?bucket=avatars', {
+    method: 'POST',
+    headers: {
+      'X-Moogo-Access-Key-Id': $MOOGO_STORAGE_ACCESS_KEY_ID,
+      Authorization: `Bearer $MOOGO_STORAGE_SECRET_KEY`,
+    },
+    body: formData, // langsung kirim FormData
+  })
+  // ...
+}
+```
+
+**Next.js App Router (action route handler)**
+```ts
+// app/upload/route.ts
+import { NextResponse } from 'next/server'
+
+export async function POST(request: Request) {
+  const formData = await request.formData()
+  const file = formData.get('file')
+  // ... proses ke Moogo API
+  return NextResponse.json({ success: true })
+}
+```
+
+**Vue 3 (Composition API)**
+```vue
+<template>
+  <input type="file" @change="onFileChange" ref="fileRef" />
+</template>
+<script setup>
+import { ref } from 'vue'
+
+const fileRef = ref<HTMLInputElement>()
+
+const onFileChange = (e) => {
+  const file = e.target.files[0]
+  // Kirim ke API dengan FormData atau Blob
+}
+</script>
+```
+
+**Catatan Penting**: 
+- `FormData.get('file')` mengembalikan `File` object langsung dari input element
+- `Blob` digunakan ketika ingin membuat gambar baru dari data yang ada
+- Semua framework ultimately mengirim `File` atau `Blob` melalui `FormData` ke API Moogo
+
+
 Note the `args` array — values are bound parameters, never interpolated into the
 SQL text.
 
