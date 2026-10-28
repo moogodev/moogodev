@@ -45,6 +45,11 @@ nginx, certificate and certbot sections are skipped entirely: that machine
 terminates TLS at Cloudflare with loopback-only, reload-only nginx and owns
 its own configuration. The script never touches `/etc/cloudflared`.
 
+When moogo.dev is served through the **Cloudflare proxy** (orange cloud) instead
+of a tunnel, there is no `/etc/cloudflared/config.yml`: nginx on this machine is
+managed by `deploy.sh` as usual (site file, certificates, reloads), and
+Cloudflare only proxies DNS/TLS in front of it. In that mode do not install or
+run cloudflared — the proxy and the tunnel are mutually exclusive for one host.
 Then fill in the environment file:
 
 ```bash

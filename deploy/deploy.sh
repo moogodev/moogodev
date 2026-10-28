@@ -29,6 +29,10 @@
 
 set -Eeuo pipefail
 
+# Ensure Go's toolchain is on PATH even when run as root via sudo: root's
+# PATH often omits /usr/local/go/bin, which would make the prerequisite check
+# (command -v go) and the build steps fail.
+export PATH="/usr/local/go/bin:$PATH"
 DOMAIN="${1:-}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE_USER=moogo
@@ -296,8 +300,38 @@ if [[ $BEHIND_TUNNEL -eq 0 ]]; then
 	# receive traffic and the deploy would look like it ran without changing
 	# anything. Refuse before anything is built or installed, so an abort
 	# never leaves binaries replaced and nginx untouched.
-	echo "    checking that no existing site already serves $DOMAIN"
-	existing_names="$(
+	# Disable legacy/conflicting nginx site files that claim the same server_name
+	# as this deployment (e.g. an older /etc/nginx/sites-available/moogo.dev).
+	# nginx keeps only the first block it loaded, so leaving them in place would
+	# silently shadow the config written here. Back them up, then remove the
+	# enabled symlink and rename the source file so a re-run does not trip over
+	# it again.
+	disable_conflicting_site() {
+		local file="$1" backup
+		[[ -f "$file" ]] || return 0
+		[[ "$(basename "$file")" == "moogo.conf" ]] && return 0
+		if ! grep -Eq "server_name[[:space:]].*\\b($DOMAIN|news\\.$DOMAIN|cdn\\.$DOMAIN)\\b" "$file"; then
+			return 0
+		fi
+		backup="/var/backups/moogo-nginx-$(basename "$file")-$(date +%Y%m%d-%H%M%S)"
+		mkdir -p /var/backups
+		cp -p "$file" "$backup" 2>/dev/null || true
+		if [[ -L "/etc/nginx/sites-enabled/$(basename "$file")" ]]; then
+			rm -f "/etc/nginx/sites-enabled/$(basename "$file")"
+		fi
+		# Also handle a regular (non-symlink) file sitting directly in sites-enabled.
+		if [[ -f "/etc/nginx/sites-enabled/$(basename "$file")" ]]; then
+			mv -f "/etc/nginx/sites-enabled/$(basename "$file")" "/etc/nginx/sites-enabled/$(basename "$file").disabled"
+		fi
+		mv -f "$file" "$file.disabled"
+		echo "    disabled conflicting nginx site: $file (backup: $backup)"
+	}
+	for f in /etc/nginx/sites-available/* /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
+		[[ -e "$f" ]] || continue
+		disable_conflicting_site "$f"
+	done
+
+	echo "    checking that no existing site already serves $DOMAIN"	existing_names="$(
 		for f in /etc/nginx/nginx.conf /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
 			if [[ ! -f "$f" ]]; then
 				continue
