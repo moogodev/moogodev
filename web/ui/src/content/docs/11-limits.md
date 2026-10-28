@@ -36,6 +36,18 @@ One read response carries at most **16 MB** of row data. The row cap of 1000 bou
 
 A single value larger than the project's own size limit is refused before SQLite materializes it, so `SELECT zeroblob(n)` cannot ask for more bytes than the file would ever hold.
 
+
+
+### Binary size & serverless considerations
+
+When uploading large files or using image compression (e.g., `sharp` in Node.js, `Pillow` in Python), keep in mind:
+
+- **Per-object cap**: Each bucket has `max_object_size_bytes` (default: no cap, or configured by admin). Objects over this cap are refused.
+- **Project quota**: 256 MB total across all buckets in a project. Exceeding this returns `quota_exceeded` (429).
+- **Edge/serverless memory**: Functions that stream uploads should respect the per-request cap (1 MB for JSON endpoints). For larger files, use the direct storage credential flow (`/p/{id}/bucket/*`) rather than JSON bodies.
+- **Memory during compression**: `sharp` and similar tools allocate memory proportional to image dimensions. Ensure your function's memory limit (e.g., 256 MB on Vercel, 128 MB on Netlify) is sufficient for the source image + compressed output.
+
+**Tip**: Compress/resize images client-side or in a build step before uploading to Moogo, rather than in a serverless function that has limited memory.
 ## Rate limits
 
 Every response includes standard rate-limit headers so clients can see their

@@ -39,6 +39,32 @@ Full detail: [Create your first project](/docs/create-project).
 
 ## 3. Create a table
 
+
+## 4. (Optional) Use the JavaScript/TypeScript SDK
+
+The official `@moogodev/client` package provides a type-safe, zero-dependency client for Moogo's object storage and SQL API. Instead of manually constructing headers and URLs, you can use:
+
+```bash
+npm install @moogodev/client
+
+# In your Node.js app:
+import { createClient } from '@moogodev/client'
+
+const client = createClient({
+  baseUrl: 'https://api.moogo.dev',
+  storageKey: 'your-storage-key',
+  sqlKey: 'your-sql-key'
+})
+
+// Upload an object
+await client.s3Upload({ bucket: 'default', key: 'avatars/kit.png', file: buffer })
+
+# Run a SQL query
+const result = await client.sql`SELECT * FROM users WHERE id = '123'`
+```
+
+**Detail**: [javascript-client.md](/docs/javascript-client.md)
+
 Creating a table is a **write**, so it goes to `/exec`:
 
 ```bash

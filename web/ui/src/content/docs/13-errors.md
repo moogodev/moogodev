@@ -143,7 +143,7 @@ explanation lives. Log it.
 | `invalid_project_id` | 400 | The id in the URL is not a valid UUID. |
 | `invalid_bucket_id` | 400 | The bucket id in the URL is not a valid UUID. |
 | `invalid_credential_id` | 400 | The storage credential id in the URL is not a valid UUID. |
-| `invalid_body` | 400 | Body was not a JSON object with the expected fields. |
+| `invalid_body` | 400 | Body was not a JSON object with the expected fields. `detail` lists missing/invalid field names. <br>**Example**: `{"is_public": true}` is invalid because per-object publish is deprecated — use `POST /buckets/{project_id}/{bucket_id}/public` for bucket-level visibility. |
 | `unsupported_media_type` | 415 | `Content-Type` was not `application/json`. |
 | `not_found` | 404 | No such endpoint. Check the path. |
 | `rate_limited` | 429 | Too many requests from one client address. Comes with `Retry-After` and `X-RateLimit-Reset` headers. |

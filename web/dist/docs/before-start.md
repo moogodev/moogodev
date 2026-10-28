@@ -149,7 +149,7 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 | **Monitor Daily Usage** | If approaching 256 MB, migrate to a new project before reaching the 256 MB ceiling. |
 | **Session cookie has HttpOnly + Secure + SameSite=Lax** | Prevents XSS from stealing session and cross-site CSRF. |
 | **SQL key never sent to browser** | Dashboard uses session cookie, but SQL API needs secret key stored server-side. |
-| **Public URL requires publish first** | Private objects have empty `public_url`. Make the bucket public first (**Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public`), then `public_url` will be populated for all objects in the bucket. |
+| **Public URL requires publish first** | Private objects have empty `public_url`. Make the bucket public first (**Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public`), then `public_url` will be populated for all objects in the bucket.
 
 ---
 

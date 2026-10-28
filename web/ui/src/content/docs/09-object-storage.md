@@ -94,7 +94,26 @@ Response, for the first upload:
 }
 ```
 
-### The five URL fields
+
+**JavaScript (fetch)**
+
+```js
+// Upload with FormData
+const formData = new FormData()
+formData.append('file', file)
+
+// Upload with Blob
+const blob = new Blob([file], { type: 'image/png' })
+
+fetch('$ENDPOINT/avatars/kit.png?bucket=avatars', {
+  method: 'POST',
+  headers: {
+    'X-Moogo-Access-Key-Id': $MOOGO_STORAGE_ACCESS_KEY_ID,
+    Authorization: `Bearer $MOOGO_STORAGE_SECRET_KEY`,
+  },
+  body: formData, // or blob
+})
+```### The five URL fields
 
 This trips people up, so it is worth being explicit.
 
