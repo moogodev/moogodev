@@ -463,6 +463,8 @@ and `id`. A rename never changes visibility — if a body carries both `new_key`
 
 ## Publishing vs bucket visibility
 
+> **⚠️ Limitation**: Bucket-level visibility means **all objects in a bucket share the same visibility**. If you need a mix of public and private objects (e.g., avatars public but receipts private), you must use **separate buckets** — one public bucket for published objects and one private bucket for private objects. Per-object `PATCH` with `is_public` is deprecated.
+
 There are two switches, and they do different things.
 
 **Per object** — `PATCH /p/{project_id}/bucket/{key}` with `{"is_public": true}`. This
