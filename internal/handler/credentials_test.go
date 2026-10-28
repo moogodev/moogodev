@@ -202,6 +202,13 @@ func (mailer *credMailer) SendManualBackupCreated(ctx context.Context, to, proje
 	return nil
 }
 
+func (mailer *credMailer) SendNewUserRegistered(ctx context.Context, userName, userEmail string, registeredAt time.Time) error {
+	if mailer.sentErr != nil {
+		return mailer.sentErr
+	}
+	mailer.sentTo = "moogo.dev@gmail.com"
+	return nil
+}
 // newCredHandler wires a Credentials handler over the fakes.
 func newCredHandler(t *testing.T, store *credStore, mailer *credMailer) *Credentials {
 	return newCredHandlerIn(t, store, mailer, "development")

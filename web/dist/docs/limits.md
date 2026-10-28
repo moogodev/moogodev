@@ -50,6 +50,31 @@ When uploading large files or using image compression (e.g., `sharp` in Node.js,
 **Tip**: Compress/resize images client-side or in a build step before uploading to Moogo, rather than in a serverless function that has limited memory.
 ## Rate limits
 
+
+### Edge Runtime & sharp di Next.js
+
+**Catatan Penting**: Perintah `sharp` hanya bekerja di runtime **Node.js**, bukan di **Edge Runtime**. Jika aplikasi Anda menggunakan `runtime: "edge"` di `next.config.js`, perintah `sharp` akan gagal dijalankan.
+
+**Saran**:
+- **Server Component / Action**: Gunakan `sharp` di sini (runtime Node.js) untuk compress/resize gambar sebelum upload.
+- **Browser / Edge Runtime**: Kompress gambar di sisi klien (browser) menggunakan library seperti [`sharp-mobile`](https://github.com/sharpjs/sharp-mobile) atau library kompresi lain, atau unggah gambara asli dan lakukan kompressi di server.
+
+**Alur kerja yang disarankan**:
+1. **Build Step** (direkomendasikan): Kompress gambar saat build/deploy menggunakan `sharp`, lalu unggah file yang sudah dikompress ke Moogo.
+2. **Server Component**: Jalankan `sharp` di Server Component/Action (runtime Node.js).
+3. **Browser-only**: Gunakan library kompresi di sisi klien, atau unggah asli dan beri peringatan kepada pengguna tentang ukuran file.
+
+### Binary size & serverless considerations
+
+When uploading large files or using image compression (e.g., `sharp` in Node.js, `Pillow` in Python), keep in mind:
+
+- **Per object**: the bucket's `max_object_size_bytes`, or 256 MB
+- **Project quota**: 256 MB total across all buckets
+- **Edge/serverless memory**: Functions that stream uploads should respect the per-request cap (1 MB for JSON endpoints). For larger files, use the direct storage credential flow (`/p/{id}/bucket/*`) rather than JSON bodies.
+- **Memory during compression**: `sharp` and similar tools allocate memory proportional to image dimensions. Ensure your function's memory limit (e.g., 256 MB on Vercel, 128 MB on Netlify) is sufficient for the source image + compressed output.
+
+**Tip**: Compress/resize images client-side or in a build step before uploading to Moogo, rather than in a serverless function that has limited memory.
+
 Every response includes standard rate-limit headers so clients can see their
 budget without hitting a 429 first.
 

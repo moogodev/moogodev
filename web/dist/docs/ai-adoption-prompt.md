@@ -383,6 +383,8 @@ Stored with object, used for all subsequent downloads. Defaults:
 
 ### Publishing — per object, and the bucket toggle is bulk
 
+**⚠️ Limitation**: Bucket-level visibility means all objects in a bucket share the same visibility. If you need a mix of public and private objects (e.g., avatars public but receipts private), use separate buckets — one public, one private.
+
 **A bucket toggle is bulk, not "new uploads only".** `POST /buckets/{project_id}/{bucket_id}/public` — or `PATCH` on the bucket with `is_public` — sets the visibility new uploads inherit **and rewrites `is_public` on every object already in the bucket**. The response reports `affected`, the number of objects it changed. Making a bucket private therefore takes every object in it off `/pub/` immediately; making it public puts every object back.
 
 To change one file only: visibility is now bucket-level; use the bucket toggle (`POST /buckets/{project_id}/{bucket_id}/public`) to set visibility for the whole bucket. Overwriting a key never changes its visibility in either direction.

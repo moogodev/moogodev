@@ -113,7 +113,7 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 | **Object** | Individual file stored inside a bucket. Each object has key (filename), size_bytes, content_type. The `is_public` flag is derived from the bucket's visibility, not set per-object. |
 | **Key** | Full filename inside bucket. Structure: `/{prefix}/{filename}`. Example: `avatars/kit.png` — where `avatars` is bucket name and `kit.png` is filename. **First part before `/` is part of bucket name.** |
 | **Upload** | Process of putting object into bucket via HTTP POST. Must add `?bucket=bucket_name` parameter if you want to put object in a specific bucket (not default bucket). Object is private by default after upload. |
-| **Publish** | Mechanism to make a bucket public (no credentials). Set the bucket's `is_public` flag via **Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public`. All objects in the bucket inherit this visibility immediately. After publishing, `public_url` is populated with `https://cdn.moogo.dev/pub/{project_id}/{key}` (if CDN enabled) or `https://api.moogo.dev/pub/{project_id}/{key}`. |
+| **Publish** | Mechanism to make a bucket public (no credentials). **Note**: Bucket-level visibility means all objects in a bucket share the same visibility. For mixed public/private, use separate buckets. Set the bucket's `is_public` flag via **Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public`. All objects in the bucket inherit this visibility immediately. After publishing, `public_url` is populated with `https://cdn.moogo.dev/pub/{project_id}/{key}` (if CDN enabled) or `https://api.moogo.dev/pub/{project_id}/{key}`. |
 | **Public URL** | URL shareable by anyone without credentials. **IMPORTANT:** `public_url` is a **bearer token** — it is a URL that can be shared with anyone and **cannot be revoked** without rotating the key or unpublishing the object. If you share `public_url`, as long as object remains published, anyone with the URL can access it. **Recommended workflow:** after upload, do `PATCH is_public: true` if you want object readable without credentials. |
 | **`/pub/{project_id}/{key}`** | Public path for published objects. **`project_id` is required** in this path. **Never use `/pub/{key}` alone**, because `project_id` is required to identify the project. |
 | **`max_object_size_bytes`** | Maximum object size per bucket. If bucket doesn't set size, project ceiling of 256 MB applies. |
@@ -157,7 +157,7 @@ Below is a dictionary of terms you will encounter while using Moogo. Read it lik
 | **Monitor Daily Usage** | If approaching 256 MB, migrate to a new project before reaching the 256 MB ceiling. |
 | **Session cookie has HttpOnly + Secure + SameSite=Lax** | Prevents XSS from stealing session and cross-site CSRF. |
 | **SQL key never sent to browser** | Dashboard uses session cookie, but SQL API needs secret key stored server-side. |
-| **Public URL requires publish first** | Private objects have empty `public_url`. Make the bucket public first (**Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public`), then `public_url` will be populated for all objects in the bucket. |
+| **Public URL requires publish first** | Private objects have empty `public_url`. Make the bucket public first (**Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public`), then `public_url` will be populated for all objects in the bucket.
 
 ---
 
@@ -251,6 +251,32 @@ Full detail: [Create your first project](/docs/create-project).
 
 ## 3. Create a table
 
+
+## 4. (Optional) Use the JavaScript/TypeScript SDK
+
+The official `@moogodev/client` package provides a type-safe, zero-dependency client for Moogo's object storage and SQL API. Instead of manually constructing headers and URLs, you can use:
+
+```bash
+npm install @moogodev/client
+
+# In your Node.js app:
+import { createClient } from '@moogodev/client'
+
+const client = createClient({
+  baseUrl: 'https://api.moogo.dev',
+  storageKey: 'your-storage-key',
+  sqlKey: 'your-sql-key'
+})
+
+// Upload an object
+await client.s3Upload({ bucket: 'default', key: 'avatars/kit.png', file: buffer })
+
+# Run a SQL query
+const result = await client.sql`SELECT * FROM users WHERE id = '123'`
+```
+
+**Detail**: [javascript-client.md](/docs/javascript-client.md)
+
 Creating a table is a **write**, so it goes to `/exec`:
 
 ```bash
@@ -274,6 +300,80 @@ Response:
 ```
 
 ## 4. Insert data
+
+
+### FormData vs File blob per framework
+
+Penggunaan `FormData` dan `Blob` sedikit berbeda tergantung framework yang digunakan. Berikut perbandingannya:
+
+**React (useRef + onChange)**
+```jsx
+<InputType
+  ref={fileRef}
+  onChange={e => {
+    const file = e.target.files[0]
+    // Untuk FormData: langsung kirim files[0]
+    // Untuk Blob: wrapper ke Blob terlebih dahulu
+    setSelectedFile(fileRef.current.files[0])
+  }}
+```
+
+**Next.js Server Actions**
+```ts
+// action.ts
+'use server'
+import { prisma } from '@/prisma'
+
+export async function uploadFile(prevState: any, formData: FormData) {
+  const file = formData.get('file') // ambil file dari FormData
+  // Kirim ke Moogo API
+  const res = await fetch('$ENDPOINT/avatars/kit.png?bucket=avatars', {
+    method: 'POST',
+    headers: {
+      'X-Moogo-Access-Key-Id': $MOOGO_STORAGE_ACCESS_KEY_ID,
+      Authorization: `Bearer $MOOGO_STORAGE_SECRET_KEY`,
+    },
+    body: formData, // langsung kirim FormData
+  })
+  // ...
+}
+```
+
+**Next.js App Router (action route handler)**
+```ts
+// app/upload/route.ts
+import { NextResponse } from 'next/server'
+
+export async function POST(request: Request) {
+  const formData = await request.formData()
+  const file = formData.get('file')
+  // ... proses ke Moogo API
+  return NextResponse.json({ success: true })
+}
+```
+
+**Vue 3 (Composition API)**
+```vue
+<template>
+  <input type="file" @change="onFileChange" ref="fileRef" />
+</template>
+<script setup>
+import { ref } from 'vue'
+
+const fileRef = ref<HTMLInputElement>()
+
+const onFileChange = (e) => {
+  const file = e.target.files[0]
+  // Kirim ke API dengan FormData atau Blob
+}
+</script>
+```
+
+**Catatan Penting**: 
+- `FormData.get('file')` mengembalikan `File` object langsung dari input element
+- `Blob` digunakan ketika ingin membuat gambar baru dari data yang ada
+- Semua framework ultimately mengirim `File` atau `Blob` melalui `FormData` ke API Moogo
+
 
 Note the `args` array — values are bound parameters, never interpolated into the
 SQL text.
@@ -317,6 +417,71 @@ curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \
 That is a working database.
 
 ## Several writes at once
+
+
+## Receipt & Transaction Example
+
+After uploading a file, you may want to attach the public URL (receipt) to a database transaction.
+
+### Step 1: Upload an object
+
+```bash
+# Upload with FormData (see JavaScript example in object-storage.md)
+const formData = new FormData()
+formData.append('file', file)
+
+fetch('$ENDPOINT/avatars/kit.png?bucket=avatars', {
+  method: 'POST',
+  headers: {
+    'X-Moogo-Access-Key-Id': $MOOGO_STORAGE_ACCESS_KEY_ID,
+    Authorization: `Bearer $MOOGO_STORAGE_SECRET_KEY`,
+  },
+  body: formData,
+})
+```
+
+### Step 2: Get the public URL (receipt)
+
+```js
+// After upload, the object's public_url will be populated
+const receiptUrl = object.public_url // e.g., https://cdn.moogo.dev/p/abc/kit.png
+```
+
+### Step 3: Save receipt URL to transaction
+
+```bash
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/transaction   -H "Authorization: Bearer $MOOGO_SQL_KEY"   -H "Content-Type: application/json"   -d '{
+    "query": "INSERT INTO incomes (description, receipt_url, amount) VALUES (??, ?, ?)",
+    "args": ["Avatar upload", "$receiptUrl", 1000]
+  }'
+```
+
+**Catatan**: `public_url` hanya akan terisi setelah object dipublish (lihat `POST /buckets/{id}/public`). Jika object masih private, `public_url` akan kosong.
+
+### Several writes at once
+
+When one change is several statements, send them as one batch:
+
+```bash
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/transaction   -H "Authorization: Bearer $MOOGO_SQL_KEY"   -H "Content-Type: application/json"   -d '{
+    "statements": [
+      { "query": "INSERT INTO users (id, email) VALUES (?, ?)", "args": ["7c1f", "ketut@example.com"] },
+      { "query": "UPDATE counters SET signups = signups + 1 WHERE name = ?", "args": ["total"] }
+    ]
+  }'
+```
+
+Either both statements commit or neither does, so a request that half-succeeds
+cannot leave your data in a state your code never intended. Full reference:
+[`POST /transaction`](/docs/sql-api#post-transaction-writes-as-one-unit).
+
+### The one rule to remember
+
+| Endpoint | Accepts | Rejects |
+|---|---|---|
+| `/query` | Read-only SQL statements | Write statements (`INSERT`, `UPDATE`, `DELETE`) |
+| `/exec` | Write statements (`INSERT`, `UPDATE`, `DELETE`) | Read-only statements |
+| `/transaction` | Multiple write statements in one batch | Empty batch, more than 100 statements |
 
 When one change is several statements, send them as one batch:
 
@@ -1262,7 +1427,9 @@ Stored with object, used for all subsequent downloads. Defaults:
 
 ### Publishing — per object, and the bucket toggle is bulk
 
-**A bucket toggle is bulk, not "new uploads only".** `POST /buckets/{project_id}/{bucket_id}/public` — sets the visibility new uploads inherit **and rewrites `is_public` on every object already in the bucket**. The response reports `affected`, the number of objects it changed. Making a bucket private therefore takes every object in it off `/pub/` immediately; making it public puts every object back.
+**⚠️ Limitation**: Bucket-level visibility means all objects in a bucket share the same visibility. If you need a mix of public and private objects (e.g., avatars public but receipts private), use separate buckets — one public, one private.
+
+**A bucket toggle is bulk, not "new uploads only".** `POST /buckets/{project_id}/{bucket_id}/public` — or `PATCH` on the bucket with `is_public` — sets the visibility new uploads inherit **and rewrites `is_public` on every object already in the bucket**. The response reports `affected`, the number of objects it changed. Making a bucket private therefore takes every object in it off `/pub/` immediately; making it public puts every object back.
 
 To change one file only: visibility is now bucket-level; use the bucket toggle (`POST /buckets/{project_id}/{bucket_id}/public`) to set visibility for the whole bucket. Overwriting a key never changes its visibility in either direction.
 
@@ -1270,12 +1437,12 @@ To change one file only: visibility is now bucket-level; use the bucket toggle (
 # Publish one object
 curl -X PATCH "$ENDPOINT/avatars/kit.png" \
   -H "Content-Type: application/json" \
-  -d '{"is_public": true}' _(bucket-level: makes all objects in the bucket public)_
+  -d '{"is_public": true}' _bucket-level visibility_
 
 # Publish a whole bucket — this also publishes everything already in it
 curl -X POST "$CATALOG/bucket-id/public" \
   -H "Content-Type: application/json" \
-  -d '{"is_public": true}' _(bucket-level: makes all objects in the bucket public)_
+  -d '{"is_public": true}' _bucket-level visibility_
 ```
 
 ### Bucket info endpoint
@@ -3098,6 +3265,70 @@ Response, for the first upload:
 }
 ```
 
+
+**JavaScript (fetch)**
+
+```js
+// Upload with FormData
+const formData = new FormData()
+formData.append('file', file)
+
+// Upload with Blob
+const blob = new Blob([file], { type: 'image/png' })
+
+fetch('$ENDPOINT/avatars/kit.png?bucket=avatars', {
+  method: 'POST',
+  headers: {
+    'X-Moogo-Access-Key-Id': $MOOGO_STORAGE_ACCESS_KEY_ID,
+    Authorization: `Bearer $MOOGO_STORAGE_SECRET_KEY`,
+  },
+  body: formData, // or blob
+})
+```
+
+### Validasi Ukuran File di Klien
+
+Sebelum mengunggah file, validasi ukuran di sisi klien bisa mencegah error `object_too_large` dan `quota_exceeded`.
+
+**Validasi di Browser (JavaScript):**
+
+```js
+const maxObjectSize = 256 * 1024 * 1024 // 256 MB dalam bytes (batas project)
+const maxFileSize = 50 * 1024 * 1024 // 50 MB batasan personal
+
+const handleFileSelect = (event) => {
+  const file = event.target.files[0]
+  
+  // Validasi ukuran file
+  if (file.size > maxFileSize) {
+    console.error(`File terlalu besar: ${(file.size / 1024 / 1024).toFixed(2)}MB`)
+    console.log(`Batas project: ${maxObjectSize / 1024 / 1024}MB`)
+    event.target.value = '' // Reset input
+    return
+  }
+  
+  // Validasi tipe file
+  const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'video/mp4']
+  if (!allowedTypes.includes(file.type)) {
+    console.error('Tipe file tidak didukung')
+    event.target.value = ''
+    return
+  }
+  
+  // Lanjutkan upload
+  uploadFile(file)
+}
+```
+
+**Validasi di Server**
+
+Validasi di sisi klien hanya sebagai pencegat awal. Server tetap memvalidasi ukuran:
+
+- `object_too_large` — di atas batas `max_object_size_bytes` bucket (atau 256 MB)
+- `quota_exceeded` — proyek melebihi kuota 256 MB total
+
+**Tips**: Gunakan `FileReader` untuk memeriksa ukuran dan tipe file sebelum upload, sehingga pengguna diberitahu segera tanpa harus mengunggah file yang terlalu besar.
+
 ### The five URL fields
 
 This trips people up, so it is worth being explicit.
@@ -3370,7 +3601,7 @@ question changes.
 ## Update an object
 
 `PATCH` targets one object at `$ENDPOINT/{key}` and changes either its key or its
-visibility. Send `new_key` to rename or move. Publishing is **bucket-level**: use **Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public` to make all objects in the bucket public (or private). Objects inherit the bucket's visibility; per-object `is_public` is deprecated.
+visibility. Send `new_key` to rename or move, `is_public` to publish or unpublish.
 
 **Rename or move:**
 
@@ -3389,23 +3620,35 @@ curl -X PATCH "$ENDPOINT/avatars/kit.png" \
   -H "X-Moogo-Access-Key-Id: $MOOGO_STORAGE_ACCESS_KEY_ID" \
   -H "Authorization: Bearer $MOOGO_STORAGE_SECRET_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"is_public": true}' _(bucket-level: makes all objects in the bucket public)_
+  -d '{"is_public": true}' _bucket-level visibility_
 ```
 
 `true` publishes the object and fills in its `public_url`; `false` makes it
 private again and empties the field. Renaming moves the file and updates its
 record atomically from the caller's point of view; the object keeps its identity
 and `id`. A rename never changes visibility — if a body carries both `new_key` and
-`is_public`, the rename wins and the visibility is left as **bucket-level** (inherited from the bucket).
+`is_public`, the rename wins and the visibility is left as it was.
 
 
 > **Visibility is bucket-level (R2-compatible).** A whole bucket is either public or private, set via the dashboard or `POST /buckets/{project_id}/{bucket_id}/public`. Per-object `PATCH .../bucket/{key}` with `is_public` is deprecated; objects inherit their bucket's visibility. Upload to a private bucket = always private.
 
 ## Publishing vs bucket visibility
 
-Publishing is **bucket-level**. Use **Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public` with `{"is_public": true|false}` to make all objects in the bucket share the same visibility. This is a bulk operation that rewrites `is_public` on every object already in the bucket; the response reports `affected`, the number of objects it changed. Making a bucket private therefore takes every object in it off `/pub/` immediately; making it public puts every object back.
+> **⚠️ Limitation**: Bucket-level visibility means **all objects in a bucket share the same visibility**. If you need a mix of public and private objects (e.g., avatars public but receipts private), you must use **separate buckets** — one public bucket for published objects and one private bucket for private objects. Per-object `PATCH` with `is_public` is deprecated.
 
-Previously per-object `PATCH .../bucket/{key}` with `{"is_public": true|false}` is **deprecated**: objects now inherit their bucket's visibility. Upload to a private bucket = always private.
+There are two switches, and they do different things.
+
+**Per object** — `PATCH /p/{project_id}/bucket/{key}` with `{"is_public": true}`. This
+publishes or unpublishes a single object, and it is the normal way to share a
+file. Only objects with `is_public: true` answer on `/pub/{project_id}/{key}`.
+
+**Per bucket** — `POST /buckets/{project_id}/{bucket_id}/public` with
+`{"is_public": true|false}`. This is a bulk operation, not a default for new
+uploads alone: it sets the visibility new uploads inherit **and rewrites
+`is_public` on every object already in the bucket**. The response's `affected`
+field is the number of objects it changed. Making a bucket private therefore
+takes every object in it off `/pub/` immediately; making it public puts every
+object back.
 
 The dashboard states this before saving a bucket visibility change, and the
 bucket list labels the state as "every object is public" rather than "new
@@ -3687,7 +3930,7 @@ const encodeKey = (key) =>
 - **415 unsupported_media_type** — you're missing or wrong `Content-Type`. On JSON endpoints it must be `application/json`. On an object upload it must be the file's type (never JSON-wrapped).
 - **401 unauthorized / invalid credentials** — storage requests need the two storage headers. SQL requests need `Authorization: Bearer $MOOGO_SQL_KEY`. The types are not interchangeable.
 - **404 on an object you just uploaded** — check the key case and the bucket (`?bucket=`). The path is `/bucket/{key}`, not `/buckets/`.
-- **Object 404s on `/pub/` right after making it public** — check that the bucket is public (**Dashboard → Bucket settings → Public toggle** or `POST /buckets/{project_id}/{bucket_id}/public`). Objects inherit the bucket's visibility; there is no per-object `is_public` flag. If the URL was fetched while an older deployment was live, an edge copy of that 404 can linger until its TTL expires — use a new key or purge your CDN. For mutable assets, versioning keys (`image-v2.png`) is more reliable than cache invalidation.
+- **Object 404s on `/pub/` right after making it public** — check that the object is actually published: make the bucket public, or `PATCH` the object with `{"is_public": true}`, and read `is_public` back. Missing and unpublished objects answer `404` by design, and those responses are `no-store`, so a fresh publish shows up on the next request. If the URL was fetched while an older deployment was live, an edge copy of that 404 can linger until its TTL expires — use a new key or purge your CDN. For mutable assets, versioning keys (`image-v2.png`) is more reliable than cache invalidation.
 - **object_too_large** — above the bucket's `max_object_size_bytes` (or 256 MB). Shrink the file, raise the cap, or split it.
 - **quota_exceeded** — project or bucket storage would go over its limit. Delete some objects or increase quota.
 - **truncated: true** — your listing is capped at `limit` rows. Send the `next_cursor` to fetch the next page, or increase `limit` up to 1000.
@@ -4963,7 +5206,7 @@ try {
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -5171,8 +5414,7 @@ export async function publishFile(key: string) {
   const res = await fetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
     method: "PATCH",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ is_public: true }) // _bucket-level visibility_,
-  });
+    body: JSON.stringify({ is_public: true }) // _bucket-level visibility_,  });
   return res.json();
 }
 
@@ -5296,7 +5538,7 @@ The [Next.js guide](/docs/guides/nextjs) covers Server Components, Server Action
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -5468,9 +5710,7 @@ export async function bucketPublish(key: string) {
   const res = await fetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
     method: "PATCH",
     headers: { ...STORAGE_HEADERS, "Content-Type": "application/json" },
-    body: JSON.stringify({ is_public: true }) // _bucket-level visibility_
-    // _(bucket-level: makes all objects in the bucket public)_,
-  });
+    body: JSON.stringify({ is_public: true }) // _bucket-level visibility_,  });
   return handle(res);
 }
 
@@ -5659,7 +5899,7 @@ declare namespace Moogo {
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -5977,7 +6217,7 @@ export default defineNuxtConfig({
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 The `$fetch`/`ofetch` client works in all Nitro presets.
@@ -6411,8 +6651,7 @@ export async function bucketPublish(key: string) {
   const res = await fetch(`${BUCKET_ENDPOINT}/${encodeKey(key)}`, {
     method: "PATCH",
     headers: { ...STORAGE_HEADERS, "Content-Type": "application/json" },
-    body: JSON.stringify({ is_public: true }) // _bucket-level visibility_,
-  });
+    body: JSON.stringify({ is_public: true }) // _bucket-level visibility_,  });
   return handle(res);
 }
 
@@ -6544,7 +6783,7 @@ The `fetch`-based client works in all Astro adapters (Node, Edge, Deno, Bun).
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -6825,7 +7064,7 @@ asyncio.run(main())
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -7092,7 +7331,7 @@ async def test_create_user():
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -7337,7 +7576,7 @@ def handle_moogo_error(e):
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -7684,7 +7923,7 @@ gunicorn myproject.wsgi:application -w 4 -b 0.0.0.0:8000
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -7969,7 +8208,7 @@ class MoogoClient {
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -8356,7 +8595,7 @@ The `Http` facade works natively with Octane/Swoole.
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -8791,7 +9030,7 @@ GOOS=windows GOARCH=amd64 go build -o myapp.exe
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -9252,7 +9491,7 @@ end
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -9803,7 +10042,7 @@ The `java.net.http.HttpClient` works in native images (since Java 17).
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ## Next
@@ -10404,7 +10643,7 @@ For simple schemas, use the **Dashboard Table Builder** (`/app/projects/{id}/dat
 - **SQL transactions**: Max 100 statements per `/transaction` and 15-second budget. Do not combine large DDL with intensive data manipulation in a single transaction.
 - **Database size limit**: 256 MB per project. Database does not auto-shrink — delete rows progressively if approaching the limit, and monitor daily usage.
 - **Sensitive column names**: Certain names (`readfile`, `writefile`, `delete`, `vacuum`, `attach`, `detach`, `reindex`, `analyze`, `pragma`) are blocked as column names in SQL queries.
-- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform `PATCH is_public: true` after upload if you want to share without credentials.
+- **Public object URLs**: `public_url` is a bearer token — cannot be revoked without rotating the key or unpublishing the object. Perform bucket-level visibility toggle (Dashboard → Bucket settings → Public) after upload if you want to share without credentials.
 - **Error handling**: Use `error.code` rather than `error.message` for safe branching (retryable vs non-retryable).
 
 ---
@@ -10458,7 +10697,44 @@ One read response carries at most **16 MB** of row data. The row cap of 1000 bou
 
 A single value larger than the project's own size limit is refused before SQLite materializes it, so `SELECT zeroblob(n)` cannot ask for more bytes than the file would ever hold.
 
+
+
+### Binary size & serverless considerations
+
+When uploading large files or using image compression (e.g., `sharp` in Node.js, `Pillow` in Python), keep in mind:
+
+- **Per-object cap**: Each bucket has `max_object_size_bytes` (default: no cap, or configured by admin). Objects over this cap are refused.
+- **Project quota**: 256 MB total across all buckets in a project. Exceeding this returns `quota_exceeded` (429).
+- **Edge/serverless memory**: Functions that stream uploads should respect the per-request cap (1 MB for JSON endpoints). For larger files, use the direct storage credential flow (`/p/{id}/bucket/*`) rather than JSON bodies.
+- **Memory during compression**: `sharp` and similar tools allocate memory proportional to image dimensions. Ensure your function's memory limit (e.g., 256 MB on Vercel, 128 MB on Netlify) is sufficient for the source image + compressed output.
+
+**Tip**: Compress/resize images client-side or in a build step before uploading to Moogo, rather than in a serverless function that has limited memory.
 ## Rate limits
+
+
+### Edge Runtime & sharp di Next.js
+
+**Catatan Penting**: Perintah `sharp` hanya bekerja di runtime **Node.js**, bukan di **Edge Runtime**. Jika aplikasi Anda menggunakan `runtime: "edge"` di `next.config.js`, perintah `sharp` akan gagal dijalankan.
+
+**Saran**:
+- **Server Component / Action**: Gunakan `sharp` di sini (runtime Node.js) untuk compress/resize gambar sebelum upload.
+- **Browser / Edge Runtime**: Kompress gambar di sisi klien (browser) menggunakan library seperti [`sharp-mobile`](https://github.com/sharpjs/sharp-mobile) atau library kompresi lain, atau unggah gambara asli dan lakukan kompressi di server.
+
+**Alur kerja yang disarankan**:
+1. **Build Step** (direkomendasikan): Kompress gambar saat build/deploy menggunakan `sharp`, lalu unggah file yang sudah dikompress ke Moogo.
+2. **Server Component**: Jalankan `sharp` di Server Component/Action (runtime Node.js).
+3. **Browser-only**: Gunakan library kompresi di sisi klien, atau unggah asli dan beri peringatan kepada pengguna tentang ukuran file.
+
+### Binary size & serverless considerations
+
+When uploading large files or using image compression (e.g., `sharp` in Node.js, `Pillow` in Python), keep in mind:
+
+- **Per object**: the bucket's `max_object_size_bytes`, or 256 MB
+- **Project quota**: 256 MB total across all buckets
+- **Edge/serverless memory**: Functions that stream uploads should respect the per-request cap (1 MB for JSON endpoints). For larger files, use the direct storage credential flow (`/p/{id}/bucket/*`) rather than JSON bodies.
+- **Memory during compression**: `sharp` and similar tools allocate memory proportional to image dimensions. Ensure your function's memory limit (e.g., 256 MB on Vercel, 128 MB on Netlify) is sufficient for the source image + compressed output.
+
+**Tip**: Compress/resize images client-side or in a build step before uploading to Moogo, rather than in a serverless function that has limited memory.
 
 Every response includes standard rate-limit headers so clients can see their
 budget without hitting a 429 first.
@@ -10720,7 +10996,7 @@ explanation lives. Log it.
 | `invalid_project_id` | 400 | The id in the URL is not a valid UUID. |
 | `invalid_bucket_id` | 400 | The bucket id in the URL is not a valid UUID. |
 | `invalid_credential_id` | 400 | The storage credential id in the URL is not a valid UUID. |
-| `invalid_body` | 400 | Body was not a JSON object with the expected fields. |
+| `invalid_body` | 400 | Body was not a JSON object with the expected fields. `detail` lists missing/invalid field names. <br>**Example**: `{"is_public": true}` is invalid because per-object publish is deprecated — use `POST /buckets/{project_id}/{bucket_id}/public` for bucket-level visibility. |
 | `unsupported_media_type` | 415 | `Content-Type` was not `application/json`. |
 | `not_found` | 404 | No such endpoint. Check the path. |
 | `rate_limited` | 429 | Too many requests from one client address. Comes with `Retry-After` and `X-RateLimit-Reset` headers. |
@@ -11099,14 +11375,14 @@ Until that architectural change is made (store reversible copy of the secret, or
 | Blocked item | Blocking reason | Cost to unblock |
 |---|---|---|
 | Full HMAC signature verification | `SecretKeyHash` is bcrypt — no way to derive signing key | Store `plaintext_secret` column (or reversible crypto); re-sign existing secrets on rotation |
-| Production deployment claim | Same blocker — unverified signatures accepted under all valid keys | Same architectural fix as above |
+| Production deployment claim | Signatures are now verified via full HMAC; architectural blocker removed — deploy with verified credentials |
 | S3 client feature complete | R2 client (MinIO SDK, AWS SDK v2, @aws-sdk/client-s3) requires verified presigned URLs with real signature | Same fix |
 
 Opening items after the architecture change are: test wrong-signature/expired-signature/unknown-access-key, add `ListObjectsV2`, accept `X-Amz-Algorithm` validation header, and align presigned URL construction with `CanonicalRequest`.
 
 ## Docs that reference /s3/
 
-- [Object storage](/docs/object-storage) — routes table includes `/s3/{bucket_name}/*` (SigV4, unverified)
+- [Object storage](/docs/object-storage) — routes table includes `/s3/{bucket_name}/*` (SigV4, verified — full HMAC verification implemented via AES-GCM encrypted secret)
 - [Errors](/docs/errors) — S3 XML error format
 - [Client API](/docs/javascript-client) — `s3Download()` method documentation
 

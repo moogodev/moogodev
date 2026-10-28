@@ -15,8 +15,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
-
 	"github.com/moogodev/moogodev/pkg/logger"
 )
 
@@ -141,8 +141,19 @@ func (sender *Sender) SendManualBackupCreated(
 		backupTime.Format(time.RFC3339))
 }
 
-// send is the single Resend request path.
+// SendNewUserRegistered notifies the admin that a new account was created.
 //
+// Best-effort: a failure is logged but does not affect registration. The
+// recipient is fixed (moogo.dev@gmail.com) so the call site only supplies the
+// new user's details.
+func (sender *Sender) SendNewUserRegistered(ctx context.Context, userName, userEmail string, registeredAt time.Time) error {
+	logoURL := sender.publicURL + "/static/img/logo-light.png"
+	subject := "New User Has Been Registered!"
+	return sender.send(ctx, "moogo.dev@gmail.com", subject,
+		newUserRegisteredHTML(userName, userEmail, registeredAt, logoURL), "")
+}
+
+// send is the single Resend request path.//
 // Both message kinds go through it so the headers, the error mapping, and the
 // log shape cannot differ between them. subject and kind are kept as separate
 // fields purely so the log line says which message it was: the subject is the
@@ -515,9 +526,64 @@ func manualBackupHTML(projectName string, backupSizeBytes int64, backupTime time
 </html>`
 }
 
+// newUserRegisteredHTML renders the admin notification for a new registration.
+func newUserRegisteredHTML(userName, userEmail string, registeredAt time.Time, logoURL string) string {
+	timeStr := registeredAt.UTC().Format("2006-01-02 15:04:05 UTC")
+	if strings.TrimSpace(userName) == "" {
+		userName = "(no name provided)"
+	}
+	return `<!doctype html>
+<html>
+  <body style="margin:0;background:#f5f7fa;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                 style="max-width:520px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:40px 32px;">
+            <tr>
+              <td align="center" style="padding-bottom:24px;border-bottom:1px solid #e5e7eb;">
+                <img src="`+logoURL+`"
+                     alt="Moogo"
+                     width="120"
+                     style="display:block;border:0;outline:none;text-decoration:none;">
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-top:24px;">
+                <p style="margin:0 0 16px;font-size:22px;font-weight:600;color:#111827;">New User Has Been Registered!</p>
+                <p style="margin:0 0 24px;color:#6b7280;line-height:1.6;">
+                  A new account was just created on Moogo. Details below for follow-up.
+                </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#374151;">
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;width:30%;">Name</td>
+                    <td style="padding:8px 0;">`+userName+`</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">Email</td>
+                    <td style="padding:8px 0;">`+userEmail+`</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-weight:600;color:#111827;">Registered At</td>
+                    <td style="padding:8px 0;">`+timeStr+`</td>
+                  </tr>
+                </table>
+                <hr style="margin:32px 0 16px;border:none;border-top:1px solid #e5e7eb;" />
+                <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.5;">
+                  &copy; Moogo &mdash; SQLite over HTTP for serverless apps.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`
+}
+
 // formatBytes formats bytes as a human-readable string.
-func formatBytes(bytes int64) string {
-	const unit = 1024
+func formatBytes(bytes int64) string {	const unit = 1024
 	if bytes < unit {
 		return fmt.Sprintf("%d B", bytes)
 	}

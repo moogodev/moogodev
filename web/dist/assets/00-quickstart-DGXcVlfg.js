@@ -39,6 +39,32 @@ Full detail: [Create your first project](/docs/create-project).
 
 ## 3. Create a table
 
+
+## 4. (Optional) Use the JavaScript/TypeScript SDK
+
+The official \`@moogodev/client\` package provides a type-safe, zero-dependency client for Moogo's object storage and SQL API. Instead of manually constructing headers and URLs, you can use:
+
+\`\`\`bash
+npm install @moogodev/client
+
+# In your Node.js app:
+import { createClient } from '@moogodev/client'
+
+const client = createClient({
+  baseUrl: 'https://api.moogo.dev',
+  storageKey: 'your-storage-key',
+  sqlKey: 'your-sql-key'
+})
+
+// Upload an object
+await client.s3Upload({ bucket: 'default', key: 'avatars/kit.png', file: buffer })
+
+# Run a SQL query
+const result = await client.sql\`SELECT * FROM users WHERE id = '123'\`
+\`\`\`
+
+**Detail**: [javascript-client.md](/docs/javascript-client.md)
+
 Creating a table is a **write**, so it goes to \`/exec\`:
 
 \`\`\`bash
@@ -62,6 +88,80 @@ Response:
 \`\`\`
 
 ## 4. Insert data
+
+
+### FormData vs File blob per framework
+
+Penggunaan \`FormData\` dan \`Blob\` sedikit berbeda tergantung framework yang digunakan. Berikut perbandingannya:
+
+**React (useRef + onChange)**
+\`\`\`jsx
+<InputType
+  ref={fileRef}
+  onChange={e => {
+    const file = e.target.files[0]
+    // Untuk FormData: langsung kirim files[0]
+    // Untuk Blob: wrapper ke Blob terlebih dahulu
+    setSelectedFile(fileRef.current.files[0])
+  }}
+\`\`\`
+
+**Next.js Server Actions**
+\`\`\`ts
+// action.ts
+'use server'
+import { prisma } from '@/prisma'
+
+export async function uploadFile(prevState: any, formData: FormData) {
+  const file = formData.get('file') // ambil file dari FormData
+  // Kirim ke Moogo API
+  const res = await fetch('$ENDPOINT/avatars/kit.png?bucket=avatars', {
+    method: 'POST',
+    headers: {
+      'X-Moogo-Access-Key-Id': $MOOGO_STORAGE_ACCESS_KEY_ID,
+      Authorization: \`Bearer $MOOGO_STORAGE_SECRET_KEY\`,
+    },
+    body: formData, // langsung kirim FormData
+  })
+  // ...
+}
+\`\`\`
+
+**Next.js App Router (action route handler)**
+\`\`\`ts
+// app/upload/route.ts
+import { NextResponse } from 'next/server'
+
+export async function POST(request: Request) {
+  const formData = await request.formData()
+  const file = formData.get('file')
+  // ... proses ke Moogo API
+  return NextResponse.json({ success: true })
+}
+\`\`\`
+
+**Vue 3 (Composition API)**
+\`\`\`vue
+<template>
+  <input type="file" @change="onFileChange" ref="fileRef" />
+</template>
+<script setup>
+import { ref } from 'vue'
+
+const fileRef = ref<HTMLInputElement>()
+
+const onFileChange = (e) => {
+  const file = e.target.files[0]
+  // Kirim ke API dengan FormData atau Blob
+}
+<\/script>
+\`\`\`
+
+**Catatan Penting**: 
+- \`FormData.get('file')\` mengembalikan \`File\` object langsung dari input element
+- \`Blob\` digunakan ketika ingin membuat gambar baru dari data yang ada
+- Semua framework ultimately mengirim \`File\` atau \`Blob\` melalui \`FormData\` ke API Moogo
+
 
 Note the \`args\` array — values are bound parameters, never interpolated into the
 SQL text.
@@ -105,6 +205,71 @@ curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/query \\
 That is a working database.
 
 ## Several writes at once
+
+
+## Receipt & Transaction Example
+
+After uploading a file, you may want to attach the public URL (receipt) to a database transaction.
+
+### Step 1: Upload an object
+
+\`\`\`bash
+# Upload with FormData (see JavaScript example in object-storage.md)
+const formData = new FormData()
+formData.append('file', file)
+
+fetch('$ENDPOINT/avatars/kit.png?bucket=avatars', {
+  method: 'POST',
+  headers: {
+    'X-Moogo-Access-Key-Id': $MOOGO_STORAGE_ACCESS_KEY_ID,
+    Authorization: \`Bearer $MOOGO_STORAGE_SECRET_KEY\`,
+  },
+  body: formData,
+})
+\`\`\`
+
+### Step 2: Get the public URL (receipt)
+
+\`\`\`js
+// After upload, the object's public_url will be populated
+const receiptUrl = object.public_url // e.g., https://cdn.moogo.dev/p/abc/kit.png
+\`\`\`
+
+### Step 3: Save receipt URL to transaction
+
+\`\`\`bash
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/transaction   -H "Authorization: Bearer $MOOGO_SQL_KEY"   -H "Content-Type: application/json"   -d '{
+    "query": "INSERT INTO incomes (description, receipt_url, amount) VALUES (??, ?, ?)",
+    "args": ["Avatar upload", "$receiptUrl", 1000]
+  }'
+\`\`\`
+
+**Catatan**: \`public_url\` hanya akan terisi setelah object dipublish (lihat \`POST /buckets/{id}/public\`). Jika object masih private, \`public_url\` akan kosong.
+
+### Several writes at once
+
+When one change is several statements, send them as one batch:
+
+\`\`\`bash
+curl $MOOGO_BASE_URL/p/$MOOGO_PROJECT_ID/transaction   -H "Authorization: Bearer $MOOGO_SQL_KEY"   -H "Content-Type: application/json"   -d '{
+    "statements": [
+      { "query": "INSERT INTO users (id, email) VALUES (?, ?)", "args": ["7c1f", "ketut@example.com"] },
+      { "query": "UPDATE counters SET signups = signups + 1 WHERE name = ?", "args": ["total"] }
+    ]
+  }'
+\`\`\`
+
+Either both statements commit or neither does, so a request that half-succeeds
+cannot leave your data in a state your code never intended. Full reference:
+[\`POST /transaction\`](/docs/sql-api#post-transaction-writes-as-one-unit).
+
+### The one rule to remember
+
+| Endpoint | Accepts | Rejects |
+|---|---|---|
+| \`/query\` | Read-only SQL statements | Write statements (\`INSERT\`, \`UPDATE\`, \`DELETE\`) |
+| \`/exec\` | Write statements (\`INSERT\`, \`UPDATE\`, \`DELETE\`) | Read-only statements |
+| \`/transaction\` | Multiple write statements in one batch | Empty batch, more than 100 statements |
 
 When one change is several statements, send them as one batch:
 

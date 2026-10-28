@@ -57,6 +57,7 @@ type mailSender interface {
 	SendEmailVerification(ctx context.Context, to, token string) error
 	SendProjectCreated(ctx context.Context, to, projectName, projectID, secretKey, apiURL string) error
 	SendManualBackupCreated(ctx context.Context, to, projectName string, backupSizeBytes int64, backupTime time.Time, downloadLink string) error
+	SendNewUserRegistered(ctx context.Context, userName, userEmail string, registeredAt time.Time) error
 	// Enabled reports whether a provider is configured at all. Without it the
 	// sender is not a slow or failing provider, it is one that cannot send, and
 	// registration has to be handled differently from a temporary outage.
@@ -207,6 +208,16 @@ func (handler *Credentials) Register(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal", "could not create the account")
 		return
 	}
+
+	// Best-effort admin notification: never blocks or fails registration.
+	go func() {
+		if err := handler.mailer.SendNewUserRegistered(context.Background(), user.Name, user.Email, time.Now()); err != nil {
+			handler.log.Warn("new user registration notification failed", logger.Fields{
+				"error":   err.Error(),
+				"user_id": user.ID.String(),
+			})
+		}
+	}()
 
 	handler.sendVerification(w, r, user)
 }
