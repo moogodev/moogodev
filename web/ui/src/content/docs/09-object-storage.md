@@ -113,7 +113,52 @@ fetch('$ENDPOINT/avatars/kit.png?bucket=avatars', {
   },
   body: formData, // or blob
 })
-```### The five URL fields
+```
+
+### Validasi Ukuran File di Klien
+
+Sebelum mengunggah file, validasi ukuran di sisi klien bisa mencegah error `object_too_large` dan `quota_exceeded`.
+
+**Validasi di Browser (JavaScript):**
+
+```js
+const maxObjectSize = 256 * 1024 * 1024 // 256 MB dalam bytes (batas project)
+const maxFileSize = 50 * 1024 * 1024 // 50 MB batasan personal
+
+const handleFileSelect = (event) => {
+  const file = event.target.files[0]
+  
+  // Validasi ukuran file
+  if (file.size > maxFileSize) {
+    console.error(`File terlalu besar: ${(file.size / 1024 / 1024).toFixed(2)}MB`)
+    console.log(`Batas project: ${maxObjectSize / 1024 / 1024}MB`)
+    event.target.value = '' // Reset input
+    return
+  }
+  
+  // Validasi tipe file
+  const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'video/mp4']
+  if (!allowedTypes.includes(file.type)) {
+    console.error('Tipe file tidak didukung')
+    event.target.value = ''
+    return
+  }
+  
+  // Lanjutkan upload
+  uploadFile(file)
+}
+```
+
+**Validasi di Server**
+
+Validasi di sisi klien hanya sebagai pencegat awal. Server tetap memvalidasi ukuran:
+
+- `object_too_large` — di atas batas `max_object_size_bytes` bucket (atau 256 MB)
+- `quota_exceeded` — proyek melebihi kuota 256 MB total
+
+**Tips**: Gunakan `FileReader` untuk memeriksa ukuran dan tipe file sebelum upload, sehingga pengguna diberitahu segera tanpa harus mengunggah file yang terlalu besar.
+
+### The five URL fields
 
 This trips people up, so it is worth being explicit.
 
