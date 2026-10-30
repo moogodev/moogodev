@@ -11311,6 +11311,246 @@ because someone could not tell which one they had hit.
 
 ---
 
+<!-- source: /docs/readme.md -->
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/2.png">
+    <img src="https://raw.githubusercontent.com/moogodev/moogo-img/refs/heads/main/1.png" alt="Moogo" height="72">
+  </picture>
+</p>
+
+# Moogo
+
+A lightweight database for serverless applications. Every project gets its own SQLite file and
+its own key, and you talk to it over HTTP — no connection string, no driver, no
+connection pool to manage. Object storage lives under the same project, behind
+its own credential.
+
+This repository is the whole service: a Go API, the React dashboard that it
+serves from the same origin, and the small news service behind the dashboard's
+update feed.
+
+## What you get
+
+- **SQL over HTTP** — `POST /query` for reads, `POST /exec` for writes, with
+  prepared statements only and a tokenizing sanitizer that runs before anything
+  touches the database.
+- **One database per project** — a real SQLite file you can back up, with its
+  own secret key and its own quota (256 MB per database, 15 seconds per
+  statement, 64 KB per statement text).
+- **Object storage** — buckets under the same project, with their own storage
+  credential: upload, preview, public/private objects.
+- **Cursor-based pagination** — stable `next_cursor` + `total` for object listings (no offset drift).
+- **Range requests** — `206 Partial Content`, `416 Range Not Satisfiable`, `If-Range` for resumable downloads.
+- **Custom Cache-Control** — send `Cache-Control` header on upload to override defaults (`public, max-age=31536000, immutable`, `no-store`, etc.).
+- **Maintenance/Vacuum** — `POST /maintenance` (`vacuum`) or `moogo db vacuum` (REINDEX → ANALYZE → VACUUM → WAL checkpoint).
+- **Rate-limit headers** — `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` on every response.
+- **Base URLs in responses** — `public_url_base` (CDN origin) + `url_base` (API origin) for client-side URL construction.
+- **Per-object publishing** — `PATCH /bucket/.../key` with `is_public: true`; bucket toggle sets default for new uploads.
+- **Dashboard QoL** — bulk select, copy authenticated/public URLs, bulk publish/make private, delete multiple.
+- **Official JS/TS client** — `npm i @moogodev/client` with full TypeScript types.
+- **OAuth rate limiting** — `/auth/google*` endpoints limited separately from email/password (30/min vs 10/min shared).
+- **Dashboard** — projects, a table browser with a visual table builder, a SQL
+  console that runs pasted multi-statement scripts in order (with an examples
+  shelf), a read-only schema visualizer with relationship edges, bucket
+  browsing, and backups.
+- **Accounts** — email + password with verification and reset flows, Google
+  OAuth, rate limits on every sensitive route, and API keys scoped per project.
+- **Docs built in** — the whole manual ships with the product at `/docs`, from
+  quickstart to error codes to an [AI adoption prompt](https://moogo.dev/docs/ai-adoption-prompt)
+  you can paste into any coding agent.
+
+## What Moogo is for
+
+Moogo is built for applications that want **simplicity, isolation, and speed** over raw scale.
+
+| Use case | Why Moogo fits |
+|---|---|
+| **Serverless functions / Edge workers** | No connection pool, no driver, no cold start. Just `POST /query` with a key. |
+| **Small SaaS / Multi-tenant apps** | One SQLite file per project = structural isolation. No RLS policies to get wrong. |
+| **AI agents / LLM tools** | Native MCP server (`cmd/mcp`) exposes SQL + object storage as tools. No HTTP client to write. |
+| **Internal tools / Admin panels** | Dashboard included — table browser, SQL console, schema visualizer, bucket browser. |
+| **Prototypes → Production** | Same API from day one. No migration to "real" database needed. |
+| **Apps ≤ 256 MB data / project** | Honest ceiling, reported in every response. |
+
+**The pattern:** a few tables, a handful of queries, a few MB of files, and you want zero operational overhead.
+
+## What Moogo is not for
+
+| You need | Use instead |
+|---|---|
+| `PostGIS` / spatial queries | PostGIS on Postgres |
+| Cross-region read replicas | Managed Postgres (Supabase, Neon, RDS) |
+| Concurrent analytical scans (OLAP) | ClickHouse, DuckDB, BigQuery |
+| Database > 256 MB per project | Postgres, MySQL, or a larger SQLite host |
+| Row-level security across tenants | You get file isolation — RLS not needed |
+| `GRANT`/`REVOKE`, multiple DB roles | Moogo has one key per project |
+| Triggers, `ATTACH`, `load_extension` | Not supported (security design) |
+| Self-hosting (this version) | Planned for future release |
+
+**The trade-off is intentional:** Moogo optimizes for the 80% of apps that don't need Postgres features, giving them structural isolation, zero-driver integration, and honest limits.
+
+## What is in here
+
+- **Control plane** — accounts, projects, quotas, credentials. Postgres, because
+  it is internal state and needs transactions.
+- **Data plane** — SQL and object storage for one project. SQLite, because that
+  is what the customer actually owns.
+- **Dashboard** — table browser, SQL console, schema visualizer and bucket
+  browser, served from the same origin as the API so there is no CORS and one
+  cookie jar.
+- **News service** — a second binary (`cmd/news`, frontend in `news/`) behind
+  the dashboard's announcement feed `GET /api/updates` and its own site.
+  Separate process, separate database.
+- **MCP server** — a separate binary (`cmd/mcp`) that exposes the SQL API as
+  Model Context Protocol tools over stdio, so a coding agent can call `query`,
+  `exec` and `transaction` without hand-writing an HTTP client. It talks only to
+  the data plane, never to the database directly.
+- **Command line client** — a separate binary (`cmd/moogo`) for applying a SQL
+  file, seeding once, resetting a database, compacting with `db vacuum`,
+  and listing or deleting objects. It is an HTTP client and nothing else:
+  same routes, same credentials, same rules as curl, and no configuration
+  that reaches past the API. Install via `curl -fsSL https://get.moogo.dev | sh`
+  (no Go required) or `go install github.com/moogodev/moogodev/cmd/moogo@latest`.
+- **Official JS/TS client** — `@moogodev/client` on npm with full TypeScript
+  types, cursor pagination, Range downloads, presigned URLs, signed uploads,
+  and credential management.
+
+The two planes share no tables. A client on the data plane never learns whether
+a project exists on the control plane; a signed-in user never holds a secret
+they did not ask for.
+
+## Build
+
+The binary embeds the built frontend, so the frontend has to exist first. In a
+fresh clone `web/dist` is committed, so this is only needed after changing
+`web/ui`:
+
+```bash
+cd web/ui && npm install && npm run build && cd ../..
+go build ./cmd/api
+go build ./cmd/mcp   # optional: the MCP server for coding agents
+go build ./cmd/moogo # optional: the command line client
+```
+
+### Install CLI (binary)
+
+The fastest way, no Go required:
+
+```bash
+curl -fsSL https://get.moogo.dev | sh
+```
+
+Or build from source (requires Go):
+Frontend scripts (in `web/ui`):
+
+| Script | What it does |
+|---|---|
+| `npm run dev` | Vite dev server — serves files and proxies `/auth` and `/api` to the Go API, which still runs separately |
+| `npm run build` | `tsc -b && vite build` → `web/dist`, embedded by `go build` |
+| `npm run lint` | oxlint |
+| `npm run verify:docs` | renders every docs page outside a browser and checks links |
+
+Run it against a Postgres instance and a data directory:
+
+```bash
+export MOOGO_DATABASE_URL='postgres://user:pass@localhost:5432/moogo?sslmode=disable'
+export MOOGO_SESSION_SECRET="$(openssl rand -base64 32)"
+export MOOGO_DATA_DIR=./data
+
+./api
+```
+
+`dev.sh` exports the local defaults and starts the API if you would rather not
+do it by hand, along with the Postgres it uses. It is development only — the
+session secret it defaults to is published in this repository, and production
+refuses to start with it.
+
+```bash
+./dev.sh              # the "dev" environment: localhost:8080
+./dev.sh staging      # a second one, running beside it
+```
+
+An environment is one self-contained set of state — its own Postgres cluster
+and database, its own directory of project files, its own ports — living under
+`~/.moogo-dev/` (`~/.moogo-dev/<name>/` for a named one). The first run creates
+it; later runs reuse it. That is what makes a scratch environment safe to
+create, reset or leave broken without touching the one you work in every day.
+Ports are derived from the name and printed at start, so the same environment
+lands on the same ports every time; `MOOGO_HTTP_PORT`, `MOOGO_PGPORT`,
+`MOOGO_DATA_DIR`, `MOOGO_DATABASE_URL` and the rest still override any of it.
+
+`MOOGO_ENV` accepts exactly `development`, `test` or `production`. It is the
+switch the production rules hang on, so a value the code does not branch on
+stops the server at startup instead of quietly running with the development
+ones.
+
+Every other setting has a default; `internal/config/config.go` is the list.
+
+## The one rule
+
+| Endpoint | Accepts | Rejects |
+|---|---|---|
+| `/query` | Reads — `SELECT`, `VALUES`, `PRAGMA`, `EXPLAIN`, `WITH` that selects | Writes, with `not_a_read` |
+| `/exec` | Writes — `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP` | Reads, with `not_a_write` |
+
+Sending the wrong kind of statement is rejected rather than quietly accepted, so
+you find out immediately instead of after it has written something.
+
+## Documentation
+
+- [Deployment guide](deploy-guide.md) — every step, every setting, every failure
+  mode, written for an agent operating the VPS
+- [Quickstart](https://moogo.dev/docs/quickstart) — an account to a working
+  query in two minutes (source: [`internal/docs/files/quickstart.md`](internal/docs/files/quickstart.md))
+- [S3 / R2 Wire-Compat](/docs/s3-wire-compat) — `/s3/` endpoint with SigV4 auth (GET/PUT/HEAD), bucket-level visibility, XML errors; HMAC verification fail-closed until architecture change
+- [Architecture decisions](DECISIONS.md) — what is locked in, and why
+- [`deploy/README.md`](deploy/README.md) — systemd unit, nginx site, backup and
+  healthcheck scripts
+- [Contributing](CONTRIBUTING.md) — what makes a good change, and the gates to run
+- [Security policy](SECURITY.md) — how to report a vulnerability
+
+## Tests
+
+```bash
+# Unit tests and race detector; database integration tests skip themselves.
+go test -race ./...
+
+# Full suite, integration included — needs a scratch Postgres.
+MOOGO_TEST_DATABASE_URL='postgres://user:pass@localhost:5432/moogo_test?sslmode=disable' \
+  go test -race ./...
+```
+
+## Support Moogo — help, sponsor, fund
+
+**Moogo is free, open source (MIT), and needs help to keep going.** If it is
+useful to you, here is how to give back — all of it matters:
+
+- **Use it & report issues** — a clear bug report with steps to reproduce is
+  funding-grade help. [Open an issue](https://github.com/moogodev/moogodev/issues/new/choose)
+  — the bug template asks for exactly what makes it actionable.
+- **Contribute** — docs, fixes, tests, guides for your favourite framework.
+  Small pull requests are welcome and reviewed — see
+  [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Report security problems privately** — never in a public issue. See
+  [SECURITY.md](SECURITY.md): email [moogo.dev@gmail.com](mailto:moogo.dev@gmail.com)
+  with `[SECURITY]` in the subject, or use a private GitHub security advisory.
+- **Sponsor / become a funder** — running the infrastructure, the VPS, domains,
+  and ongoing development are paid for out of pocket. If Moogo saves you time,
+  consider backing it: the **Sponsor** button on the repository leads to
+  [GitHub Sponsors](https://github.com/sponsors/moogodev). Recurring funding is
+  what makes this sustainable; one-time support counts too.
+
+Sponsors get listed in the repository (with permission) and early access to the
+roadmap discussions.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Use it, change it, sell it; keep the notice.
+
+---
+
 <!-- source: /docs/s3-wire-compat.md -->
 
 # R2 / S3 Wire-Compatibility
