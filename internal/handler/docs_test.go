@@ -76,7 +76,7 @@ func TestEscapeHTMLIsIdempotentSafe(t *testing.T) {
 func TestMarkdownToHTMLEscapesContent(t *testing.T) {
 	hostile := "# Heading\n\n<script>alert(1)</script>\n\n- <img src=x onerror=alert(1)>\n\n`code <b>`\n"
 
-	html := markdownToHTML(hostile)
+	html := MarkdownToHTML(hostile)
 	for _, char := range []string{"<script>", "<img "} {
 		if strings.Contains(html, char) {
 			t.Errorf("rendered page contains unescaped %q", char)
@@ -93,7 +93,7 @@ func TestMarkdownToHTMLTableStructure(t *testing.T) {
 		"| `/query` | Reads | Writes |\n" +
 		"| `/exec` | Writes | Reads |\n"
 
-	got := markdownToHTML(source)
+	got := MarkdownToHTML(source)
 
 	if idx := strings.Index(got, "<table>"); idx == -1 {
 		t.Fatal("no <table> in output")
@@ -123,7 +123,7 @@ func TestMarkdownToHTMLTableStructure(t *testing.T) {
 func TestMarkdownToHTMLTableEndsAtNonRow(t *testing.T) {
 	source := "| A | B |\n|---|---|\n| 1 | 2 |\n\n## After\n"
 
-	got := markdownToHTML(source)
+	got := MarkdownToHTML(source)
 
 	if strings.Index(got, "</table>") > strings.Index(got, "<h2>After</h2>") {
 		t.Error("the table was closed after the heading instead of before it")
@@ -137,7 +137,7 @@ func TestMarkdownToHTMLIgnoresNonTablePipes(t *testing.T) {
 		"Use a|b to join two fields.\n",
 		"| dangling pipe\n",
 	} {
-		if got := markdownToHTML(source); strings.Contains(got, "<table>") {
+		if got := MarkdownToHTML(source); strings.Contains(got, "<table>") {
 			t.Errorf("%q was rendered as a table: %s", source, got)
 		}
 	}
@@ -169,7 +169,7 @@ func TestIsTableSeparator(t *testing.T) {
 // A cell is written into the page, so it has to be escaped like any other
 // markdown content.
 func TestMarkdownToHTMLTableCellsAreEscaped(t *testing.T) {
-	got := markdownToHTML("| A | B |\n|---|---|\n| <script>alert(1)</script> | x |\n")
+	got := MarkdownToHTML("| A | B |\n|---|---|\n| <script>alert(1)</script> | x |\n")
 
 	if strings.Contains(got, "<script>") {
 		t.Errorf("table cell was not escaped: %s", got)
@@ -346,7 +346,7 @@ func TestMarkdownToHTMLInlineConstructs(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			got := markdownToHTML(testCase.source)
+			got := MarkdownToHTML(testCase.source)
 			if !strings.Contains(got, testCase.want) {
 				t.Errorf("expected %q in output:\n%s", testCase.want, got)
 			}
@@ -363,7 +363,7 @@ func TestMarkdownToHTMLInlineConstructs(t *testing.T) {
 func TestMarkdownToHTMLRejectsUnsafeHrefs(t *testing.T) {
 	source := "[click](javascript:alert(1)) and [ok](https://example.com/x)"
 
-	got := markdownToHTML(source)
+	got := MarkdownToHTML(source)
 
 	if strings.Contains(got, "javascript:") {
 		t.Errorf("a javascript: href was emitted:\n%s", got)
@@ -378,7 +378,7 @@ func TestMarkdownToHTMLRejectsUnsafeHrefs(t *testing.T) {
 func TestMarkdownToHTMLBlockquote(t *testing.T) {
 	source := "> **Tip:** one line\n> still the quote\n>\n> second paragraph\n\nAfter\n"
 
-	got := markdownToHTML(source)
+	got := MarkdownToHTML(source)
 
 	if !strings.Contains(got, "<blockquote>") {
 		t.Fatalf("no blockquote in output:\n%s", got)
@@ -404,7 +404,7 @@ func TestMarkdownToHTMLBlockquote(t *testing.T) {
 // marker at all, so the item fell through to the paragraph branch.
 func TestMarkdownToHTMLOrderedListStructure(t *testing.T) {
 	source := "1. first\n2. second\n\n## After\n"
-	got := markdownToHTML(source)
+	got := MarkdownToHTML(source)
 
 	if !strings.Contains(got, "<ol>") || !strings.Contains(got, "</ol>") {
 		t.Errorf("ordered list is not opened and closed as <ol>:\n%s", got)
@@ -416,7 +416,7 @@ func TestMarkdownToHTMLOrderedListStructure(t *testing.T) {
 		t.Errorf("the list was closed after the heading:\n%s", got)
 	}
 
-	multiDigit := markdownToHTML("12. twelfth\n")
+	multiDigit := MarkdownToHTML("12. twelfth\n")
 	if !strings.Contains(multiDigit, "<ol>") {
 		t.Errorf("a two-digit marker did not open an ordered list:\n%s", multiDigit)
 	}
@@ -427,7 +427,7 @@ func TestMarkdownToHTMLOrderedListStructure(t *testing.T) {
 func TestMarkdownToHTMLJoinsWrappedLines(t *testing.T) {
 	source := "first line of a paragraph\nsecond line of the same paragraph\n\nNext one.\n"
 
-	got := markdownToHTML(source)
+	got := MarkdownToHTML(source)
 
 	if strings.Contains(got, "<p>second line") {
 		t.Errorf("wrapped lines were not joined into one paragraph:\n%s", got)
@@ -445,7 +445,7 @@ func TestMarkdownToHTMLJoinsWrappedLines(t *testing.T) {
 func TestMarkdownToHTMLFencedCodeIsEscaped(t *testing.T) {
 	source := "```html\n<script>alert(1)</script>\n```\n"
 
-	got := markdownToHTML(source)
+	got := MarkdownToHTML(source)
 
 	if strings.Contains(got, "<script>") {
 		t.Errorf("fenced code block was not escaped:\n%s", got)
@@ -460,7 +460,7 @@ func TestMarkdownToHTMLFencedCodeIsEscaped(t *testing.T) {
 func TestMarkdownToHTMLListItemContinuation(t *testing.T) {
 	source := "- You want **SQL**, so you should be able to point the\n  official tooling at your data.\n- Second item.\n\nAfter.\n"
 
-	got := markdownToHTML(source)
+	got := MarkdownToHTML(source)
 
 	if !strings.Contains(got, "<li>You want <strong>SQL</strong>, so you should be able to point the official tooling at your data.</li>") {
 		t.Errorf("the indented continuation line did not stay in the item:\n%s", got)

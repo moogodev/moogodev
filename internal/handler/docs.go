@@ -92,7 +92,7 @@ func (handler *DocsHandler) Doc(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert markdown to HTML (simple conversion for now)
-	html := markdownToHTML(string(content))
+	html := MarkdownToHTML(string(content))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -165,7 +165,8 @@ func isNotFound(err error) bool {
 }
 
 // markdownToHTML converts markdown to HTML (basic implementation).
-func markdownToHTML(markdown string) string {
+func MarkdownToHTML(markdown string, allowRawHTML ...bool) string {
+	allowHTML := len(allowRawHTML) > 0 && allowRawHTML[0]
 	lines := strings.Split(markdown, "\n")
 	var html strings.Builder
 
@@ -275,6 +276,16 @@ func markdownToHTML(markdown string) string {
 			// block holding an <img> tag would otherwise be written into the
 			// page as live markup.
 			html.WriteString(escapeHTML(line) + "\n")
+			continue
+		}
+
+		// Raw HTML lines pass through unescaped when allowed (e.g. README.md
+		// which contains trusted HTML like <picture> and <img> tags).
+		if allowHTML && strings.HasPrefix(trimmed, "<") {
+			flushProse()
+			flushQuote()
+			closeList()
+			html.WriteString(line + "\n")
 			continue
 		}
 
