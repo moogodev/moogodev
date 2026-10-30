@@ -1329,9 +1329,12 @@ func registerPages(root chi.Router, deps Deps) {
 	// build (web/ui/scripts/build-llms.mjs). They sit at the site root because
 	// that is where an AI agent looks for llms.txt, and they are plain text so
 	// a client that does not run JavaScript can read the docs without the app.
-	// Redirect /readme to the docs page that shows README.md
+	// Serve README.md content at /readme directly (not redirect)
 	root.Get("/readme", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/docs/readme", http.StatusMovedPermanently)
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/docs/readme"
+		r2.URL.RawPath = "/docs/readme"
+		deps.Docs.Doc(w, r2)
 	})
 
 	root.Get("/llms.txt", deps.builtFile("llms.txt"))
