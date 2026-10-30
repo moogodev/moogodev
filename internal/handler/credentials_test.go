@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -148,6 +149,7 @@ func (store *credStore) EmailVerified(ctx context.Context, userID uuid.UUID) (bo
 
 // credMailer records which transactional mail went out and to whom.
 type credMailer struct {
+	sync.Mutex
 	sentTo  string
 	sentErr error
 
@@ -164,11 +166,15 @@ type credMailer struct {
 }
 
 // Enabled reports whether a provider is configured, matching mail.Sender.
-func (mailer *credMailer) Enabled() bool { return !mailer.disabled }
+func (mailer *credMailer) Enabled() bool {
+	mailer.Lock()
+	defer mailer.Unlock()
+	return !mailer.disabled
+}
 
 func (mailer *credMailer) SendPasswordReset(ctx context.Context, to, token string) error {
-	// Recorded before the failure so a test can tell "attempted and refused"
-	// from "never called".
+	mailer.Lock()
+	defer mailer.Unlock()
 	mailer.sentTo = to
 	if mailer.sentErr != nil {
 		return mailer.sentErr
@@ -177,6 +183,8 @@ func (mailer *credMailer) SendPasswordReset(ctx context.Context, to, token strin
 }
 
 func (mailer *credMailer) SendEmailVerification(ctx context.Context, to, token string) error {
+	mailer.Lock()
+	defer mailer.Unlock()
 	if mailer.sentErr != nil {
 		return mailer.sentErr
 	}
@@ -187,6 +195,8 @@ func (mailer *credMailer) SendEmailVerification(ctx context.Context, to, token s
 }
 
 func (mailer *credMailer) SendProjectCreated(ctx context.Context, to, projectName, projectID, secretKey, apiURL string) error {
+	mailer.Lock()
+	defer mailer.Unlock()
 	if mailer.sentErr != nil {
 		return mailer.sentErr
 	}
@@ -195,6 +205,8 @@ func (mailer *credMailer) SendProjectCreated(ctx context.Context, to, projectNam
 }
 
 func (mailer *credMailer) SendManualBackupCreated(ctx context.Context, to, projectName string, backupSizeBytes int64, backupTime time.Time, downloadLink string) error {
+	mailer.Lock()
+	defer mailer.Unlock()
 	if mailer.sentErr != nil {
 		return mailer.sentErr
 	}
@@ -203,6 +215,8 @@ func (mailer *credMailer) SendManualBackupCreated(ctx context.Context, to, proje
 }
 
 func (mailer *credMailer) SendNewUserRegistered(ctx context.Context, userName, userEmail string, registeredAt time.Time) error {
+	mailer.Lock()
+	defer mailer.Unlock()
 	if mailer.sentErr != nil {
 		return mailer.sentErr
 	}
