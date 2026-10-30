@@ -24,6 +24,7 @@ import (
 	"github.com/moogodev/moogodev/internal/auth"
 	"github.com/moogodev/moogodev/internal/auth/sigv4"
 	"github.com/moogodev/moogodev/internal/dbcontrol"
+	"github.com/moogodev/moogodev/internal/handler"
 	"github.com/moogodev/moogodev/internal/idempotency"
 	"github.com/moogodev/moogodev/internal/ratelimit"
 	"github.com/moogodev/moogodev/pkg/httpx"
@@ -1331,10 +1332,34 @@ func registerPages(root chi.Router, deps Deps) {
 	// a client that does not run JavaScript can read the docs without the app.
 	// Serve README.md content at /readme directly (not redirect)
 	root.Get("/readme", func(w http.ResponseWriter, r *http.Request) {
-		r2 := r.Clone(r.Context())
-		r2.URL.Path = "/docs/readme"
-		r2.URL.RawPath = "/docs/readme"
-		deps.Docs.Doc(w, r2)
+		// Serve raw README.md content as markdown text (not converted to HTML,
+		// because README.md contains raw HTML that would be escaped by the
+		// markdown converter).
+		if deps.Docs != nil {
+			docsFS := handler.GetDocsFS()
+			file, err := docsFS.Open("readme.md")
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			defer file.Close()
+			stat, err := file.Stat()
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			content := make([]byte, stat.Size())
+			_, err = file.Read(content)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(content)
+			return
+		}
+		http.NotFound(w, r)
 	})
 
 	root.Get("/llms.txt", deps.builtFile("llms.txt"))
